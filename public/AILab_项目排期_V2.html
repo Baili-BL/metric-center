@@ -1,0 +1,600 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>项目排期（V2）· AILab</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<style>
+:root{
+  --bg:#f8fafc; --card:#fff; --line:#e2e8f0; --line2:#f1f5f9;
+  --text:#0f172a; --sub:#475569; --muted:#94a3b8;
+  --blue:#2563eb; --blue-bg:rgba(37,99,235,.12);
+  --green:#16a34a; --amber:#d97706; --red:#dc2626; --purple:#9333ea; --cyan:#0891b2;
+  --nav:248px; --left:430px; --row:38px; --week:40px;
+  --font:"IBM Plex Sans","Noto Sans SC",system-ui,-apple-system,sans-serif;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--text);font-family:var(--font);font-size:13px}
+button,input,select{font-family:inherit}
+.app{display:flex;height:100%}
+.main{flex:1;min-width:0;display:flex;flex-direction:column;height:100%}
+.wrap{flex:1;min-height:0;display:flex;flex-direction:column}
+.head{padding:14px 24px 0;background:#fff;border-bottom:1px solid var(--line)}
+.h1{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.h1 h2{margin:0;font-size:18px;font-weight:600}
+.badge{font-size:11px;padding:2px 8px;border-radius:4px;background:#fff7ed;color:#c2410c;font-family:ui-monospace,Menlo,monospace;display:inline-flex;align-items:center;gap:4px}
+.range{color:var(--muted);font-size:12px}
+.scope{color:var(--sub);font-size:12px;margin:6px 0 10px;line-height:2}
+.scope-row{display:flex;align-items:baseline;gap:10px}
+.scope-row b{flex-shrink:0;width:34px;text-align:center;font-size:11px;font-weight:600;color:var(--muted);background:#f1f5f9;border-radius:4px;padding:1px 0}
+.scope-row i{font-style:normal;font-family:ui-monospace,Menlo,monospace;font-size:11px;color:var(--sub)}
+.kpis{display:flex;gap:6px;flex-wrap:wrap;align-items:center;padding-bottom:8px}
+.kpi{display:inline-flex;align-items:baseline;gap:5px;padding:4px 10px;border-radius:6px;background:#f8fafc;border:1px solid var(--line)}
+.kpi b{font-size:15px;font-family:ui-monospace,Menlo,monospace}
+.kpi span{font-size:11px;color:var(--muted)}
+.pill{font-size:11px;padding:1px 8px;border-radius:999px;font-family:ui-monospace,Menlo,monospace;font-weight:600}
+.tabs{display:flex;gap:4px;margin-top:6px}
+.tab{border:none;background:transparent;padding:8px 14px;cursor:pointer;color:var(--muted);border-bottom:2px solid transparent;font-size:13px}
+.tab.on{color:var(--blue);font-weight:600;border-bottom-color:var(--blue)}
+.filters{display:flex;align-items:center;gap:10px;padding:10px 24px;background:#fff;border-bottom:1px solid var(--line)}
+.filters select,.filters input{height:28px;border:1px solid var(--line);border-radius:6px;padding:0 8px;background:#fff;font-size:12px;color:var(--text)}
+.filters input{width:200px}
+.note{margin-left:auto;color:var(--muted);font-size:12px;font-family:ui-monospace,Menlo,monospace}
+.gantt{flex:1;overflow:auto;background:var(--bg)}
+.gantt-inner{display:inline-block;min-width:100%}
+.g-head,.g-row{display:flex}
+.g-head{position:sticky;top:0;z-index:10;background:#fff;border-bottom:1px solid var(--line)}
+.sticky-l{position:sticky;left:0;z-index:5;background:#fff;width:var(--left);min-width:var(--left);border-right:1px solid var(--line)}
+.g-head .sticky-l{z-index:11;padding:8px 12px}
+.months,.weeks{display:flex}
+.months{height:24px;border-bottom:1px solid var(--line)}
+.month{padding:4px 8px;font-size:12px;font-weight:600;color:var(--sub);font-family:ui-monospace,Menlo,monospace;border-right:1px solid var(--line);box-sizing:border-box;background:#f8fafc}
+.month:nth-child(even){background:#eef2f7}
+.week{width:var(--week);min-width:var(--week);height:24px;border-right:1px solid transparent;text-align:center;font-size:9px;color:var(--muted);font-family:ui-monospace,Menlo,monospace;line-height:24px;box-sizing:border-box;position:relative}
+.week.mb{border-right-color:var(--line)}
+.week.today::after{content:"";position:absolute;left:50%;top:0;bottom:0;width:2px;background:var(--red);transform:translateX(-50%)}
+.phase-row{background:var(--pbg);border-top:1px solid var(--line);border-bottom:1px solid var(--line);height:var(--row)}
+.phase-row .sticky-l{background:var(--pbg);display:flex;align-items:center;gap:8px;padding:0 12px}
+.pkey{font-size:11px;font-family:ui-monospace,Menlo,monospace;padding:2px 6px;border-radius:4px;background:var(--pcolor);color:#fff;font-weight:600}
+.pname{font-weight:600;font-size:13px}
+.pmeta{margin-left:auto;font-size:11px;color:var(--muted);font-family:ui-monospace,Menlo,monospace}
+.pg{flex-shrink:0;width:18px;height:18px;border-radius:4px;display:inline-flex;align-items:center;justify-content:center;color:var(--muted);font-size:9px;transition:transform .15s;cursor:pointer;user-select:none}
+.pg:hover{background:rgba(15,23,42,.08);color:var(--text)}
+.pg.fold{transform:rotate(-90deg)}
+.phase-row .sticky-l,.phase-hd{cursor:pointer}
+.phase-bar{position:absolute;top:8px;height:16px;border-radius:4px;pointer-events:none;white-space:nowrap;overflow:hidden;font-size:10px;font-family:ui-monospace,Menlo,monospace;display:flex;align-items:center;background:var(--pcolor);color:#fff;font-weight:600;padding:0 5px}
+.task-row{height:var(--row);border-bottom:1px solid var(--line2)}
+.task-row .sticky-l{display:flex;align-items:center;gap:6px;padding:0 12px 0 28px;background:#fff}
+.mod{color:var(--muted);white-space:nowrap;font-size:11px}
+.tn{color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.roles{display:flex;gap:2px;margin-left:auto;flex-shrink:0}
+.role{font-size:9px;font-family:ui-monospace,Menlo,monospace;font-weight:700;padding:1px 4px;border-radius:3px}
+.bars{position:relative;height:var(--row)}
+.grid{position:absolute;inset:0;display:flex;pointer-events:none}
+.grid i{width:var(--week);min-width:var(--week);border-right:1px solid transparent;box-sizing:border-box}
+.grid i.band{background:rgba(100,116,139,.05)}
+.grid i.mb{border-right-color:var(--line)}
+.bar{position:absolute;top:8px;bottom:8px;border-radius:5px;color:#fff;font-size:11px;font-weight:600;display:flex;align-items:center;gap:4px;padding:0 7px;overflow:hidden;white-space:nowrap;cursor:pointer;box-shadow:0 1px 2px rgba(15,23,42,.15)}
+.phase-bar{position:absolute;top:9px;height:18px;border-radius:5px;pointer-events:none;white-space:nowrap;overflow:hidden;font-size:11px;font-family:ui-monospace,Menlo,monospace;display:flex;align-items:center;background:var(--pcolor);color:#fff;font-weight:600;padding:0 6px;box-shadow:0 1px 2px rgba(15,23,42,.18)}
+.bar.solid{background:linear-gradient(to right,var(--pcolor),color-mix(in srgb,var(--pcolor) 80%,#fff))}
+.bar.ghost{border:1px dashed var(--pcolor);color:var(--pcolor);background:color-mix(in srgb,var(--pcolor) 8%,transparent);font-weight:500}
+.bar.doing{box-shadow:0 0 0 1.5px #16a34a}
+.bar.warn{box-shadow:0 0 0 1.5px var(--amber)}
+.bar.doing.warn{box-shadow:0 0 0 1.5px var(--amber)}
+.ms{position:absolute;top:6px;width:13px;height:13px;transform:rotate(45deg);background:#f59e0b;border:2px solid #fff;border-radius:3px;z-index:2;box-shadow:0 1px 3px rgba(15,23,42,.3)}
+.flag{position:absolute;top:-3px;font-size:24px;line-height:1;color:#dc2626;z-index:2;text-shadow:0 1px 2px rgba(255,255,255,.9),0 0 3px rgba(255,255,255,.9);cursor:default}
+.holiday{position:absolute;top:0;bottom:0;z-index:2;pointer-events:none}
+.holiday span{position:absolute;top:2px;left:50%;transform:translateX(-50%);font-size:9px;color:#475569;white-space:nowrap}
+.legend{padding:12px 24px;border-top:1px solid var(--line);background:#fff;display:flex;gap:20px;flex-wrap:wrap;align-items:center;font-size:12px;color:var(--muted)}
+.sw{width:16px;height:10px;border-radius:3px;display:inline-block;margin-right:6px;vertical-align:middle}
+.sw.dash{border:1px dashed #64748b;background:transparent;height:8px}
+.foot-note{padding:0 24px 14px;background:#fff;font-size:11px;color:var(--muted);line-height:1.7;border-top:1px dashed var(--line)}
+.list{flex:1;overflow:auto;padding:16px 24px 32px}
+.phase-card{margin-bottom:24px;overflow-x:auto}
+.phase-hd{display:flex;align-items:center;gap:10px;margin-bottom:10px;padding:8px 12px;border-radius:6px;background:var(--pbg);border-left:3px solid var(--pcolor)}
+table{width:100%;border-collapse:collapse;background:#fff;border-radius:8px;overflow:hidden;border:1px solid var(--line)}
+th{text-align:left;padding:8px 12px;font-size:12px;font-weight:500;color:var(--muted);background:#f8fafc;border-bottom:1px solid var(--line);white-space:nowrap}
+td{padding:8px 12px;border-bottom:1px solid var(--line2);vertical-align:top}
+tr:hover td{background:#f8fafc}
+.desc{font-size:11px;color:var(--muted);margin-top:2px}
+.st{font-size:11px;padding:1px 8px;border-radius:999px}
+.st.done{background:#dcfce7;color:#166534}
+.st.doing{background:#dbeafe;color:#1d4ed8}
+.st.planned{background:#f1f5f9;color:#64748b}
+.risk{font-size:11px;padding:1px 8px;border-radius:999px}
+.risk.none{background:#dcfce7;color:#166534}
+.risk.warn{background:#fef3c7;color:#92400e}
+.risk.high{background:#fee2e2;color:#991b1b}
+.mono{font-family:ui-monospace,Menlo,monospace;font-size:12px;color:var(--muted);white-space:nowrap}
+.proj{font-size:10px;padding:1px 6px;border-radius:4px;font-family:ui-monospace,Menlo,monospace;font-weight:600;white-space:nowrap}
+.roadmap{padding:4px 0 12px;background:#fff}
+.sec{display:flex;align-items:center;gap:8px;padding:9px 0 7px;margin-top:4px;user-select:text}
+.sec-n{width:18px;height:18px;border-radius:5px;background:var(--blue);color:#fff;font-size:11px;font-weight:600;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0}
+.sec b{font-size:13px}
+.roadmap{padding:12px 16px 10px;margin:2px 0 10px;background:#f6f9fc;border:1px solid #e2e8f0;border-radius:10px}
+.rm-phases{display:flex;gap:2px;height:36px;position:relative}
+.rm-ph{display:flex;flex-direction:column;justify-content:center;padding:0 10px;color:#fff;min-width:0;border-radius:5px}
+.rm-hol{position:absolute;top:-3px;bottom:-3px;z-index:1;pointer-events:none;display:flex;align-items:center;justify-content:center;overflow:hidden}
+.rm-hol span{font-size:9px;color:#fff;background:rgba(71,85,105,.75);border-radius:3px;padding:0 2px;white-space:nowrap}
+.rm-ph b{font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rm-ph i{font-style:normal;font-size:10px;opacity:.85;font-family:ui-monospace,Menlo,monospace;white-space:nowrap}
+.rm-track{position:relative;height:196px;margin-top:6px}
+.rm-line{position:absolute;left:0;right:0;top:50%;height:2px;background:var(--line)}
+.rm-ms{position:absolute;top:50%;width:12px;height:12px;transform:translate(-50%,-50%) rotate(45deg);border:2px solid #fff;border-radius:3px;box-shadow:0 1px 3px rgba(15,23,42,.3);z-index:2}
+.rm-lead{position:absolute;width:1.5px;z-index:1;transform:translateX(-50%)}
+.rm-tick{position:absolute;width:9px;height:1.5px;z-index:1;transform:translateX(-50%)}
+.rm-flag{position:absolute;top:calc(50% - 28px);transform:translateX(-38%);font-size:22px;line-height:1;color:#e11d48;z-index:3;text-shadow:0 1px 2px rgba(255,255,255,.9),0 0 1px #fff}
+.rm-lb{position:absolute;text-align:center;white-space:nowrap;line-height:1.3;z-index:1;background:#fff;border:1.2px solid var(--line);border-radius:7px;padding:3px 7px;box-shadow:0 1px 3px rgba(15,23,42,.07)}
+.rm-lb b{display:block;font-size:11px;font-weight:600}
+.rm-lb span{color:var(--muted);font-family:ui-monospace,Menlo,monospace;font-size:10px}
+.rm-lb i{display:block;font-style:normal;font-size:10px;color:var(--muted)}
+.tip{position:fixed;z-index:50;background:#0f172a;color:#e2e8f0;padding:10px 12px;border-radius:8px;font-size:12px;line-height:1.5;pointer-events:none;max-width:300px;box-shadow:0 8px 24px rgba(15,23,42,.25);display:none}
+.tip b{color:#fff}
+</style>
+</head>
+<body>
+<div class="app">
+  <section class="main">
+    <div class="wrap">
+      <div class="head">
+        <div class="h1">
+          <h2>项目排期</h2>
+          <span class="badge">✦ 智能投研平台 · 指标中心</span>
+        </div>
+        <div class="sec" id="sec2" style="cursor:default;user-select:text"><span class="sec-n">1</span><b>项目里程碑</b><span style="font-size:11px;color:var(--muted);font-family:ui-monospace,Menlo,monospace">2026-06-01 → 2026-12-27 · 8 个里程碑</span></div>
+        <div class="roadmap" id="roadmap"></div>
+        <div class="sec" id="sec3" style="cursor:default;user-select:text"><span class="sec-n">2</span><b>项目排期</b></div>
+        <div class="tabs" id="tabsBar">
+          <button class="tab on" data-tab="gantt">项目排期（甘特图）</button>
+          <button class="tab" data-tab="simple">简要甘特图（功能模块）</button>
+          <button class="tab" data-tab="list">任务清单</button>
+        </div>
+      </div>
+      <div class="filters" id="filterBar">
+        <span style="color:var(--muted);font-size:12px">阶段</span>
+        <select id="phaseSel"><option value="all">全部</option></select>
+        <span style="color:var(--muted);font-size:12px">项目</span>
+        <select id="projSel"><option value="all">全部</option></select>
+        <span style="color:var(--muted);font-size:12px">角色</span>
+        <select id="roleSel"><option value="all">全部</option></select>
+        <input id="q" placeholder="搜索任务 / 模块…" />
+        <span class="note" id="count"></span>
+      </div>
+      <div class="gantt" id="ganttView"></div>
+      <div class="gantt" id="simpleView" style="display:none"></div>
+      <div class="list" id="listView" style="display:none"></div>
+    </div>
+  </section>
+</div>
+<div class="tip" id="tip"></div>
+<script>
+const START = new Date(2026, 5, 1);            // V1 计划起点 06-01
+const TOTAL = 30;                               // 30 周 → 12-27，不排进 1 月
+const TODAY = new Date(2026, 8, 21);            // 数据截至 09-21
+const ROLES = {
+  PM: {label:"产品", color:"#a855f7", bg:"rgba(168,85,247,.15)"},
+  FE: {label:"前端", color:"#3b82f6", bg:"rgba(59,130,246,.15)"},
+  BE: {label:"后端", color:"#22c55e", bg:"rgba(34,197,94,.15)"},
+  BD: {label:"大数据", color:"#f59e0b", bg:"rgba(245,158,11,.15)"},
+  DM: {label:"数据挖掘", color:"#06b6d4", bg:"rgba(6,182,212,.15)"},
+};
+const PROJ = {
+  V1: {name:"V1 计划", color:"#64748b", bg:"rgba(100,116,139,.12)"},
+  L: {name:"数据源链路", color:"#2563eb", bg:"rgba(37,99,235,.12)"},
+  D: {name:"计算指标", color:"#db2777", bg:"rgba(219,39,119,.12)"},
+  E: {name:"图库", color:"#ea580c", bg:"rgba(234,88,12,.12)"},
+  F: {name:"指标治理", color:"#4f46e5", bg:"rgba(79,70,229,.12)"},
+};
+const PHASES = [
+  {key:"M0", name:"启动期", goal:"MVP 范围定义、技术方案、UI 规范、研发环境就绪", startWeek:0, endWeek:1, color:"#94a3b8", bg:"rgba(148,163,184,.16)"},
+  {key:"M1", name:"基础框架 & 数据源", goal:"骨架、登录权限、数据源接入链路（接入后端 / 数据管理Web / 正式接入）", startWeek:2, endWeek:13, color:"#3b82f6", bg:"rgba(59,130,246,.16)"},
+  {key:"M2", name:"指标库 / 图库 / 表格（核心）", goal:"计算指标、图库组件、指标治理、基础表格、阶段验收", startWeek:11, endWeek:21, color:"#22c55e", bg:"rgba(34,197,94,.16)"},
+  {key:"M3", name:"基础展示层", goal:"BI 看板与报表、研报浏览、智能 PPT、AI 图库指令、Skill 能力、阶段验收", startWeek:22, endWeek:27, color:"#f59e0b", bg:"rgba(245,158,11,.16)"},
+  {key:"M4", name:"集成测试 & 上线", goal:"集中回归、培训、灰度上线", startWeek:28, endWeek:29, color:"#ef4444", bg:"rgba(239,68,68,.16)"},
+];
+const ST = {done:"已完成", doing:"进行中", planned:"待启动"};
+const RISK = {none:"低", low:"低", medium:"中", high:"高", warn:"提示"};
+
+function D(s){ const [y,m,d]=s.split("-").map(Number); return new Date(y,m-1,d); }
+function dToW(s){ return (D(s)-START)/604800000; }          // 日期 → 浮点周
+function addDays(d,n){ const x=new Date(d); x.setDate(x.getDate()+n); return x; }
+function fmt(d){ return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0"); }
+function weekDate(w){ return addDays(START, Math.round(w*7)); }
+function fmtS(s){ return s.slice(5).replace("-","/"); }
+function currentWeek(){ return Math.max(0, Math.min(TOTAL-1, Math.floor((TODAY-START)/604800000))); }
+
+// ---------- 任务数据 ----------
+// 归集规则：按 V1 的阶段（M0–M4）与模块分类；07-21 之后已执行内容按角色（PM/BE/FE）合并为整段条；
+// 07-21 之前的 V1 计划原样保留；09-21 之后延续 V1 计划。虚线仅表示"待启动"。
+const TASKS = [
+  // ===== M0 启动期（V1，原样保留）=====
+  {id:"m-m0-1", plan:true, phase:"M0", project:"V1", module:"项目启动", task:"PRD 与 MVP 范围定义", startWeek:0, durationWeeks:2, owners:["PM"], effort:9, risk:"low", desc:"锁定 MVP 范围与不做项"},
+  {id:"m-m0-2", plan:true, phase:"M0", project:"V1", module:"项目启动", task:"技术方案与架构设计", startWeek:0, durationWeeks:2, owners:["FE","BE","BD"], effort:12, risk:"medium"},
+  {id:"m-m0-3", plan:true, phase:"M0", project:"V1", module:"项目启动", task:"UI 视觉与组件规范", startWeek:0, durationWeeks:2, owners:["PM","FE"], effort:7, risk:"low"},
+  {id:"m-m0-4", plan:true, phase:"M0", project:"V1", module:"项目启动", task:"研发环境 & CI/CD", startWeek:0, durationWeeks:2, owners:["FE","BE"], effort:7, risk:"low", milestone:"M0 完成 · 启动评审"},
+  // ===== M1 基础框架（V1，07-21 前，原样保留）=====
+  {id:"m-m1-fe", plan:true, phase:"M1", project:"V1", module:"通用框架", task:"前端骨架（菜单/路由/主题）", startWeek:2, durationWeeks:3, owners:["FE"], effort:13, risk:"low"},
+  {id:"m-m1-be", plan:true, phase:"M1", project:"V1", module:"通用框架", task:"后端骨架（鉴权/网关）", startWeek:2, durationWeeks:3, owners:["BE"], effort:13, risk:"medium"},
+  {id:"m-m1-ds-base", plan:true, phase:"M1", project:"V1", module:"数据源", task:"统一接入网关 & 调度", startWeek:3, durationWeeks:3, owners:["BE","BD"], effort:16, risk:"high"},
+  {id:"m-m1-settings", plan:true, phase:"M1", project:"V1", module:"系统设置", task:"用户/权限/外观（基础）", startWeek:5, durationWeeks:2, owners:["FE","BE"], effort:7, risk:"low"},
+  // ===== M1 数据源链路（已执行 · 按角色归并）=====
+  // ===== M1：数据源链路（接入后端 + 数据管理Web + 正式接入，按功能归并）=====
+  {id:"L1", phase:"M1", project:"L", module:"数据源", task:"数据源链路需求分析与产品设计", desc:"覆盖数据源接入（5.2 人日）/ 数据管理Web（3.5 人日）/ 正式接入（8.4 人日）三工作流：ETA 调研、采集方案复现、三数据源 PRD、交互原型、监控看板与 Webhook 告警设计、MCP 需求定义等（原 15 项合并）", start:"2026-07-21", end:"2026-09-04", effort:17.1, owners:["PM"], risk:"none"},
+  {id:"L2", phase:"M1", project:"L", module:"数据源", task:"数据源采集与后端服务开发", desc:"同花顺 API 入库 / 钢联与 SMM RPA 采集 / 任务调度 / ETA 同步脚本 / 多账户 RPA 改造与测试优化 / RPA 正式环境部署（原 10 项合并，10.5 + 5.0 + 7.5 人日）", start:"2026-07-31", end:"2026-09-04", effort:23.0, owners:["BE"], risk:"none"},
+  {id:"L3", phase:"M1", project:"L", module:"数据源", task:"指标中心 Web 端开发与联调", desc:"指标中心 Web 端开发 / 联调自测与问题修复（原 2 项合并）", start:"2026-08-19", end:"2026-08-25", effort:4.0, owners:["FE"], risk:"none"},
+  {id:"L4", phase:"M1", project:"L", module:"上线验证", task:"数据源链路测试与验收上线", desc:"数据源接入验收上线（08-18）→ 数据管理 Web 上线（08-28）→ 正式接入上线（09-07），三段节点流转合并", start:"2026-08-13", end:"2026-09-07", effort:null, owners:["PM"], risk:"warn", riskNote:"各次验收测试工时登记为 0，测试节点无独立子任务", milestone:"三数据源正式接入上线"},
+  // ===== M2 指标库 / 图库 / 指标治理（已执行 · 按角色归并）=====
+  {id:"h1", phase:"M2", project:"D", module:"计算指标", task:"计算指标调研与产品设计", desc:"ETA 计算指标调研 / 原型设计 / 产品文档与评审（合并 3 项）", start:"2026-08-03", end:"2026-08-25", effort:5.4, owners:["PM"], risk:"none"},
+  {id:"h2", phase:"M2", project:"D", module:"计算指标", task:"计算指标后端开发", desc:"Go 工程研究 / 指标回写 / 功能开发测试 / 接口对接与前端支撑（合并 5 项）", start:"2026-08-12", end:"2026-09-18", effort:7.2, owners:["BE"], risk:"warn", riskNote:"节点未流转；估分 10 人日 vs 实际登记 7.2 人日"},
+  {id:"h3", phase:"M2", project:"D", module:"计算指标", task:"计算指标前端开发", desc:"指标中心 Web 端 / 数据监控 / 质量监控页面 / 测试修复 / 质量日报对接（合并 5 项）", start:"2026-08-31", end:"2026-09-16", effort:6.5, owners:["FE"]},
+  {id:"h4", phase:"M2", project:"D", module:"计算指标", task:"计算指标数据测试", status:"doing", start:"2026-09-16", end:"2026-09-22", effort:0, owners:[], risk:"none"},
+  {id:"h5", phase:"M2", project:"E", module:"图库", task:"图库组件调研与交互设计", desc:"G2 / Highchart 调研与 AI 适配 / 交互设计 / 扩展设计（合并 3 项）", start:"2026-08-14", end:"2026-09-11", effort:0, owners:["PM"], status:"doing", risk:"warn", riskNote:"需求分析节点逾期 10 天；工时全部未录入"},
+  {id:"h6", phase:"M2", project:"E", module:"图库", task:"图库后端开发与测试联调", desc:"图库后端功能开发（已完成）/ 功能测试联调（09-21 到期未通过）", start:"2026-09-17", end:"2026-09-21", effort:1.0, owners:["BE"], status:"doing", risk:"warn", riskNote:"节点未开始但子任务已部分完成；联调子任务未通过"},
+  {id:"h7", phase:"M2", project:"F", module:"指标治理", task:"SMM 指标整理与治理需求分析", desc:"SMM 指标整理 / 沪铜与碳酸锂梳理确认 / 指标剔除与数据排查 / 元数据日报 / RPA 调度排查 / MCP 需求定义（合并 6 项）", start:"2026-09-07", end:"2026-09-17", effort:3.1, owners:["PM"], status:"doing", risk:"warn", riskNote:"需求分析节点逾期；3 个子任务未通过"},
+  {id:"h8", phase:"M2", project:"F", module:"指标治理", task:"煤炭网爬虫 / Webhook / 质量监控日报开发", desc:"煤炭网爬虫与数据过滤 / 双焦要素 Webhook 与 MCP / 质量监控日报（合并 3 项）", start:"2026-09-09", end:"2026-09-16", effort:3.1, owners:["BE"], risk:"warn", riskNote:"节点未开始但子任务已完成，流转滞后"},
+  {id:"h9", phase:"M2", project:"F", module:"指标治理", task:"ETA 数据对比与用户行为报告开发", status:"planned", start:"2026-09-23", end:"2026-09-25", effort:0, owners:["BE"], risk:"warn", riskNote:"计划晚于预期上线日 09-24"},
+  {id:"h10", phase:"M2", project:"F", module:"指标治理", task:"煤炭网数据爬虫 MCP 测试", status:"done", start:"2026-09-10", end:"2026-09-10", effort:0, owners:[], risk:"none", desc:"已完成（09-21 确认）；测试节点流转滞后，覆盖度以实际执行为准"},
+  // ===== M2 表格 / 验收（V1 计划，延续）=====
+  {id:"m-m2-sheet", plan:true, phase:"M2", project:"V1", module:"表格", task:"基础表格（共享 + 时间序列）", startWeek:17, durationWeeks:4, owners:["FE","BE"], effort:16, risk:"medium"},
+  {id:"m-m2-test", plan:true, phase:"M2", project:"V1", module:"阶段验收", task:"M2 阶段测试与验收", startWeek:21, durationWeeks:1, owners:["PM","FE","BE","BD"], effort:13, risk:"medium", milestone:"M2 完成 · 核心层可用"},
+  // ===== M3 / M4：V1 计划（延续）=====
+  {id:"m-m3-pm", plan:true, phase:"M3", project:"V1", module:"产品贯穿", task:"M3 产品迭代与需求细化", startWeek:22, durationWeeks:6, owners:["PM"], effort:10, risk:"low", continuous:true},
+  {id:"m-m3-dash", plan:true, phase:"M3", project:"V1", module:"BI 看板", task:"只读基础看板（不含 AI / 编辑）", startWeek:22, durationWeeks:3, owners:["FE","BE"], effort:13, risk:"medium"},
+  {id:"m-m3-report", plan:true, phase:"M3", project:"V1", module:"研报管理", task:"基础研报浏览（不含富文本编辑）", startWeek:23, durationWeeks:3, owners:["FE","BE"], effort:12, risk:"low"},
+  {id:"m-m3-ppt", plan:true, phase:"M3", project:"V1", module:"智能 PPT", task:"智能 PPT（研报 / 数据一键成稿）", desc:"模板 + 大纲生成 + 图表嵌入 + 导出，因国庆假期顺延至 10/12 启动，依赖图库与数据能力", startWeek:19, durationWeeks:3, owners:["PM","FE","BE"], effort:18, risk:"high"},
+  {id:"m-m3-bireport", plan:true, phase:"M3", project:"V1", module:"BI 报表", task:"BI 报表功能（报表设计 / 导出 / 订阅）", desc:"与 BI 看板同链路，复用图表与指标中心能力", startWeek:22, durationWeeks:3, owners:["FE","BE"], effort:14, risk:"medium"},
+  {id:"m-m3-aichart", plan:true, phase:"M3", project:"V1", module:"图库 AI", task:"AI 图库指令（自然语言生图 / 调参）", desc:"依赖 M2 图库组件，指令解析 → 组件选型 → 参数填充", startWeek:23, durationWeeks:3, owners:["PM","FE","BE"], effort:16, risk:"medium"},
+  {id:"m-m3-skill", plan:true, phase:"M3", project:"V1", module:"Skill", task:"Skill 功能（指标分析 / 图表 Skill 注册与调用）", desc:"基于数据源 MCP 服务扩展 Skill 注册与调用协议", startWeek:25, durationWeeks:2, owners:["PM","BE"], effort:10, risk:"medium", milestone:"M3 功能全量就绪"},
+  {id:"m-m3-replace", plan:true, phase:"M3", project:"V1", module:"ETA 替换", task:"ETA 旧系统切换替换（指标中心全面承接）", desc:"图库 / 数据能力就绪后启动（与智能 PPT 收尾并行）：存量指标与报表迁移、双跑校验、旧系统转只读并下线", startWeek:21, durationWeeks:2, owners:["PM","BE"], effort:8, risk:"high", flag:true, milestone:"指标中心全面替换 ETA"},
+  {id:"m-m3-test", plan:true, phase:"M3", project:"V1", module:"阶段验收", task:"M3 阶段测试与验收", startWeek:27, durationWeeks:1, owners:["PM","FE","BE"], effort:10, risk:"medium", milestone:"M3 完成 · 展示就绪"},
+  {id:"m-m4-pm", plan:true, phase:"M4", project:"V1", module:"产品贯穿", task:"产品验收与发布准备", startWeek:28, durationWeeks:2, owners:["PM"], effort:10, risk:"low", continuous:true},
+  {id:"m-m4-regression", plan:true, phase:"M4", project:"V1", module:"集成测试", task:"集中回归测试 + 缺陷修复", startWeek:28, durationWeeks:1, owners:["PM","FE","BE","BD"], effort:26, risk:"high"},
+  {id:"m-m4-doc", plan:true, phase:"M4", project:"V1", module:"培训文档", task:"用户培训 + 文档", startWeek:29, durationWeeks:1, owners:["PM","FE"], effort:5, risk:"low"},
+  {id:"m-m4-deploy", plan:true, phase:"M4", project:"V1", module:"上线", task:"灰度发布 → 正式发布", startWeek:29, durationWeeks:1, owners:["PM","FE","BE","BD"], effort:14, risk:"high", milestone:"MVP v0.1 正式上线（12-27）"},
+];
+
+// 行起止（ISO）：实际行用真实日期，计划行由周换算
+function rowStart(t){ return t.plan ? fmt(weekDate(t.startWeek)) : t.start; }
+function rowEnd(t){ return t.plan ? fmt(addDays(weekDate(t.startWeek+t.durationWeeks), -1)) : t.end; }
+// 国庆假期 10/01-10/08：跨假期的条形在此断开（前段 + 后段），假期不排任务
+const HOL_A="2026-10-01", HOL_B="2026-10-09";
+function barSegs(sw,ww){
+  const a=dToW(HOL_A), b=dToW(HOL_B);
+  if(ww<=0 || sw+ww<=a || sw>=b) return [[sw,ww]];
+  const out=[];
+  if(sw<a) out.push([sw,a-sw]);
+  if(sw+ww>b) out.push([b,sw+ww-b]);
+  return out;
+}
+function statusOf(t){
+  if (t.status) return t.status;
+  const end = rowEnd(t), start = rowStart(t), today = fmt(TODAY);
+  if (end < today) return "done";
+  if (start <= today) return "doing";
+  return "planned";
+}
+function months(){
+  const map=[];
+  for(let w=0;w<TOTAL;w++){
+    const d=weekDate(w);
+    const key=d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0");
+    const last=map[map.length-1];
+    if(!last || last.key!==key) map.push({key, label:Number(key.slice(5))+"月", startWeek:w, endWeek:w});
+    else last.endWeek=w;
+  }
+  return map;
+}
+
+const phaseSel=document.getElementById("phaseSel");
+const projSel=document.getElementById("projSel");
+const roleSel=document.getElementById("roleSel");
+const qInput=document.getElementById("q");
+const ganttView=document.getElementById("ganttView");
+const simpleView=document.getElementById("simpleView");
+const roadmap=document.getElementById("roadmap");
+const listView=document.getElementById("listView");
+const count=document.getElementById("count");
+const tip=document.getElementById("tip");
+const filterBar=document.getElementById("filterBar");
+
+PHASES.forEach(p=>{
+  const o=document.createElement("option");
+  o.value=p.key; o.textContent=p.key+" · "+p.name;
+  phaseSel.appendChild(o);
+});
+Object.keys(PROJ).forEach(k=>{
+  const o=document.createElement("option");
+  o.value=k; o.textContent=PROJ[k].name;
+  projSel.appendChild(o);
+});
+Object.keys(ROLES).forEach(k=>{
+  const o=document.createElement("option");
+  o.value=k; o.textContent=k+" · "+ROLES[k].label;
+  roleSel.appendChild(o);
+});
+
+function filtered(){
+  const ph=phaseSel.value, pj=projSel.value, role=roleSel.value, q=qInput.value.trim().toLowerCase();
+  return TASKS.filter(t =>
+    (ph==="all"||t.phase===ph) &&
+    (pj==="all"||t.project===pj) &&
+    (role==="all"||t.owners.includes(role)) &&
+    (!q || (PROJ[t.project].name+" "+t.module+" "+t.task+(t.desc||"")).toLowerCase().includes(q))
+  );
+}
+
+// ---------- 阶段里程碑总览 ----------
+const RM_PHASES=[
+  {key:"M0", name:"启动期", w0:0,  w1:2,  color:"#94a3b8"},
+  {key:"M1", name:"核心层（RPA数据采集/入库/监控/web页面管理）", w0:2, w1:14, color:"#3b82f6"},
+  {key:"M2", name:"展示层（指标库 / 图库 / 表格/PPT）", w0:14, w1:22, color:"#22c55e"},
+  {key:"M3", name:"应用层（ BI / AI指令图表 / Skill）", w0:22, w1:28, color:"#f59e0b"},
+  {key:"M4", name:"集成测试 & 上线", w0:28, w1:30, color:"#ef4444"},
+];
+const MILESTONES=[
+  {label:"M0 完成 · 启动评审", date:"2026-06-14", color:"#94a3b8"},
+  {label:"API、RPA 任务开发部署完成", note:"上海钢联 / SMM / 同花顺", date:"2026-08-10", color:"#2563eb"},
+  {label:"三数据源正式接入上线", date:"2026-09-07", color:"#3b82f6"},
+  {label:"MCP 服务可用", note:"指标中心 · 指标库上线", date:"2026-09-23", color:"#0ea5e9"},
+  {label:"数据治理一期上线", date:"2026-09-25", color:"#4f46e5", dx:20,
+   tip:"<b>数据治理一期 · 核心治理内容</b><br>① 指标口径统一：统一指标定义 / 命名<br>② 计算口径：统一指标计算逻辑与公式，消除同一指标多口径<br>③ 数据质量监控：入库完整性、准确性、及时性校验与异常告警<br>④ 元数据与血缘：指标 → 模型 → 源表血缘链路，支持变更影响分析<br>⑤ 交付物：ETA 数据对比报告、用户行为报告"},
+  {label:"全面替换 ETA", note:"图库 / 图表 / 智能 PPT 应用上线 · 关键里程碑", date:"2026-11-08", color:"#ef4444", flag:true, dx:50},
+  {label:"数据治理二期启动", date:"2026-10-08", color:"#8b5cf6", dx:28,
+   tip:"<b>数据治理二期 · 主要目的</b><br>① 上游数据源更新记录：对上游平台的数据源变更（新增 / 修改 / 下线）做登记与跟踪<br>② 监听上游数据质量：通过监控上游平台的数据质量，掌握我们数据更新的及时性"},
+  {label:"指标中心正式上线", note:"上线后业务可用", date:"2026-12-27", color:"#ef4444", side:"dn"},
+];
+function renderRoadmap(){
+  const end=D("2026-12-27");
+  const pct=s=>((D(s)-START)/(end-START))*100;
+  const phs=RM_PHASES.map(p=>`<div class="rm-ph" style="flex:0 0 ${(p.w1-p.w0)/TOTAL*100}%;background:${p.color}"><b>${p.key} · ${p.name}</b><i>${fmtS(fmt(weekDate(p.w0)))} → ${fmtS(fmt(addDays(weekDate(p.w1),-1)))}</i></div>`).join("");
+  const ms=MILESTONES.map((m,i)=>{
+    const p=pct(m.date);
+    const up=m.side?m.side==="up":(i%2===0);   // 奇偶交替，可被 m.side 覆盖
+    const sh=m.dx||0;
+    const tf=p>92?"translateX(-100%)":(p<8?`translateX(${sh}px)`:`translateX(calc(-50% + ${sh}px))`);
+    const lbPos=up?`bottom:calc(50% + 44px)`:`top:calc(50% + 44px)`;
+    const lead=up?`top:calc(50% - 40px);height:26px;bottom:auto`:`top:calc(50% + 14px);height:26px`;
+    const tick=up?`top:calc(50% - 40px)`:`top:calc(50% + 39px)`;
+    return `${m.flag?`<div class="rm-flag" style="left:${p}%">⚑</div>`:""}<div class="rm-ms" style="left:${p}%"></div>
+      <div class="rm-lead" style="left:${p}%;${lead};background:${m.color}"></div>
+      <div class="rm-tick" style="left:${p}%;${tick};background:${m.color}"></div>
+      <div class="rm-lb" style="${m.tip?"cursor:help;":""}left:${p}%;${lbPos};transform:${tf};border-color:${m.color}"${m.tip?` data-tip="${m.tip}"`:""}><b style="color:${m.color}">${m.label}</b><span>${fmtS(m.date)}</span>${m.note?`<i>${m.note}</i>`:""}</div>`;
+  }).join("");
+  roadmap.innerHTML=`<div class="rm-phases">${phs}<div class="rm-hol" style="left:${pct("2026-10-01")}%;width:${pct("2026-10-09")-pct("2026-10-01")}%"></div></div>
+    <div class="rm-track"><div class="rm-line"></div><div class="rm-hol" style="left:${pct("2026-10-01")}%;width:${pct("2026-10-09")-pct("2026-10-01")}%;top:0;bottom:0"></div>${ms}</div>`;
+}
+
+function renderGantt(tasks){
+  const W = getComputedStyle(document.documentElement).getPropertyValue("--week") || "36px";
+  const weekPx = parseFloat(W) || 36;
+  const width = TOTAL * weekPx;
+  const cw = currentWeek();
+  const ms = months();
+  const todayLine = "";
+  const holL=dToW("2026-10-01")*weekPx, holW=(dToW("2026-10-09")-dToW("2026-10-01"))*weekPx;
+  const holiday = `<div class="holiday" style="left:${holL}px;width:${holW}px"></div>`;
+  const holidayHead = holiday;
+  let html = `<div class="gantt-inner">
+    <div class="g-head">
+      <div class="sticky-l"><div style="font-weight:600;font-size:12px">阶段 / 任务</div><div style="font-size:11px;color:var(--muted);margin-top:2px">共 ${tasks.length} 项</div></div>
+      <div style="position:relative;width:${width}px;height:24px">
+        <div class="months">${holidayHead}${ms.map(m=>`<div class="month" style="width:${(m.endWeek-m.startWeek+1)*weekPx}px">${m.label} <span style="font-weight:400;color:var(--muted)">${m.key.slice(0,4)}</span></div>`).join("")}</div>
+      </div>
+    </div>`;
+
+  PHASES.forEach(p=>{
+    const items=tasks.filter(t=>t.phase===p.key);
+    if(!items.length) return;
+    const effSum=items.reduce((s,t)=>s+(t.effort||0),0);
+    // 阶段条：单条，覆盖该阶段全部条目的起止范围
+    const minS=items.reduce((m,t)=>rowStart(t)<m?rowStart(t):m,rowStart(items[0]));
+    const maxE=items.reduce((m,t)=>rowEnd(t)>m?rowEnd(t):m,rowEnd(items[0]));
+    const bs=Math.min(...items.map(t=>dToW(rowStart(t))));
+    const be=Math.max(...items.map(t=>dToW(rowEnd(t))))+1;
+    const phaseBar = `<div class="phase-bar" style="left:${bs*weekPx+1}px;width:${(be-bs)*weekPx-2}px">${fmtS(minS)} → ${fmtS(maxE)}</div>`;
+    html += `<div class="g-row phase-row" style="--pbg:${p.bg};--pcolor:${p.color}">
+      <div class="sticky-l"><span class="pg ${folded.has(p.key)?"fold":""}" data-pg="${p.key}">▼</span><span class="pkey">${p.key}</span><span class="pname">${p.name}</span><span class="pmeta">${items.length} 项 · ${Math.round(effSum*10)/10} 人日</span></div>
+      <div class="bars" style="width:${width}px">${phaseBar}${holiday}${todayLine}</div>
+    </div>`;
+    items.forEach(t=>{
+      const st=statusOf(t);
+      const sw0=t.plan?t.startWeek:dToW(t.start);
+      const ww0=t.plan?t.durationWeeks:(dToW(t.end)-dToW(t.start)+1/7);
+      const segs=barSegs(sw0,ww0).map(([a,b])=>[a*weekPx+2,b*weekPx-4]);
+      const mainSeg=segs.reduce((m,x)=>x[1]-x[0]>m[1]-m[0]?x:m,segs[0]);
+      const cls = st==="planned" ? "ghost" : "solid";
+      const eff = t.effort==null ? "—" : t.effort+" 人日";
+      html += `<div class="g-row task-row" data-phase="${p.key}"${folded.has(p.key)?' style="display:none"':""}>
+        <div class="sticky-l" title="${t.project} · ${t.module} · ${t.task}">
+          <span class="proj" style="background:${PROJ[t.project].bg};color:${PROJ[t.project].color}">${PROJ[t.project].name}</span>
+          <span class="tn">${t.task}</span>
+          <div class="roles">${t.owners.map(r=>`<span class="role" style="background:${ROLES[r].bg};color:${ROLES[r].color}">${r}</span>`).join("")}</div>
+        </div>
+        <div class="bars" style="width:${width}px;--pcolor:${p.color}">
+          <div class="grid">${Array.from({length:TOTAL},(_,i)=>{const mth=weekDate(i).getMonth();const isMb=i>0&&mth!==weekDate(i-1).getMonth();return `<i class="${mth%2?"band":""} ${isMb?"mb":""}"></i>`}).join("")}</div>
+          ${holiday}
+        ${todayLine}
+          ${segs.map(([s,w],si)=>`<div class="bar ${cls} ${st==="doing"?"doing":""} ${t.risk==="warn"||t.risk==="high"?"warn":""}"
+               data-tip="<b>${esc(t.task)}</b>（${esc(PROJ[t.project].name)} · ${esc(t.module)}）<br>${rowStart(t)} → ${rowEnd(t)} · ${eff} · ${ST[st]}<br>负责人：${t.owners.length?t.owners.map(r=>esc(ROLES[r].label)).join(" / "):"—"}${segs.length>1?"<br>⏸ 10/01-10/08 国庆停工，前后分段推进":""}${t.risk==="warn"?"<br>⚠ "+esc(t.riskNote):""}${t.risk&&t.risk!=="warn"&&t.risk!=="none"&&t.risk!=="low"?"<br>风险："+RISK[t.risk]:""}${t.desc?"<br>"+esc(t.desc):""}"
+               style="left:${s}px;width:${w}px">${(segs[si]===mainSeg&&w>=76)?esc(t.task):""}</div>`).join("")}
+          ${t.milestone?(t.flag?`<div class="flag" title="${esc(t.milestone)}" style="left:${((t.plan?t.startWeek+t.durationWeeks:dToW(t.end)+1))*weekPx-8}px">⚑</div>`:`<div class="ms" title="${esc(t.milestone)}" style="left:${((t.plan?t.startWeek+t.durationWeeks:dToW(t.end)+1))*weekPx-7}px"></div>`):""}
+        </div>
+      </div>`;
+    });
+  });
+
+  html += `<div class="legend">
+    <span>图例：</span>
+    ${PHASES.map(p=>`<span><i class="sw" style="background:${p.color}"></i>${p.key} · ${p.name}</span>`).join("")}
+    <span><i class="sw dash"></i>待启动（未开始）</span>
+    <span>绿框 = 进行中</span>
+    <span>黄框 = ⚠ 风险提示</span>
+    <span><i class="sw" style="width:10px;height:10px;transform:rotate(45deg);background:#f59e0b"></i>里程碑</span>
+    <span style="color:#dc2626">⚑ = ETA 替换节点</span>
+    <span><i class="sw" style="background:#fff;border-left:2px dashed #94a3b8;border-right:2px dashed #94a3b8"></i>国庆假期 10/01-10/08（虚线间）</span>
+    <span style="margin-left:auto">数据截至 2026-09-21</span>
+  </div>
+  <div class="foot-note">
+    说明：07-21 前沿用 V1 计划；07-21 → 09-21 已执行内容按阶段与模块归集展示；09-21 后为 V1 计划。工期按自然日计算；10/01-10/08 国庆假期不排任务，跨假期任务条在假期处断开、前后分段推进；智能 PPT 因假期顺延至 10/12 启动（上线 11/01）。
+  </div></div>`;
+  ganttView.innerHTML = html;
+  attachFoldHandlers(ganttView);
+}
+
+const PROJ_ORDER=["L","D","E","F"];
+
+// ---------- 阶段折叠 ----------
+const folded=new Set();
+function attachFoldHandlers(root){
+  root.querySelectorAll(".pg").forEach(el=>el.onclick=e=>{
+    e.stopPropagation();
+    const k=el.dataset.pg;
+    const fold=!el.classList.contains("fold");
+    el.classList.toggle("fold",fold);
+    if(fold) folded.add(k); else folded.delete(k);
+    root.querySelectorAll(`.task-row[data-phase="${k}"], .phase-card[data-phase="${k}"] table`).forEach(r=>r.style.display=fold?"none":"");
+  });
+  root.querySelectorAll(".phase-row .sticky-l, .phase-hd").forEach(hd=>hd.onclick=()=>hd.querySelector(".pg")?.click());
+}
+
+// ---------- 简要甘特图：按功能模块上线视角，不分角色 ----------
+const SIMPLE = [
+  {name:"数据源链路（接入 / 数据管理Web / 正式接入）", start:"2026-07-21", end:"2026-09-07", color:"#2563eb", ms:"三数据源正式接入上线"},
+  {name:"计算指标", start:"2026-08-03", end:"2026-09-22", color:"#db2777", ms:"计算指标上线"},
+  {name:"图库（组件库）", start:"2026-08-14", end:"2026-09-21", color:"#ea580c", ms:"图库上线"},
+  {name:"指标治理 1 期", start:"2026-09-07", end:"2026-09-25", color:"#4f46e5", ms:"治理 1 期上线"},
+  {name:"基础表格", start:"2026-09-21", end:"2026-10-18", color:"#16a34a", ms:"基础表格上线"},
+  {name:"M2 阶段验收", start:"2026-10-19", end:"2026-10-25", color:"#94a3b8", ms:"M2 完成 · 核心层可用"},
+  {name:"智能 PPT", start:"2026-10-12", end:"2026-11-01", color:"#f59e0b", ms:"智能 PPT 上线"},
+  {name:"ETA 旧系统替换", start:"2026-10-26", end:"2026-11-08", color:"#0ea5e9", flag:true, ms:"指标中心全面替换 ETA"},
+  {name:"BI 看板", start:"2026-11-02", end:"2026-11-22", color:"#f59e0b", ms:"BI 看板上线"},
+  {name:"BI 报表", start:"2026-11-02", end:"2026-11-22", color:"#f59e0b", ms:"BI 报表上线"},
+  {name:"基础研报浏览", start:"2026-11-09", end:"2026-11-29", color:"#f59e0b", ms:"研报模块上线"},
+  {name:"AI 图库指令", start:"2026-11-09", end:"2026-11-29", color:"#f59e0b", ms:"AI 图库指令上线"},
+  {name:"Skill 功能", start:"2026-11-23", end:"2026-12-06", color:"#f59e0b", ms:"Skill 上线 · M3 功能全量就绪"},
+  {name:"M3 阶段验收", start:"2026-11-30", end:"2026-12-06", color:"#94a3b8", ms:"M3 完成 · 展示就绪"},
+  {name:"集成回归测试", start:"2026-12-07", end:"2026-12-20", color:"#ef4444", ms:"回归完成"},
+  {name:"培训文档 & 灰度上线", start:"2026-12-21", end:"2026-12-27", color:"#ef4444", ms:"MVP v0.1 正式上线"},
+];
+function renderSimple(){
+  const W = getComputedStyle(document.documentElement).getPropertyValue("--week") || "40px";
+  const weekPx = parseFloat(W) || 40;
+  const width = TOTAL * weekPx;
+  const cw = currentWeek();
+  const ms = months();
+  const todayLine = "";
+  const holL=dToW("2026-10-01")*weekPx, holW=(dToW("2026-10-09")-dToW("2026-10-01"))*weekPx;
+  const holiday = `<div class="holiday" style="left:${holL}px;width:${holW}px"></div>`;
+  const holidayHead = holiday;
+  const today = fmt(TODAY);
+  let html = `<div class="gantt-inner">
+    <div class="g-head">
+      <div class="sticky-l"><div style="font-weight:600;font-size:12px">功能模块</div><div style="font-size:11px;color:var(--muted);margin-top:2px">${SIMPLE.length} 个模块</div></div>
+      <div style="position:relative;width:${width}px;height:24px">
+        <div class="months">${holidayHead}${ms.map(m=>`<div class="month" style="width:${(m.endWeek-m.startWeek+1)*weekPx}px">${m.label} <span style="font-weight:400;color:var(--muted)">${m.key.slice(0,4)}</span></div>`).join("")}</div>
+      </div>
+    </div>`;
+  SIMPLE.forEach(m=>{
+    const st = m.end < today ? "done" : (m.start <= today ? "doing" : "planned");
+    const sw0=dToW(m.start), ww0=dToW(m.end)-dToW(m.start)+1/7;
+    const segs=barSegs(sw0,ww0).map(([a,b])=>[a*weekPx+3,b*weekPx-6]);
+    const mainSeg=segs.reduce((mx,x)=>x[1]-x[0]>mx[1]-mx[0]?x:mx,segs[0]);
+    html += `<div class="g-row task-row">
+      <div class="sticky-l" style="padding-left:16px;gap:8px">
+        <span class="tn" style="font-weight:${st==="planned"?500:600}">${m.name}</span>
+        <span class="st ${st}" style="margin-left:auto;flex-shrink:0">${ST[st]}</span>
+      </div>
+      <div class="bars" style="width:${width}px;--pcolor:${m.color}">
+        <div class="grid">${Array.from({length:TOTAL},(_,i)=>{const mth=weekDate(i).getMonth();const isMb=i>0&&mth!==weekDate(i-1).getMonth();return `<i class="${mth%2?"band":""} ${isMb?"mb":""}"></i>`}).join("")}</div>
+        ${holiday}
+        ${todayLine}
+        ${segs.map(([s,w],si)=>`<div class="bar ${st==="planned"?"ghost":"solid"} ${st==="doing"?"doing":""}"
+             data-tip="<b>${esc(m.name)}</b><br>${m.start} → ${m.end}<br>上线节点：${m.ms}${segs.length>1?"<br>⏸ 10/01-10/08 国庆停工，前后分段推进":""}"
+             style="left:${s}px;width:${w}px">${(segs[si]===mainSeg&&w>=90)?esc(m.name.split("（")[0]):""}</div>`).join("")}
+        ${m.flag?`<div class="flag" title="${esc(m.ms)}" style="left:${(dToW(m.end)+1)*weekPx-8}px">⚑</div>`:`<div class="ms" title="${esc(m.ms)}" style="left:${(dToW(m.end)+1)*weekPx-7}px"></div>`}
+      </div>
+    </div>`;
+  });
+  html += `<div class="legend">
+    <span>每个模块一条：条 = 开发周期，菱形 = 上线节点，<span style="color:#dc2626">⚑ = ETA 替换节点</span></span>
+    <span><i class="sw dash"></i>待启动</span>
+    <span>蓝框 = 进行中</span>
+    <span><i class="sw" style="background:#fff;border-left:2px dashed #94a3b8;border-right:2px dashed #94a3b8"></i>国庆假期 10/01-10/08（虚线间）</span>
+    <span style="margin-left:auto">数据截至 2026-09-21</span>
+  </div></div>`;
+  simpleView.innerHTML = html;
+}
+
+function renderList(tasks){
+  listView.innerHTML = PHASES.map(p=>{
+    const items=tasks.filter(t=>t.phase===p.key);
+    if(!items.length) return "";
+    return `<div class="phase-card" data-phase="${p.key}" style="--pbg:${p.bg};--pcolor:${p.color}">
+      <div class="phase-hd">
+        <span class="pg ${folded.has(p.key)?"fold":""}" data-pg="${p.key}">▼</span>
+        <span class="pkey">${p.key}</span>
+        <span class="pname">${p.name}</span>
+        <span style="font-size:12px;color:var(--muted)">${p.goal}</span>
+      </div>
+      <table${folded.has(p.key)?' style="display:none"':""}>
+        <thead><tr><th>项目</th><th>模块</th><th>任务</th><th>状态</th><th>负责角色</th><th>起止</th><th>工作量</th><th>风险</th></tr></thead>
+        <tbody>${items.map(t=>{
+          const st=statusOf(t);
+          const eff = t.effort==null?"—":(st==="planned"?"≈"+t.effort+" 人日":t.effort+" 人日");
+          return `<tr>
+            <td><span class="proj" style="background:${PROJ[t.project].bg};color:${PROJ[t.project].color}">${PROJ[t.project].name}</span></td>
+            <td>${t.module}</td>
+            <td>${t.task}${t.continuous?' <span class="pill" style="background:var(--blue-bg);color:var(--blue)">持续</span>':""}${t.milestone?' <span class="pill" style="background:#fff7ed;color:#c2410c">里程碑</span>':""}${t.desc?`<div class="desc">${t.desc}</div>`:""}</td>
+            <td><span class="st ${st}">${ST[st]}</span></td>
+            <td>${t.owners.length?t.owners.map(r=>`<span class="role" style="background:${ROLES[r].bg};color:${ROLES[r].color}">${r}</span>`).join(" "):"<span style='color:var(--muted)'>—</span>"}</td>
+            <td class="mono">${rowStart(t)} → ${rowEnd(t)}</td>
+            <td class="mono">${eff}</td>
+            <td><span class="risk ${t.risk==="warn"?"warn":t.risk}">${RISK[t.risk]}</span>${t.riskNote?`<div class="desc">⚠ ${t.riskNote}</div>`:""}</td>
+          </tr>`;
+        }).join("")}</tbody>
+      </table>
+    </div>`;
+  }).join("");
+  attachFoldHandlers(listView);
+}
+
+function esc(s){ return String(s).replace(/[&<>"']/g, c=>({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c])); }
+
+let tab="gantt";
+
+function render(){
+  const tasks=filtered();
+  count.textContent = tasks.length+" / "+TASKS.length+" 条";
+  if(tab==="gantt") renderGantt(tasks);
+  else if(tab==="simple") renderSimple();
+  else renderList(tasks);
+}
+document.querySelectorAll(".tab").forEach(btn=>{
+  btn.onclick=()=>{
+    tab=btn.dataset.tab;
+    document.querySelectorAll(".tab").forEach(b=>b.classList.toggle("on", b===btn));
+    ganttView.style.display = tab==="gantt"?"":"none";
+    listView.style.display  = tab==="list"?"":"none";
+    simpleView.style.display = tab==="simple"?"":"none";
+    filterBar.style.display = tab==="simple"?"none":"";
+    render();
+  };
+});
+[phaseSel, projSel, roleSel].forEach(el=>el.onchange=render);
+qInput.oninput=render;
+document.addEventListener("mousemove", e=>{
+  const bar=e.target.closest(".bar,[data-tip]");
+  if(!bar){ tip.style.display="none"; return; }
+  tip.innerHTML = bar.dataset.tip;
+  tip.style.display="block";
+  tip.style.left = Math.min(e.clientX+12, innerWidth-320)+"px";
+  tip.style.top = Math.min(e.clientY+12, innerHeight-140)+"px";
+});
+renderRoadmap();
+render();
+</script>
+</body>
+</html>
