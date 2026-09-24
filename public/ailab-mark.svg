@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="512" height="512" role="img" aria-label="指标中心">
+  <defs>
+    <path id="sq" d="M50 0C12.23 0 0 12.23 0 50s12.23 50 50 50 50-12.23 50-50S87.77 0 50 0Z"/>
+    <linearGradient id="gb" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3F9BFF"/>
+      <stop offset="1" stop-color="#0B57C8"/>
+    </linearGradient>
+    <radialGradient id="gd" cx=".35" cy=".3" r="1">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#DCEBFF"/>
+    </radialGradient>
+  </defs>
+  <use href="#sq" fill="url(#gb)"/>
+  <rect x="24" y="56" width="13" height="26" rx="6.5" fill="#FFFFFF" opacity=".52"/>
+  <rect x="43.5" y="40" width="13" height="42" rx="6.5" fill="#FFFFFF" opacity=".76"/>
+  <rect x="63" y="26" width="13" height="56" rx="6.5" fill="#FFFFFF"/>
+  <circle cx="69.5" cy="12" r="6" fill="url(#gd)"/>
+</svg>

@@ -1,0 +1,34 @@
+:root {
+  --primary: #1664ff;
+  --primary-hover: #0e4fe6;
+  --primary-bg: #e8f3ff;
+  --text: #1d2129;
+  --text-2: #4e5969;
+  --text-3: #86909c;
+  --border: #e5e6eb;
+  --border-input: #d9d9e0;
+  --bg: #f2f3f5;
+  --card: #ffffff;
+  --danger: #e34d59;
+  --success: #12b76a;
+  --radius: 8px;
+  --radius-lg: 12px;
+  --primary-6: 22, 100, 255;
+  --primary-5: 51, 117, 255;
+  --primary-7: 14, 79, 230;
+  --arcoblue-6: 22, 100, 255;
+}
+
+body {
+  --color-primary: #1664ff;
+  --color-primary-light-1: #e8f3ff;
+  --color-primary-light-2: #c3d9ff;
+  --color-primary-light-3: #9abeff;
+  --color-primary-light-4: #6a9eff;
+  --color-text-1: #1d2129;
+  --color-text-2: #4e5969;
+  --color-text-3: #86909c;
+  --color-border-2: #e5e6eb;
+  --color-bg-1: #f2f3f5;
+  --color-bg-2: #ffffff;
+}

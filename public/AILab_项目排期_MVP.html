@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>项目排期（MVP）· AILab</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<style>
+:root{
+  --bg:#f8fafc; --card:#fff; --line:#e2e8f0; --line2:#f1f5f9;
+  --text:#0f172a; --sub:#475569; --muted:#94a3b8;
+  --blue:#2563eb; --blue-bg:rgba(37,99,235,.12);
+  --green:#16a34a; --amber:#d97706; --red:#dc2626; --purple:#9333ea; --cyan:#0891b2;
+  --nav:248px; --left:420px; --row:34px; --week:36px;
+  --font:"IBM Plex Sans","Noto Sans SC",system-ui,-apple-system,sans-serif;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--text);font-family:var(--font);font-size:13px}
+button,input,select{font-family:inherit}
+.app{display:flex;height:100%}
+.main{flex:1;min-width:0;display:flex;flex-direction:column;height:100%}
+.wrap{flex:1;min-height:0;display:flex;flex-direction:column}
+.head{padding:14px 24px 0;background:#fff;border-bottom:1px solid var(--line)}
+.h1{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.h1 h2{margin:0;font-size:18px;font-weight:600}
+.badge{font-size:11px;padding:2px 8px;border-radius:4px;background:#fff7ed;color:#c2410c;font-family:ui-monospace,Menlo,monospace;display:inline-flex;align-items:center;gap:4px}
+.range{color:var(--muted);font-size:12px}
+.scope{color:var(--sub);font-size:12px;margin:6px 0 10px}
+.kpis{display:flex;gap:6px;flex-wrap:wrap;align-items:center;padding-bottom:8px}
+.kpi{display:inline-flex;align-items:baseline;gap:5px;padding:4px 10px;border-radius:6px;background:#f8fafc;border:1px solid var(--line)}
+.kpi b{font-size:15px;font-family:ui-monospace,Menlo,monospace}
+.kpi span{font-size:11px;color:var(--muted)}
+.pill{font-size:11px;padding:1px 8px;border-radius:999px;font-family:ui-monospace,Menlo,monospace;font-weight:600}
+.tabs{display:flex;gap:4px;margin-top:6px}
+.tab{border:none;background:transparent;padding:8px 14px;cursor:pointer;color:var(--muted);border-bottom:2px solid transparent;font-size:13px}
+.tab.on{color:var(--blue);font-weight:600;border-bottom-color:var(--blue)}
+.filters{display:flex;align-items:center;gap:10px;padding:10px 24px;background:#fff;border-bottom:1px solid var(--line)}
+.filters select,.filters input{height:28px;border:1px solid var(--line);border-radius:6px;padding:0 8px;background:#fff;font-size:12px;color:var(--text)}
+.filters input{width:220px}
+.note{margin-left:auto;color:var(--muted);font-size:12px;font-family:ui-monospace,Menlo,monospace}
+.gantt{flex:1;overflow:auto;background:var(--bg)}
+.gantt-inner{display:inline-block;min-width:100%}
+.g-head,.g-row{display:flex}
+.g-head{position:sticky;top:0;z-index:10;background:#fff;border-bottom:1px solid var(--line)}
+.sticky-l{position:sticky;left:0;z-index:5;background:#fff;width:var(--left);min-width:var(--left);border-right:1px solid var(--line)}
+.g-head .sticky-l{z-index:11;padding:8px 12px}
+.months,.weeks{display:flex}
+.months{height:22px;border-bottom:1px solid var(--line)}
+.month{padding:3px 6px;font-size:11px;color:var(--muted);font-family:ui-monospace,Menlo,monospace;border-right:1px solid var(--line2);box-sizing:border-box}
+.week{width:var(--week);min-width:var(--week);height:22px;border-right:1px solid var(--line2);text-align:center;font-size:9px;color:var(--muted);font-family:ui-monospace,Menlo,monospace;line-height:22px;box-sizing:border-box;position:relative}
+.week.today::after{content:"";position:absolute;left:50%;top:0;bottom:0;width:2px;background:var(--red);transform:translateX(-50%)}
+.phase-row{background:var(--pbg);border-top:1px solid var(--line);border-bottom:1px solid var(--line);height:var(--row)}
+.phase-row .sticky-l{background:var(--pbg);display:flex;align-items:center;gap:8px;padding:0 12px}
+.pkey{font-size:11px;font-family:ui-monospace,Menlo,monospace;padding:2px 6px;border-radius:4px;background:var(--pcolor);color:#fff;font-weight:600}
+.pname{font-weight:600;font-size:13px}
+.pmeta{margin-left:auto;font-size:11px;color:var(--muted);font-family:ui-monospace,Menlo,monospace}
+.phase-bar{position:absolute;top:5px;bottom:5px;border:1px dashed var(--pcolor);border-radius:4px;background:linear-gradient(to right,color-mix(in srgb,var(--pcolor) 20%,transparent),color-mix(in srgb,var(--pcolor) 40%,transparent));display:flex;align-items:center;justify-content:center;font-size:11px;color:var(--pcolor);font-weight:600;pointer-events:none;white-space:nowrap}
+.task-row{height:var(--row);border-bottom:1px solid var(--line2)}
+.task-row .sticky-l{display:flex;align-items:center;gap:6px;padding:0 12px 0 28px;background:#fff}
+.mod{color:var(--muted);white-space:nowrap}
+.tn{color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.roles{display:flex;gap:2px;margin-left:auto;flex-shrink:0}
+.role{font-size:9px;font-family:ui-monospace,Menlo,monospace;font-weight:700;padding:1px 4px;border-radius:3px}
+.bars{position:relative;height:var(--row)}
+.grid{position:absolute;inset:0;display:flex;pointer-events:none}
+.grid i{width:var(--week);min-width:var(--week);border-right:1px solid var(--line2);opacity:.45;box-sizing:border-box}
+.bar{position:absolute;top:6px;bottom:6px;border-radius:4px;color:#fff;font-size:10px;font-weight:600;display:flex;align-items:center;gap:4px;padding:0 6px;overflow:hidden;white-space:nowrap;cursor:pointer}
+.bar.cont{background-image:repeating-linear-gradient(135deg,var(--pcolor) 0 6px,color-mix(in srgb,var(--pcolor) 55%,#000) 6px 12px)}
+.bar.solid{background:linear-gradient(to right,var(--pcolor),color-mix(in srgb,var(--pcolor) 80%,#fff))}
+.bar.done{opacity:.55}
+.bar.high{box-shadow:0 0 0 1px #dc2626}
+.ms{position:absolute;top:4px;width:12px;height:12px;transform:rotate(45deg);background:#f59e0b;border:1px solid #fff;border-radius:2px;z-index:2}
+.today-line{position:absolute;top:0;bottom:0;width:2px;background:#dc2626;opacity:.55;z-index:3;pointer-events:none}
+.legend{padding:12px 24px;border-top:1px solid var(--line);background:#fff;display:flex;gap:20px;flex-wrap:wrap;align-items:center;font-size:12px;color:var(--muted)}
+.sw{width:16px;height:10px;border-radius:3px;display:inline-block;margin-right:6px;vertical-align:middle}
+.list{flex:1;overflow:auto;padding:16px 24px 32px}
+.phase-card{margin-bottom:24px;overflow-x:auto}
+.phase-hd{display:flex;align-items:center;gap:10px;margin-bottom:10px;padding:8px 12px;border-radius:6px;background:var(--pbg);border-left:3px solid var(--pcolor)}
+table{width:100%;border-collapse:collapse;background:#fff;border-radius:8px;overflow:hidden;border:1px solid var(--line);min-width:960px}
+.phase-hd{display:flex;align-items:center;gap:10px;margin-bottom:10px;padding:8px 12px;border-radius:6px;background:var(--pbg);border-left:3px solid var(--pcolor)}
+table{width:100%;border-collapse:collapse;background:#fff;border-radius:8px;overflow:hidden;border:1px solid var(--line)}
+th{text-align:left;padding:8px 12px;font-size:12px;font-weight:500;color:var(--muted);background:#f8fafc;border-bottom:1px solid var(--line);white-space:nowrap}
+td{padding:8px 12px;border-bottom:1px solid var(--line2);vertical-align:top}
+tr:hover td{background:#f8fafc}
+.desc{font-size:11px;color:var(--muted);margin-top:2px}
+.st{font-size:11px;padding:1px 8px;border-radius:999px}
+.st.done{background:#dcfce7;color:#166534}
+.st.doing{background:#dbeafe;color:#1d4ed8}
+.st.planned{background:#f1f5f9;color:#64748b}
+.risk{font-size:11px;padding:1px 8px;border-radius:999px}
+.risk.low{background:#dcfce7;color:#166534}
+.risk.medium{background:#fef3c7;color:#92400e}
+.risk.high{background:#fee2e2;color:#991b1b}
+.tip{position:fixed;z-index:50;background:#0f172a;color:#e2e8f0;padding:10px 12px;border-radius:8px;font-size:12px;line-height:1.5;pointer-events:none;max-width:280px;box-shadow:0 8px 24px rgba(15,23,42,.25);display:none}
+.tip b{color:#fff}
+</style>
+</head>
+<body>
+<div class="app">
+  <section class="main">
+    <div class="wrap">
+      <div class="head">
+        <div class="h1">
+          <h2>项目排期</h2>
+          <span class="badge">✦ MVP（最小可行版本）</span>
+          <span class="range" id="rangeText"></span>
+        </div>
+        <div class="scope">5 阶段 · 只做数据底座 + 核心层 + 基础展示，砍掉高级 & 其他能力。编制：产品 2 · 前端 1 · 后端 1 · 大数据 1（MVP 不含数据挖掘）。</div>
+        <div class="kpis" id="kpis"></div>
+        <div class="tabs">
+          <button class="tab on" data-tab="gantt">项目排期（甘特图）</button>
+          <button class="tab" data-tab="list">功能清单</button>
+        </div>
+      </div>
+      <div class="filters">
+        <span style="color:var(--muted);font-size:12px">阶段</span>
+        <select id="phaseSel"><option value="all">全部</option></select>
+        <span style="color:var(--muted);font-size:12px">角色</span>
+        <select id="roleSel"><option value="all">全部</option></select>
+        <input id="q" placeholder="搜索任务 / 模块…" />
+        <span class="note" id="count"></span>
+      </div>
+      <div class="gantt" id="ganttView"></div>
+      <div class="list" id="listView" style="display:none"></div>
+    </div>
+  </section>
+</div>
+<div class="tip" id="tip"></div>
+<script>
+const START = new Date(2026, 5, 1);
+const TOTAL = 31;
+const ROLES = {
+  PM: {label:"产品经理", color:"#a855f7", bg:"rgba(168,85,247,.15)"},
+  FE: {label:"前端", color:"#3b82f6", bg:"rgba(59,130,246,.15)"},
+  BE: {label:"后端", color:"#22c55e", bg:"rgba(34,197,94,.15)"},
+  BD: {label:"大数据", color:"#f59e0b", bg:"rgba(245,158,11,.15)"},
+  DM: {label:"数据挖掘", color:"#06b6d4", bg:"rgba(6,182,212,.15)"},
+};
+const PHASES = [
+  {key:"M0", name:"启动期", goal:"MVP 范围定义、技术方案、UI 规范、研发环境就绪", startWeek:0, endWeek:1, color:"#94a3b8", bg:"rgba(148,163,184,.16)"},
+  {key:"M1", name:"基础框架 & 核心数据源", goal:"骨架、登录权限、2~4 个核心数据源、手工录入、阶段验收", startWeek:2, endWeek:10, color:"#3b82f6", bg:"rgba(59,130,246,.16)"},
+  {key:"M2", name:"指标库 / 图库 / 表格（核心）", goal:"基础指标 + 简化运算、基础图表、基础表格、阶段验收", startWeek:11, endWeek:21, color:"#22c55e", bg:"rgba(34,197,94,.16)"},
+  {key:"M3", name:"基础展示层", goal:"只读 BI 看板 + 简化研报浏览（不含 AI / 富文本编辑）、阶段验收", startWeek:22, endWeek:26, color:"#f59e0b", bg:"rgba(245,158,11,.16)"},
+  {key:"M4", name:"集成测试 & 上线", goal:"集中回归、培训、灰度上线", startWeek:27, endWeek:30, color:"#ef4444", bg:"rgba(239,68,68,.16)"},
+];
+const TASKS = [
+  {id:"m-m0-1", phase:"M0", module:"项目启动", task:"PRD 与 MVP 范围定义", startWeek:0, durationWeeks:2, owners:["PM"], effort:9, risk:"low", desc:"锁定 MVP 范围与不做项"},
+  {id:"m-m0-2", phase:"M0", module:"项目启动", task:"技术方案与架构设计", startWeek:0, durationWeeks:2, owners:["FE","BE","BD"], effort:12, risk:"medium"},
+  {id:"m-m0-3", phase:"M0", module:"项目启动", task:"UI 视觉与组件规范", startWeek:0, durationWeeks:2, owners:["PM","FE"], effort:7, risk:"low"},
+  {id:"m-m0-4", phase:"M0", module:"项目启动", task:"研发环境 & CI/CD", startWeek:0, durationWeeks:2, owners:["FE","BE"], effort:7, risk:"low", milestone:"M0 完成 · 启动评审"},
+  {id:"m-m1-pm", phase:"M1", module:"产品贯穿", task:"M1 产品迭代与需求细化", startWeek:2, durationWeeks:9, owners:["PM"], effort:22, risk:"low", continuous:true},
+  {id:"m-m1-fe", phase:"M1", module:"通用框架", task:"前端骨架（菜单/路由/主题）", startWeek:2, durationWeeks:3, owners:["FE"], effort:13, risk:"low"},
+  {id:"m-m1-be", phase:"M1", module:"通用框架", task:"后端骨架（鉴权/网关）", startWeek:2, durationWeeks:3, owners:["BE"], effort:13, risk:"medium"},
+  {id:"m-m1-settings", phase:"M1", module:"系统设置", task:"用户/权限/外观（基础）", startWeek:5, durationWeeks:2, owners:["FE","BE"], effort:7, risk:"low"},
+  {id:"m-m1-ds-base", phase:"M1", module:"数据源", task:"统一接入网关 & 调度", startWeek:3, durationWeeks:3, owners:["BE","BD"], effort:16, risk:"high"},
+  {id:"m-m1-ds-core", phase:"M1", module:"数据源", task:"核心数据源接入（2~4 个）", startWeek:4, durationWeeks:5, owners:["BD","BE"], effort:20, risk:"medium", desc:"同花顺 / 上海钢联 / SMM，按业务选择"},
+  {id:"m-m1-ds-fe", phase:"M1", module:"数据源", task:"数据源列表/详情/同步（基础）", startWeek:5, durationWeeks:4, owners:["FE"], effort:12, risk:"low"},
+  {id:"m-m1-manual", phase:"M1", module:"手工录入", task:"指标定义 + 录入 + Excel 上传", startWeek:5, durationWeeks:4, owners:["FE","BE"], effort:18, risk:"medium"},
+  {id:"m-m1-test", phase:"M1", module:"阶段验收", task:"M1 阶段测试与验收", startWeek:10, durationWeeks:1, owners:["PM","FE","BE","BD"], effort:13, risk:"medium", milestone:"M1 完成 · 数据底座可用"},
+  {id:"m-m2-pm", phase:"M2", module:"产品贯穿", task:"M2 产品迭代与需求细化", startWeek:11, durationWeeks:10, owners:["PM"], effort:25, risk:"low", continuous:true},
+  {id:"m-m2-db-core", phase:"M2", module:"指标库", task:"基础指标 + 简化运算指标", startWeek:11, durationWeeks:6, owners:["BE","BD"], effort:24, risk:"high", desc:"MVP 不做完整公式引擎，仅支持有限函数集"},
+  {id:"m-m2-db-fe", phase:"M2", module:"指标库", task:"前端列表 + 详情 + 检索", startWeek:11, durationWeeks:7, owners:["FE"], effort:24, risk:"medium"},
+  {id:"m-m2-chart", phase:"M2", module:"图库", task:"基础图表（线/柱/面积）", startWeek:16, durationWeeks:4, owners:["FE","BE"], effort:16, risk:"medium"},
+  {id:"m-m2-sheet", phase:"M2", module:"表格", task:"基础表格（共享 + 时间序列）", startWeek:17, durationWeeks:4, owners:["FE","BE"], effort:16, risk:"medium"},
+  {id:"m-m2-test", phase:"M2", module:"阶段验收", task:"M2 阶段测试与验收", startWeek:21, durationWeeks:1, owners:["PM","FE","BE","BD"], effort:13, risk:"medium", milestone:"M2 完成 · 核心层可用"},
+  {id:"m-m3-pm", phase:"M3", module:"产品贯穿", task:"M3 产品迭代与需求细化", startWeek:22, durationWeeks:4, owners:["PM"], effort:10, risk:"low", continuous:true},
+  {id:"m-m3-dash", phase:"M3", module:"BI 看板", task:"只读基础看板（不含 AI / 编辑）", startWeek:22, durationWeeks:3, owners:["FE","BE"], effort:13, risk:"medium"},
+  {id:"m-m3-report", phase:"M3", module:"研报管理", task:"基础研报浏览（不含富文本编辑）", startWeek:23, durationWeeks:3, owners:["FE","BE"], effort:12, risk:"low"},
+  {id:"m-m3-test", phase:"M3", module:"阶段验收", task:"M3 阶段测试与验收", startWeek:26, durationWeeks:1, owners:["PM","FE","BE"], effort:10, risk:"medium", milestone:"M3 完成 · 展示就绪"},
+  {id:"m-m4-pm", phase:"M4", module:"产品贯穿", task:"产品验收与发布准备", startWeek:27, durationWeeks:4, owners:["PM"], effort:10, risk:"low", continuous:true},
+  {id:"m-m4-regression", phase:"M4", module:"集成测试", task:"集中回归测试 + 缺陷修复", startWeek:27, durationWeeks:3, owners:["PM","FE","BE","BD"], effort:26, risk:"high"},
+  {id:"m-m4-doc", phase:"M4", module:"培训文档", task:"用户培训 + 文档", startWeek:29, durationWeeks:1, owners:["PM","FE"], effort:5, risk:"low"},
+  {id:"m-m4-deploy", phase:"M4", module:"上线", task:"灰度发布 → 正式发布", startWeek:29, durationWeeks:2, owners:["PM","FE","BE","BD"], effort:14, risk:"high", milestone:"MVP v0.1 正式上线"},
+];
+
+function addDays(d, n){ const x=new Date(d); x.setDate(x.getDate()+n); return x; }
+function fmt(d){
+  return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");
+}
+function weekDate(w){ return addDays(START, w*7); }
+function currentWeek(){
+  const today = new Date(); today.setHours(0,0,0,0);
+  const days = Math.floor((today - START) / 86400000);
+  return Math.max(0, Math.min(TOTAL-1, Math.floor(days/7)));
+}
+function statusOf(t){
+  const cw = currentWeek();
+  const end = t.startWeek + t.durationWeeks - 1;
+  if (end < cw) return "done";
+  if (t.startWeek <= cw) return "doing";
+  return "planned";
+}
+const ST = {done:"已完成", doing:"进行中", planned:"待启动"};
+const RISK = {low:"低", medium:"中", high:"高"};
+
+function months(){
+  const map=[];
+  for(let w=0;w<TOTAL;w++){
+    const d=weekDate(w);
+    const key=d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0");
+    const last=map[map.length-1];
+    if(!last || last.key!==key) map.push({key, label:key, startWeek:w, endWeek:w});
+    else last.endWeek=w;
+  }
+  return map;
+}
+
+const phaseSel=document.getElementById("phaseSel");
+const roleSel=document.getElementById("roleSel");
+const qInput=document.getElementById("q");
+const ganttView=document.getElementById("ganttView");
+const listView=document.getElementById("listView");
+const kpis=document.getElementById("kpis");
+const rangeText=document.getElementById("rangeText");
+const count=document.getElementById("count");
+const tip=document.getElementById("tip");
+
+PHASES.forEach(p=>{
+  const o=document.createElement("option");
+  o.value=p.key; o.textContent=p.key+" · "+p.name;
+  phaseSel.appendChild(o);
+});
+Object.keys(ROLES).forEach(k=>{
+  const o=document.createElement("option");
+  o.value=k; o.textContent=k+" · "+ROLES[k].label;
+  roleSel.appendChild(o);
+});
+
+function filtered(){
+  const ph=phaseSel.value, role=roleSel.value, q=qInput.value.trim().toLowerCase();
+  return TASKS.filter(t =>
+    (ph==="all"||t.phase===ph) &&
+    (role==="all"||t.owners.includes(role)) &&
+    (!q || (t.module+" "+t.task+(t.desc||"")).toLowerCase().includes(q))
+  );
+}
+
+function renderKpis(){
+  const total=TASKS.reduce((s,t)=>s+t.effort,0);
+  const by={PM:0,FE:0,BE:0,BD:0,DM:0};
+  TASKS.forEach(t=>t.owners.forEach(r=>by[r]+=t.effort/t.owners.length));
+  const doneN=TASKS.filter(t=>statusOf(t)==="done").length;
+  const doingN=TASKS.filter(t=>statusOf(t)==="doing").length;
+  const cw=currentWeek();
+  rangeText.textContent = `${fmt(weekDate(0))} → ${fmt(weekDate(TOTAL-1))} · 共 ${TOTAL} 周 · 当前第 ${cw+1} 周`;
+  kpis.innerHTML = [
+    kpi(TASKS.length,"总任务"),
+    kpi(total,"人天"),
+    ...Object.keys(ROLES).map(r=>kpi(Math.round(by[r]), r, ROLES[r].color, ROLES[r].bg)),
+    `<span class="pill" style="background:#dcfce7;color:#166534">${doneN} 已完成</span>`,
+    `<span class="pill" style="background:#dbeafe;color:#1d4ed8">${doingN} 进行中</span>`,
+    `<span class="pill" style="background:#f1f5f9;color:#64748b">${TASKS.length-doneN-doingN} 待启动</span>`,
+  ].join("");
+}
+function kpi(v,l,c,bg){
+  return `<div class="kpi" style="${bg?`background:${bg};border-color:transparent`:""}"><b style="color:${c||"var(--text)"}">${v}</b><span style="color:${c||""}">${l}</span></div>`;
+}
+
+function renderGantt(tasks){
+  const W = getComputedStyle(document.documentElement).getPropertyValue("--week") || "36px";
+  const weekPx = parseFloat(W) || 36;
+  const leftPx = 420;
+  const width = TOTAL * weekPx;
+  const cw = currentWeek();
+  const ms = months();
+  let html = `<div class="gantt-inner">
+    <div class="g-head">
+      <div class="sticky-l"><div style="font-weight:600;font-size:12px">阶段 / 任务</div><div style="font-size:11px;color:var(--muted);margin-top:2px">共 ${tasks.length} 项</div></div>
+      <div style="position:relative;width:${width}px;height:44px">
+        <div class="months">${ms.map(m=>`<div class="month" style="width:${(m.endWeek-m.startWeek+1)*weekPx}px">${m.label}</div>`).join("")}</div>
+        <div class="weeks">${Array.from({length:TOTAL},(_,i)=>`<div class="week ${i===cw?"today":""}">${i+1}</div>`).join("")}</div>
+      </div>
+    </div>`;
+
+  PHASES.forEach(p=>{
+    const items=tasks.filter(t=>t.phase===p.key);
+    if(!items.length) return;
+    const effort=items.reduce((s,t)=>s+t.effort,0);
+    html += `<div class="g-row phase-row" style="--pbg:${p.bg};--pcolor:${p.color}">
+      <div class="sticky-l"><span class="pkey">${p.key}</span><span class="pname">${p.name}</span><span class="pmeta">${items.length}项 · ${effort}人天</span></div>
+      <div class="bars" style="width:${width}px">
+        <div class="phase-bar" style="left:${p.startWeek*weekPx}px;width:${(p.endWeek-p.startWeek+1)*weekPx}px">${p.key} · ${p.name} · ${fmt(weekDate(p.startWeek))} → ${fmt(weekDate(p.endWeek))}</div>
+        <div class="today-line" style="left:${cw*weekPx+weekPx/2}px"></div>
+      </div>
+    </div>`;
+    items.forEach(t=>{
+      const st=statusOf(t);
+      const left=t.startWeek*weekPx+2;
+      const w=t.durationWeeks*weekPx-4;
+      html += `<div class="g-row task-row">
+        <div class="sticky-l" title="${t.module} · ${t.task}">
+          <span class="mod">${t.module}</span> · <span class="tn">${t.task}</span>
+          <div class="roles">${t.owners.map(r=>`<span class="role" style="background:${ROLES[r].bg};color:${ROLES[r].color}">${r}</span>`).join("")}</div>
+        </div>
+        <div class="bars" style="width:${width}px;--pcolor:${p.color}">
+          <div class="grid">${Array.from({length:TOTAL},()=>"<i></i>").join("")}</div>
+          <div class="today-line" style="left:${cw*weekPx+weekPx/2}px"></div>
+          <div class="bar ${t.continuous?"cont":"solid"} ${st} ${t.risk==="high"?"high":""}"
+               data-tip="${esc(t.task)} · ${fmt(weekDate(t.startWeek))} → ${fmt(weekDate(t.startWeek+t.durationWeeks-1))} · ${t.effort} 人天 · ${ST[st]} · 风险 ${RISK[t.risk]}${t.desc?" · "+esc(t.desc):""}"
+               style="left:${left}px;width:${w}px">${t.task}</div>
+          ${t.milestone?`<div class="ms" title="${esc(t.milestone)}" style="left:${(t.startWeek+t.durationWeeks)*weekPx-weekPx/2-6}px"></div>`:""}
+        </div>
+      </div>`;
+    });
+  });
+
+  html += `<div class="legend">
+    <span>图例：</span>
+    ${PHASES.map(p=>`<span><i class="sw" style="background:${p.color}"></i>${p.key} · ${p.name}</span>`).join("")}
+    <span><i class="sw" style="background:repeating-linear-gradient(135deg,#2563eb 0 4px,#bfdbfe 4px 8px)"></i>持续型任务（PM / 测试）</span>
+    <span><i class="sw" style="width:10px;height:10px;transform:rotate(45deg);background:#f59e0b"></i>里程碑</span>
+    <span>高风险任务</span>
+    <span style="margin-left:auto">红线 = 今天（第 ${cw+1} 周） · 滚动查看完整 ${TOTAL} 周</span>
+  </div></div>`;
+  ganttView.innerHTML = html;
+}
+
+function renderList(tasks){
+  listView.innerHTML = PHASES.map(p=>{
+    const items=tasks.filter(t=>t.phase===p.key);
+    if(!items.length) return "";
+    return `<div class="phase-card" style="--pbg:${p.bg};--pcolor:${p.color}">
+      <div class="phase-hd">
+        <span class="pkey">${p.key}</span>
+        <span class="pname">${p.name}</span>
+        <span style="font-size:12px;color:var(--muted)">${fmt(weekDate(p.startWeek))} ~ ${fmt(weekDate(p.endWeek))} · ${p.goal}</span>
+      </div>
+      <table>
+        <thead><tr><th>模块</th><th>任务</th><th>状态</th><th>负责角色</th><th>起止</th><th>工期</th><th>工作量</th><th>风险</th></tr></thead>
+        <tbody>${items.map(t=>{
+          const st=statusOf(t);
+          const end=t.startWeek+t.durationWeeks-1;
+          return `<tr>
+            <td>${t.module}</td>
+            <td>${t.task}${t.continuous?' <span class="pill" style="background:var(--blue-bg);color:var(--blue)">持续</span>':""}${t.milestone?' <span class="pill" style="background:#fff7ed;color:#c2410c">里程碑</span>':""}${t.desc?`<div class="desc">${t.desc}</div>`:""}</td>
+            <td><span class="st ${st}">${ST[st]}</span></td>
+            <td>${t.owners.map(r=>`<span class="role" style="background:${ROLES[r].bg};color:${ROLES[r].color}">${r}</span>`).join(" ")}</td>
+            <td style="font-family:ui-monospace,Menlo,monospace;font-size:12px;color:var(--muted);white-space:nowrap">${fmt(weekDate(t.startWeek))} → ${fmt(weekDate(end))}</td>
+            <td>${t.durationWeeks}w</td>
+            <td>${t.effort} 人天</td>
+            <td><span class="risk ${t.risk}">${RISK[t.risk]}</span></td>
+          </tr>`;
+        }).join("")}</tbody>
+      </table>
+    </div>`;
+  }).join("");
+}
+
+function esc(s){ return String(s).replace(/[&<>"']/g, c=>({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c])); }
+
+let tab="gantt";
+
+function render(){
+  const tasks=filtered();
+  count.textContent = tasks.length+" / "+TASKS.length+" 任务";
+  renderKpis();
+  if(tab==="gantt") renderGantt(tasks); else renderList(tasks);
+}
+document.querySelectorAll(".tab").forEach(btn=>{
+  btn.onclick=()=>{
+    tab=btn.dataset.tab;
+    document.querySelectorAll(".tab").forEach(b=>b.classList.toggle("on", b===btn));
+    ganttView.style.display = tab==="gantt"?"":"none";
+    listView.style.display = tab==="list"?"":"none";
+    render();
+  };
+});
+[phaseSel, roleSel].forEach(el=>el.onchange=render);
+qInput.oninput=render;
+document.addEventListener("mousemove", e=>{
+  const bar=e.target.closest(".bar");
+  if(!bar){ tip.style.display="none"; return; }
+  tip.innerHTML = bar.dataset.tip;
+  tip.style.display="block";
+  tip.style.left = Math.min(e.clientX+12, innerWidth-300)+"px";
+  tip.style.top = Math.min(e.clientY+12, innerHeight-120)+"px";
+});
+render();
+</script>
+</body>
+</html>

@@ -1,0 +1,27 @@
+{
+  "name": "ailab-workshop",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@antv/g2": "^5.4.8",
+    "@arco-design/web-vue": "^2.58.0",
+    "@fortune-sheet/react": "^1.0.4",
+    "exceljs": "^4.4.0",
+    "jszip": "^3.10.1",
+    "pinia": "^3.0.3",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "vue": "^3.5.22",
+    "vue-router": "^4.5.1"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^6.0.1",
+    "vite": "^7.1.7"
+  }
+}
