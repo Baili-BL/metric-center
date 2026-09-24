@@ -564,6 +564,9 @@ function cellToFortune(raw, styles) {
     v.m = String(text)
   }
   if (s?.bl) v.bl = 1
+  if (s?.it) v.it = 1
+  if (s?.un) v.un = s.un
+  if (s?.cln) v.cl = 1
   const bg = colorOf(s?.bg)
   const fc = colorOf(s?.cl)
   if (bg) v.bg = bg
@@ -571,9 +574,13 @@ function cellToFortune(raw, styles) {
   if (s?.ht === 2) v.ht = 0
   else if (s?.ht === 3) v.ht = 2
   else if (s?.ht === 1) v.ht = 1
+  if (s?.vt != null) v.vt = s.vt
+  if (s?.tb) v.tb = s.tb
+  if (s?.tr) v.tr = s.tr
+  if (s?.ct) v.ct = s.ct
   if (s?.fs) v.fs = Number(s.fs)
   if (s?.ff) v.ff = s.ff
-  if (v.v == null && v.m == null && !v.f && !v.bg && !v.bl) return null
+  if (v.v == null && v.m == null && !v.f && !v.bg && !v.bl && !v.it && !v.un && !v.cl && !v.ct) return null
   return v
 }
 
@@ -594,11 +601,18 @@ function fortuneCellToUniver(cell) {
   }
   const s = {}
   if (cell.bl) s.bl = 1
+  if (cell.it) s.it = 1
+  if (cell.un) s.un = cell.un
+  if (cell.cl) s.cln = 1
   if (cell.bg) s.bg = { rgb: colorOf(cell.bg) || cell.bg }
   if (cell.fc) s.cl = { rgb: colorOf(cell.fc) || cell.fc }
   if (cell.ht === 0) s.ht = 2
   else if (cell.ht === 2) s.ht = 3
   else if (cell.ht === 1) s.ht = 1
+  if (cell.vt != null) s.vt = cell.vt
+  if (cell.tb) s.tb = cell.tb
+  if (cell.tr) s.tr = cell.tr
+  if (cell.ct) s.ct = cell.ct
   if (cell.fs) s.fs = cell.fs
   if (cell.ff) s.ff = cell.ff
   if (Object.keys(s).length) out.s = s
@@ -607,14 +621,16 @@ function fortuneCellToUniver(cell) {
 }
 
 function fortuneCellsOf(sh) {
-  if (Array.isArray(sh?.celldata) && sh.celldata.length) return sh.celldata
-  const out = []
+  const map = new Map()
+  ;(sh?.celldata || []).forEach((item) => {
+    if (item) map.set(`${item.r},${item.c}`, item)
+  })
   ;(sh?.data || []).forEach((row, r) => {
     ;(row || []).forEach((cell, c) => {
-      if (cell != null && cell !== '') out.push({ r, c, v: cell })
+      if (cell != null && cell !== '') map.set(`${r},${c}`, { r, c, v: cell })
     })
   })
-  return out
+  return [...map.values()]
 }
 
 export function univerToFortune(wb) {
@@ -659,9 +675,18 @@ export function univerToFortune(wb) {
       order: i,
       status: i === 0 ? 1 : 0,
       celldata,
-      row: Math.max(40, Number(sh.rowCount) || maxR + 12),
-      column: Math.max(12, Number(sh.columnCount) || maxC + 4),
-      config: Object.keys(merge).length ? { merge } : {},
+      row: Math.min(200, Math.max(40, maxR + 12, Math.min(Number(sh.rowCount) || 0, 200))),
+      column: Math.min(40, Math.max(12, maxC + 4, Math.min(Number(sh.columnCount) || 0, 40))),
+      config: {
+        ...(Object.keys(merge).length ? { merge } : {}),
+        ...(sh.fortune?.borderInfo ? { borderInfo: sh.fortune.borderInfo } : {}),
+        ...(sh.fortune?.rowlen ? { rowlen: sh.fortune.rowlen } : {}),
+        ...(sh.fortune?.columnlen ? { columnlen: sh.fortune.columnlen } : {}),
+        ...(sh.fortune?.rowhidden ? { rowhidden: sh.fortune.rowhidden } : {}),
+        ...(sh.fortune?.colhidden ? { colhidden: sh.fortune.colhidden } : {}),
+      },
+      ...(sh.fortune?.frozen ? { frozen: sh.fortune.frozen } : {}),
+      ...(sh.fortune?.conditionformat ? { luckysheet_conditionformat_save: sh.fortune.conditionformat } : {}),
     }
   })
 }
@@ -687,6 +712,14 @@ export function fortuneToUniver(sheets, meta = {}) {
       endRow: (Number(m.r) || 0) + Math.max(1, Number(m.rs) || 1) - 1,
       endColumn: (Number(m.c) || 0) + Math.max(1, Number(m.cs) || 1) - 1,
     }))
+    const fortune = {}
+    if (sh.config?.borderInfo?.length) fortune.borderInfo = sh.config.borderInfo
+    if (sh.config?.rowlen) fortune.rowlen = sh.config.rowlen
+    if (sh.config?.columnlen) fortune.columnlen = sh.config.columnlen
+    if (sh.config?.rowhidden) fortune.rowhidden = sh.config.rowhidden
+    if (sh.config?.colhidden) fortune.colhidden = sh.config.colhidden
+    if (sh.frozen) fortune.frozen = sh.frozen
+    if (sh.luckysheet_conditionformat_save?.length) fortune.conditionformat = sh.luckysheet_conditionformat_save
     out[id] = {
       id,
       name: sh.name || `Sheet${i + 1}`,
@@ -694,6 +727,7 @@ export function fortuneToUniver(sheets, meta = {}) {
       mergeData,
       rowCount: sh.row || 40,
       columnCount: sh.column || 12,
+      ...(Object.keys(fortune).length ? { fortune } : {}),
     }
   })
   if (!sheetOrder.length) {

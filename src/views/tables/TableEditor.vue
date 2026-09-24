@@ -16,7 +16,6 @@ import AppModal from '../../components/AppModal.vue'
 
 const props = defineProps({
   tableId: { type: String, default: '' },
-  preview: { type: Boolean, default: false },
 })
 const emit = defineEmits(['close'])
 const store = useTableStore()
@@ -51,15 +50,23 @@ const fieldList = computed(() => pivot.headers.map((h, i) => ({ i, h })).filter(
   return !kw || String(x.h).toLowerCase().includes(kw)
 }))
 
+function setPageIcon(href) {
+  const icon = document.querySelector('link[rel="icon"]') || document.head.appendChild(document.createElement('link'))
+  icon.rel = 'icon'
+  icon.type = 'image/svg+xml'
+  icon.href = href
+}
+
 watch(() => props.tableId, async (id, prev) => {
   document.body.classList.toggle('tbl-editor-open', !!id)
   titleEditing.value = false
   if (!id) {
     closePivot(true)
+    setPageIcon('/ailab-mark.svg')
     return
   }
   if (prev && prev !== id) capture()
-  if (props.preview) document.title = `${store.get(id)?.title || '表格'} · 预览`
+  setPageIcon('/excel-file.svg')
   await loadCurrent()
 }, { immediate: true })
 watch(sheetRef, (el) => {
@@ -67,7 +74,7 @@ watch(sheetRef, (el) => {
 })
 
 function startRename() {
-  if (props.preview || !table.value) return
+  if (!table.value) return
   titleDraft.value = table.value.title || ''
   titleEditing.value = true
   nextTick(() => {
@@ -101,18 +108,18 @@ function onEsc(e) {
   if (pop.show) { pop.show = false; return }
   if (pub.visible) { pub.visible = false; return }
   if (pivotOpen.value) { closePivot(); return }
-  if (props.preview) { closePreviewWindow(); return }
   close()
 }
 window.addEventListener('keydown', onEsc)
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onEsc)
   document.body.classList.remove('tbl-editor-open')
+  setPageIcon('/ailab-mark.svg')
   clearTimeout(savedTimer)
 })
 
 async function capture() {
-  if (props.preview || !sheetRef.value || !props.tableId) return { ok: false, msg: '表格未就绪' }
+  if (!sheetRef.value || !props.tableId) return { ok: false, msg: '表格未就绪' }
   const snap = sheetRef.value.snapshot()
   if (!snap) return { ok: false, msg: '未能读取当前表格内容' }
   const thumb = sheetRef.value.captureThumb()
@@ -130,7 +137,6 @@ async function loadCurrent() {
   pivotOpen.value = false
   await nextTick()
   sheetRef.value?.load(t.workbook || { id: t.id, name: t.title, sheetOrder: [], sheets: {} })
-  if (!props.preview) capture()
 }
 
 async function close() {
@@ -138,16 +144,6 @@ async function close() {
   closePivot(true)
   document.body.classList.remove('tbl-editor-open')
   emit('close')
-}
-
-function onPreview() {
-  const t = table.value
-  if (!t) return Message.error('请先打开一张表格')
-  capture()
-  const url = `${location.origin}/tables/${encodeURIComponent(t.id)}?type=${encodeURIComponent(store.currentType)}&preview=1`
-  const win = window.open(url, `tbl-preview-${t.id}`)
-  if (!win) return Message.warning('浏览器拦截了新窗口，请允许弹窗后重试')
-  Message.success('已在新窗口打开预览')
 }
 
 async function onSave() {
@@ -189,9 +185,6 @@ function confirmPublish() {
   if (!r.ok) return Message.error(r.msg)
   pub.visible = false
   Message.success(`已提交发布申请，待 ${pub.approver} 审批`)
-}
-function closePreviewWindow() {
-  window.close()
 }
 
 function liveSheetName() {
@@ -412,16 +405,15 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onDocPop))
 
 <template>
   <Teleport to="body">
-    <div class="editor-root" :class="{ open, 'is-preview': preview }" :aria-hidden="!open">
+    <div class="editor-root" :class="{ open }" :aria-hidden="!open">
       <div class="editor-bar">
-        <button type="button" class="editor-back" @click="preview ? closePreviewWindow() : close()">
-          <Icon name="chevrons-left" :size="14" />
-          {{ preview ? '关闭预览' : '卡片视图' }}
+        <button type="button" class="editor-back" title="返回" @click="close()">
+          <Icon name="chevron-left-12" :size="16" />
         </button>
         <div class="editor-heading">
           <div class="editor-title-box">
             <input
-              v-if="titleEditing && !preview"
+              v-if="titleEditing"
               ref="titleInput"
               v-model="titleDraft"
               class="editor-title-input"
@@ -436,11 +428,9 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onDocPop))
               v-else
               type="button"
               class="editor-title"
-              :class="{ 'is-static': preview }"
               :title="table?.title || '未命名表格'"
-              :disabled="preview"
               @click="startRename"
-            >{{ table?.title || '未命名表格' }}{{ preview ? '（预览）' : '' }}</button>
+            >{{ table?.title || '未命名表格' }}</button>
           </div>
           <span v-if="table?.publish?.status === 'pending'" class="pub-status">待 {{ table.publish.approver }} 审批</span>
           <div class="editor-meta">
@@ -449,16 +439,12 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onDocPop))
           </div>
         </div>
         <div class="editor-acts">
-          <template v-if="!preview">
-            <button type="button" class="btn" @click="onPreview">预览</button>
-            <button type="button" class="btn" @click="onSave">保存<span class="save-dot" :class="{ show: savedFlash }">有更新</span></button>
-            <button type="button" class="btn primary" @click="openPublish">申请发布</button>
-          </template>
+          <button type="button" class="btn" @click="onSave">保存<span class="save-dot" :class="{ show: savedFlash }">有更新</span></button>
           <button type="button" class="btn" @click="onExport">导出</button>
         </div>
       </div>
       <div class="editor-stage">
-        <FortuneSheet v-if="open" :key="`${tableId}-fold`" ref="sheetRef" :readonly="preview" @pivot="openPivotWizard" />
+        <FortuneSheet v-if="open" :key="`${tableId}-fold`" ref="sheetRef" @pivot="openPivotWizard" />
         <aside class="pv-panel" :class="{ open: pivotOpen }">
           <div class="pv-head">
             <span class="pv-title">数据透视表

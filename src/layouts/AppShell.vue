@@ -122,7 +122,7 @@ function srcName() {
         </div>
       </nav>
       <div class="sidebar-foot">
-        <button type="button" class="sb-collapse" data-tip="收起菜单" title="收起菜单" @click="collapsed = !collapsed">
+        <button type="button" class="sb-collapse" :data-tip="collapsed ? '展开菜单' : '收起菜单'" @click="collapsed = !collapsed">
           <Icon name="panel-collapse" :size="16" />
         </button>
       </div>

@@ -21,11 +21,11 @@ svg.i use { pointer-events: none; }
   height: 100vh;
   background: var(--bg);
 }
-.app-shell.nav-collapsed .sidebar { width: 56px; }
+.app-shell.nav-collapsed .sidebar { width: 56px; overflow: visible; z-index: 20; }
 .app-shell.nav-collapsed .logo { justify-content: center; padding: 0 8px; }
 .app-shell.nav-collapsed .logo .name,
 .app-shell.nav-collapsed .logo .sub { display: none; }
-.app-shell.nav-collapsed .menu { padding: 8px 6px; }
+.app-shell.nav-collapsed .menu { padding: 8px 6px; overflow: visible; }
 .app-shell.nav-collapsed .menu-item {
   justify-content: center;
   padding: 0;
@@ -79,6 +79,48 @@ svg.i use { pointer-events: none; }
   line-height: 40px;
 }
 .menu-item:hover { background: #e8e9eb; }
+.menu-item[data-tip] { position: relative; }
+.app-shell.nav-collapsed .menu-item[data-tip]::before,
+.sb-collapse[data-tip]::before {
+  content: "";
+  position: absolute;
+  left: calc(100% + 2px);
+  top: 50%;
+  transform: translateY(-50%);
+  border: 5px solid transparent;
+  border-right-color: rgba(0, 0, 0, 0.8);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  z-index: 40;
+}
+.app-shell.nav-collapsed .menu-item[data-tip]::after,
+.sb-collapse[data-tip]::after {
+  content: attr(data-tip);
+  position: absolute;
+  left: calc(100% + 10px);
+  top: 50%;
+  transform: translateY(-50%);
+  padding: 4px 8px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.8);
+  color: #fff;
+  font-size: 12px;
+  line-height: 1.4;
+  font-weight: 400;
+  white-space: nowrap;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  z-index: 40;
+}
+.app-shell.nav-collapsed .menu-item[data-tip]:hover::after,
+.app-shell.nav-collapsed .menu-item[data-tip]:hover::before,
+.sb-collapse[data-tip]:hover::after,
+.sb-collapse[data-tip]:hover::before {
+  opacity: 1;
+  visibility: visible;
+}
 .menu-item.active { background: var(--primary-bg); color: var(--primary); font-weight: 500; }
 .menu-item .mi-icon {
   display: flex;
@@ -114,8 +156,9 @@ svg.i use { pointer-events: none; }
 }
 .sub-item:hover { background: #e8e9eb; color: var(--text); }
 .sub-item.active { background: var(--primary-bg); color: var(--primary); font-weight: 500; }
-.sidebar-foot { padding: 8px 12px; }
+.sidebar-foot { padding: 8px 12px; overflow: visible; }
 .sb-collapse {
+  position: relative;
   width: 32px;
   height: 32px;
   border: none;

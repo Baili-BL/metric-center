@@ -38,7 +38,6 @@ const dirParentLabel = computed(() => {
   return dirModal.parent || '根目录（一级目录）'
 })
 const menuTable = computed(() => store.get(menuId.value))
-const previewMode = computed(() => String(route.query.preview || '') === '1')
 const editorId = computed(() => String(route.params.id || route.query.id || ''))
 const editorNonce = ref(0)
 
@@ -63,7 +62,7 @@ watch(editorId, (id) => {
     router.replace({
       name: 'tables',
       params: { id: found.table.id },
-      query: { type: found.type, ...(previewMode.value ? { preview: '1' } : {}) },
+      query: { type: found.type },
     })
   }
 }, { immediate: true })
@@ -271,7 +270,7 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
 </script>
 
 <template>
-  <div class="tbl-page" :class="{ 'is-preview': previewMode }">
+  <div class="tbl-page">
     <aside class="dir-panel ic-dir-panel" :class="{ collapsed: dirCollapsed }">
       <div class="dir-head">
         <h2>目录</h2>
@@ -497,5 +496,5 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
     </template>
   </AppModal>
 
-  <TableEditor :key="`${editorId || 'none'}-${editorNonce}`" :table-id="editorId" :preview="previewMode" @close="closeEditor" />
+  <TableEditor :key="`${editorId || 'none'}-${editorNonce}`" :table-id="editorId" @close="closeEditor" />
 </template>
