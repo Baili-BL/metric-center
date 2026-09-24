@@ -77,7 +77,7 @@ const folded = ref(true)
 const fsTip = reactive({ show: false, text: '', left: 0, top: 0 })
 const pop = reactive({ show: false, kind: '', left: 0, top: 0 })
 const freezeInfo = reactive({ row: 0, col: 0, letter: 'A' })
-const colorPop = reactive({ show: false, kind: 'fc', origin: '#1f2329', left: 0, top: 0 })
+const colorPop = reactive({ show: false, kind: 'fc', key: '', origin: '#1f2329', left: 0, top: 0 })
 const borderState = reactive({ type: 'border-all', color: '#1f2329', style: '1', styleOpen: false })
 const cfState = reactive({
   fly: '',
@@ -199,6 +199,51 @@ const NUM_FMTS = [
   { id: 'time', short: '时间', label: '时间', sample: '23:24:25', fa: 'hh:mm:ss', t: 'd' },
   { id: 'datetime', short: '日期时间', label: '日期时间', sample: '2017/08/01 23:24:25', fa: 'yyyy/MM/dd hh:mm:ss', t: 'd' },
 ]
+const FMT_CATS = [
+  { id: 'general', label: '常规', hint: '常规单元格格式不包含任何特定的数字格式。' },
+  { id: 'number', label: '数值', hint: '数值格式用于一般数字的表示。' },
+  { id: 'currency', label: '货币', hint: '货币格式用于表示一般货币数值。' },
+  { id: 'accounting', label: '会计专用', hint: '会计格式可对一列数值进行货币符号和小数点对齐。' },
+  { id: 'date', label: '日期', hint: '日期格式将日期和时间序列数显示为日期值。' },
+  { id: 'time', label: '时间', hint: '时间格式将日期和时间序列数显示为时间值。' },
+  { id: 'percent', label: '百分比', hint: '百分比格式将单元格中的数值乘以 100，并以百分数形式显示。' },
+  { id: 'fraction', label: '分数', hint: '分数格式以分数形式显示数字。' },
+  { id: 'sci', label: '科学记数', hint: '科学记数格式以指数形式显示数字。' },
+  { id: 'text', label: '文本', hint: '在文本格式中，单元格内容按文本处理，输入的内容与显示的内容一致。' },
+  { id: 'special', label: '特殊', hint: '特殊格式可用于跟踪数据列表及数据库的值。' },
+  { id: 'custom', label: '自定义', hint: '以现有格式为基础，生成自定义的数字格式。' },
+]
+const FMT_DATES = [
+  { fa: 'yyyy-MM-dd', sample: '2017-08-01' },
+  { fa: 'yyyy/MM/dd', sample: '2017/08/01' },
+  { fa: 'yyyy年M月d日', sample: '2017年8月1日' },
+  { fa: 'MM-dd', sample: '08-01' },
+]
+const FMT_TIMES = [
+  { fa: 'hh:mm:ss', sample: '23:24:25' },
+  { fa: 'hh:mm', sample: '23:24' },
+  { fa: 'yyyy-MM-dd hh:mm:ss', sample: '2017-08-01 23:24:25' },
+]
+const fmtDlg = reactive({
+  show: false,
+  tab: 'number',
+  cat: 'general',
+  decimals: 2,
+  thousand: true,
+  symbol: '¥',
+  dateFa: 'yyyy-MM-dd',
+  timeFa: 'hh:mm:ss',
+  custom: 'General',
+  ht: '1',
+  vt: '0',
+  wrap: false,
+  font: '默认字体',
+  size: 10,
+  bold: false,
+  color: '#1f2329',
+  border: '',
+  fill: '',
+})
 const FIND_SCOPES = [
   { id: 'sheet', label: '当前工作表' },
   { id: 'all', label: '所有工作表' },
@@ -308,9 +353,9 @@ const CF_FLIES = {
     { id: 'db6', type: 'dataBar', format: ['#ff555a'], label: '红色' },
   ],
   icons: [
-    { id: 'ic1', type: 'icons', label: '三色箭头' },
-    { id: 'ic2', type: 'icons', label: '三色旗' },
-    { id: 'ic3', type: 'icons', label: '三色信号灯' },
+    { id: 'ic1', type: 'icons', label: '三色箭头', marks: ['↑', '→', '↓'], format: ['#63c623', '#f5c542', '#ff555a'] },
+    { id: 'ic2', type: 'icons', label: '三色旗', marks: ['⚑', '⚑', '⚑'], format: ['#63c623', '#f5c542', '#ff555a'] },
+    { id: 'ic3', type: 'icons', label: '三色信号灯', marks: ['●', '●', '●'], format: ['#63c623', '#f5c542', '#ff555a'] },
   ],
 }
 const CF_RULES = {
@@ -717,6 +762,10 @@ function clickData(label) {
     openFilter(el)
     return
   }
+  if (label === '下拉列表') {
+    openValidation()
+    return
+  }
   const box = hostRef.value
   const el = box?.querySelector(`[data-label="${label}"] .fortune-toolbar-combo-button, [data-label="${label}"], [data-tips="${label}"]`)
   el?.click()
@@ -1019,6 +1068,18 @@ function applyCellColor(color) {
     if (borderState.type && borderState.type !== 'border-draw') applyBorder(borderState.type)
     return
   }
+  if (colorPop.kind === 'dv') {
+    if (colorPop.key) dvDlg.colors[colorPop.key] = color || '#3370ff'
+    return
+  }
+  if (colorPop.kind === 'fmt-fc') {
+    fmtDlg.color = color || '#1f2329'
+    return
+  }
+  if (colorPop.kind === 'fmt-bg') {
+    fmtDlg.fill = color || '#fff3e0'
+    return
+  }
   const api = instRef.current
   const sel = api?.getSelection?.()?.[0]
   if (!api?.setCellFormatByRange || !sel) return
@@ -1042,6 +1103,96 @@ function applyNumFmt(item) {
   if (label) label.textContent = item.short
   pop.show = false
   markActiveTools()
+}
+
+function fmtFa() {
+  const d = Math.max(0, Math.min(6, Number(fmtDlg.decimals) || 0))
+  const dec = d ? `.${'0'.repeat(d)}` : ''
+  const thou = fmtDlg.thousand ? '#,##0' : '0'
+  if (fmtDlg.cat === 'general') return { fa: 'General', t: 'g', short: '常规' }
+  if (fmtDlg.cat === 'number') return { fa: `${thou}${dec}`, t: 'n', short: '数值' }
+  if (fmtDlg.cat === 'currency') return { fa: `"${fmtDlg.symbol}"${thou}${dec}`, t: 'n', short: '货币' }
+  if (fmtDlg.cat === 'accounting') return { fa: `"${fmtDlg.symbol}"${thou}${dec}`, t: 'n', short: '会计' }
+  if (fmtDlg.cat === 'date') return { fa: fmtDlg.dateFa, t: 'd', short: '日期' }
+  if (fmtDlg.cat === 'time') return { fa: fmtDlg.timeFa, t: 'd', short: '时间' }
+  if (fmtDlg.cat === 'percent') return { fa: `0${dec}%`, t: 'n', short: '百分比' }
+  if (fmtDlg.cat === 'fraction') return { fa: '# ?/?', t: 'n', short: '分数' }
+  if (fmtDlg.cat === 'sci') return { fa: `0${dec}E+00`, t: 'n', short: '科学记数' }
+  if (fmtDlg.cat === 'text') return { fa: '@', t: 's', short: '文本' }
+  if (fmtDlg.cat === 'special') return { fa: '000000', t: 'n', short: '特殊' }
+  return { fa: fmtDlg.custom || 'General', t: 'g', short: '自定义' }
+}
+function fmtSampleText() {
+  const cat = fmtDlg.cat
+  if (cat === 'general') return ''
+  if (cat === 'text') return '文本'
+  if (cat === 'date') return FMT_DATES.find((x) => x.fa === fmtDlg.dateFa)?.sample || '2017-08-01'
+  if (cat === 'time') return FMT_TIMES.find((x) => x.fa === fmtDlg.timeFa)?.sample || '23:24:25'
+  if (cat === 'percent') return fmtDlg.decimals ? '12.00%' : '12%'
+  if (cat === 'fraction') return '1/2'
+  if (cat === 'sci') return '1.23E+03'
+  if (cat === 'special') return '000123'
+  if (cat === 'custom') return fmtDlg.custom
+  const body = fmtDlg.thousand ? '1,234' : '1234'
+  const dec = fmtDlg.decimals ? `.${'0'.repeat(Math.min(6, fmtDlg.decimals))}` : ''
+  const sign = fmtDlg.cat === 'currency' || fmtDlg.cat === 'accounting' ? fmtDlg.symbol : ''
+  return `${sign}${body}${dec}`
+}
+function openFmtDlg() {
+  pop.show = false
+  const api = instRef.current
+  const sheet = api?.getSheet?.()
+  const sel = api?.getSelection?.()?.[0]
+  const cell = sheet?.data?.[sel?.row?.[0] ?? 0]?.[sel?.column?.[0] ?? 0]
+  const fa = cell?.ct?.fa || 'General'
+  fmtDlg.tab = 'number'
+  fmtDlg.cat = 'general'
+  if (fa === '@') fmtDlg.cat = 'text'
+  else if (fa.includes('%')) fmtDlg.cat = 'percent'
+  else if (fa.includes('E+')) fmtDlg.cat = 'sci'
+  else if (/y|M|d/.test(fa) && fa.includes(':')) fmtDlg.cat = 'time'
+  else if (/y|M|d/.test(fa)) { fmtDlg.cat = 'date'; fmtDlg.dateFa = fa }
+  else if (fa.includes('¥') || fa.includes('$')) fmtDlg.cat = 'currency'
+  else if (fa !== 'General') fmtDlg.cat = 'number'
+  fmtDlg.custom = fa
+  fmtDlg.ht = String(cell?.ht ?? 1)
+  fmtDlg.vt = String(cell?.vt ?? 0)
+  fmtDlg.wrap = cell?.tb === 2
+  fmtDlg.bold = !!cell?.bl
+  fmtDlg.color = cell?.fc || '#1f2329'
+  fmtDlg.fill = cell?.bg || ''
+  fmtDlg.border = ''
+  fmtDlg.show = true
+}
+function openFmtColor(kind, e) {
+  const r = e.currentTarget.getBoundingClientRect()
+  colorPop.kind = kind
+  colorPop.origin = kind === 'fmt-bg' ? (fmtDlg.fill || '#fff3e0') : fmtDlg.color
+  colorPop.left = Math.min(r.left, window.innerWidth - 292)
+  colorPop.top = Math.min(r.bottom + 6, window.innerHeight - 420)
+  colorPop.show = true
+}
+function confirmFmtDlg() {
+  const api = instRef.current
+  const sel = api?.getSelection?.()?.[0]
+  if (api?.setCellFormatByRange && sel?.row && sel?.column) {
+    const range = { row: sel.row, column: sel.column }
+    const item = fmtFa()
+    api.setCellFormatByRange('ct', { fa: item.fa, t: item.t }, range)
+    api.setCellFormatByRange('ht', Number(fmtDlg.ht), range)
+    api.setCellFormatByRange('vt', Number(fmtDlg.vt), range)
+    api.setCellFormatByRange('tb', fmtDlg.wrap ? 2 : 0, range)
+    api.setCellFormatByRange('bl', fmtDlg.bold ? 1 : 0, range)
+    api.setCellFormatByRange('fs', Number(fmtDlg.size) || 10, range)
+    if (fmtDlg.font && fmtDlg.font !== '默认字体') api.setCellFormatByRange('ff', fmtDlg.font, range)
+    api.setCellFormatByRange('fc', fmtDlg.color || '#1f2329', range)
+    if (fmtDlg.fill) api.setCellFormatByRange('bg', fmtDlg.fill, range)
+    numFmt.id = item.short
+    const label = hostRef.value?.querySelector('[data-tips="格式"]')?.closest('.fortune-toobar-combo-container')?.querySelector('.fortune-toolbar-combo-text')
+    if (label) label.textContent = item.short
+  }
+  if (fmtDlg.border) applyBorder(fmtDlg.border)
+  fmtDlg.show = false
 }
 
 function openBorderPop(el) {
@@ -1319,10 +1470,267 @@ function syncRankType() {
   else cfState.dlg = cfForm.percent ? 'top10_percent' : 'top10'
 }
 
+function parseRgb(color) {
+  const m = String(color).match(/(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/)
+  if (m) return [+m[1], +m[2], +m[3]]
+  return [255, 255, 255]
+}
+function mixRgb(a, b, t) {
+  return `rgb(${a.map((v, i) => Math.round(v + (b[i] - v) * t)).join(', ')})`
+}
+function scaleColor(format, t) {
+  const cols = format.map(parseRgb)
+  if (cols.length < 2) return format[0]
+  if (cols.length === 2) return mixRgb(cols[0], cols[1], t)
+  if (t <= 0.5) return mixRgb(cols[0], cols[1], t * 2)
+  return mixRgb(cols[1], cols[2], (t - 0.5) * 2)
+}
+function cfNumericCells() {
+  const api = instRef.current
+  const sheet = api?.getSheet?.()
+  if (!api?.setCellValue || !sheet) return null
+  const cells = []
+  cfSelection().forEach((range) => {
+    for (let r = range.row[0]; r <= range.row[1]; r += 1) {
+      for (let c = range.column[0]; c <= range.column[1]; c += 1) {
+        const cell = sheet.data?.[r]?.[c]
+        const raw = cell && typeof cell === 'object' ? (cell.v ?? cell.m) : cell
+        const n = typeof raw === 'number' ? raw : Number(String(raw ?? '').replace(/,/g, ''))
+        if (Number.isFinite(n)) cells.push({ r, c, n, cell })
+      }
+    }
+  })
+  if (!cells.length) return null
+  return { api, sheet, cells }
+}
+function paintColorScale(format) {
+  const pack = cfNumericCells()
+  if (!pack || !format?.length) return
+  const { api, sheet, cells } = pack
+  const min = Math.min(...cells.map((x) => x.n))
+  const max = Math.max(...cells.map((x) => x.n))
+  cells.forEach(({ r, c, n, cell }) => {
+    const t = max === min ? 0.5 : (n - min) / (max - min)
+    const prev = cell && typeof cell === 'object' ? cell : { v: n, m: String(n) }
+    api.setCellValue(r, c, {
+      ...prev,
+      v: n,
+      bg: scaleColor(format, t),
+      ct: { ...(prev.ct || {}), fa: prev.ct?.fa || 'General', t: 'n' },
+    }, { id: sheet.id })
+  })
+}
+function cfPlainText(prev, n) {
+  return String(prev?.m ?? n).replace(/[↑→↓⚑●█░\s]/g, '') || String(n)
+}
+function barColor(color, alpha) {
+  const hex = String(color || '#638ec6').trim()
+  const m = hex.match(/^#([0-9a-f]{6})$/i)
+  if (!m) return hex
+  const n = parseInt(m[1], 16)
+  return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${alpha})`
+}
+function sizeList(api, sheet, count, kind) {
+  const idx = Array.from({ length: count }, (_, i) => i)
+  try {
+    const got = kind === 'c'
+      ? api.getColumnWidth?.(idx, { id: sheet.id })
+      : api.getRowHeight?.(idx, { id: sheet.id })
+    if (got && typeof got === 'object') return idx.map((i) => Number(got[i]) || (kind === 'c' ? 73 : 24))
+  } catch { /* 用默认尺寸 */ }
+  return idx.map(() => (kind === 'c' ? 73 : 24))
+}
+function restoreBarText(api, sheet) {
+  const rules = sheet.config?.fs_data_bars || sheet.fs_data_bars || []
+  rules.forEach((rule) => {
+    ;(rule.cellrange || []).forEach((range) => {
+      for (let r = range.row[0]; r <= range.row[1]; r += 1) {
+        for (let c = range.column[0]; c <= range.column[1]; c += 1) {
+          const cell = sheet.data?.[r]?.[c]
+          if (!cell || typeof cell !== 'object') continue
+          if (!/[█░]/.test(String(cell.m || ''))) continue
+          const n = Number(cfPlainText(cell, cell.v))
+          if (!Number.isFinite(n)) continue
+          api.setCellValue(r, c, { v: n, m: String(n), ct: { fa: 'General', t: 'n' } }, { id: sheet.id })
+        }
+      }
+    })
+  })
+}
+function isWhiteFont(color) {
+  const hex = String(color || '').replace('#', '').toLowerCase()
+  return hex === 'fff' || hex === 'ffffff'
+}
+function barTextColor(cell) {
+  if (cell?.fsBarColor && !isWhiteFont(cell.fsBarColor)) return cell.fsBarColor
+  if (cell?.fc && !isWhiteFont(cell.fc)) return cell.fc
+  return '#1f2329'
+}
+function drawDataBars() {
+  const api = instRef.current
+  const sheet = api?.getSheet?.()
+  const area = hostRef.value?.querySelector('.fortune-cell-area')
+  if (!api || !sheet || !area) return
+  let layer = area.querySelector('.fs-databar-layer')
+  if (!layer) {
+    layer = document.createElement('div')
+    layer.className = 'fs-databar-layer'
+    area.insertBefore(layer, area.firstChild)
+  }
+  layer.innerHTML = ''
+  const rules = sheet.config?.fs_data_bars || sheet.fs_data_bars || []
+  if (!rules.length) return
+  const rows = sheet.data?.length || sheet.row || 0
+  const cols = sheet.data?.[0]?.length || sheet.column || 0
+  const widths = sizeList(api, sheet, cols, 'c')
+  const heights = sizeList(api, sheet, rows, 'r')
+  const hideBarText = []
+  const scrollX = sheet.scrollLeft || 0
+  const scrollY = sheet.scrollTop || 0
+  const colPitch = widths.map((w) => w + 1)
+  const rowPitch = heights.map((h) => h + 1)
+  const colPos = [0]
+  const rowPos = [0]
+  colPitch.forEach((w) => colPos.push(colPos[colPos.length - 1] + w))
+  rowPitch.forEach((h) => rowPos.push(rowPos[rowPos.length - 1] + h))
+  rules.forEach((rule) => {
+    const cells = []
+    ;(rule.cellrange || []).forEach((range) => {
+      for (let r = range.row[0]; r <= range.row[1]; r += 1) {
+        for (let c = range.column[0]; c <= range.column[1]; c += 1) {
+          const cell = sheet.data?.[r]?.[c]
+          const raw = cell && typeof cell === 'object' ? (cell.v ?? cell.m) : cell
+          const n = typeof raw === 'number' ? raw : Number(String(raw ?? '').replace(/[↑→↓⚑●█░,\s]/g, ''))
+          if (Number.isFinite(n)) cells.push({ r, c, n, cell })
+        }
+      }
+    })
+    if (!cells.length) return
+    const min = Math.min(...cells.map((x) => x.n))
+    const max = Math.max(...cells.map((x) => x.n))
+    const color = rule.format?.[0] || '#638ec6'
+    const gradient = (rule.format || []).length > 1
+    cells.forEach(({ r, c, n, cell }) => {
+      const left = (colPos[c] || 0) - scrollX
+      const top = (rowPos[r] || 0) - scrollY
+      const width = colPitch[c] || 74
+      const height = rowPitch[r] || 25
+      const padX = 2
+      const padY = Math.max(4, Math.round(height * 0.22))
+      const innerW = Math.max(width - padX * 2, 1)
+      const barH = Math.max(height - padY * 2, 1)
+      let origin = 0
+      let t = 1
+      if (min >= 0) {
+        t = max === 0 ? 0 : n / max
+      } else if (max <= 0) {
+        t = min === 0 ? 0 : Math.abs(n) / Math.abs(min)
+        origin = 1 - t
+      } else {
+        const axis = Math.abs(min) / (max - min)
+        if (n >= 0) {
+          t = max === 0 ? 0 : (n / max) * (1 - axis)
+          origin = axis
+        } else {
+          t = min === 0 ? 0 : (Math.abs(n) / Math.abs(min)) * axis
+          origin = axis - t
+        }
+      }
+      const barW = Math.max(innerW * t, n === 0 ? 0 : 2)
+      const el = document.createElement('i')
+      el.className = 'fs-databar'
+      el.style.left = `${left + padX + innerW * origin}px`
+      el.style.top = `${top + padY}px`
+      el.style.width = `${barW}px`
+      el.style.height = `${barH}px`
+      el.style.background = gradient ? `linear-gradient(90deg, ${color}, #ffffff)` : color
+      layer.appendChild(el)
+      const shown = barTextColor(cell)
+      const label = document.createElement('span')
+      label.className = 'fs-databar-num'
+      label.textContent = String(n)
+      label.style.left = `${left}px`
+      label.style.top = `${top}px`
+      label.style.width = `${width - 4}px`
+      label.style.height = `${height}px`
+      label.style.lineHeight = `${height}px`
+      label.style.color = shown
+      if (cell?.bl) label.style.fontWeight = '700'
+      if (cell?.it) label.style.fontStyle = 'italic'
+      if (cell?.fs) label.style.fontSize = `${cell.fs}px`
+      layer.appendChild(label)
+      if (cell?.fc && !isWhiteFont(cell.fc)) {
+        hideBarText.push({ r, c, cell, color: cell.fc })
+      }
+    })
+  })
+  hideBarText.forEach(({ r, c, cell, color }) => {
+    api.setCellValue(r, c, { ...cell, fsBarColor: color, fc: '#ffffff' }, { id: sheet.id })
+  })
+}
+function paintDataBar(format) {
+  const pack = cfNumericCells()
+  if (!pack) return
+  const { api, sheet } = pack
+  const native = cfRules().filter((rule) => rule.type !== 'dataBar')
+  if (native.length !== cfRules().length) patchCf(native)
+  restoreBarText(api, sheet)
+  pack.cells.forEach(({ r, c, n, cell }) => {
+    const prev = cell && typeof cell === 'object' ? cell : { v: n, m: String(n) }
+    api.setCellValue(r, c, {
+      ...prev,
+      v: n,
+      m: String(n),
+      ht: 2,
+      fc: '#ffffff',
+      ct: { fa: prev.ct?.fa && prev.ct.fa !== 'General' ? prev.ct.fa : 'General', t: 'n' },
+    }, { id: sheet.id })
+  })
+  const sel = cfSelection()
+  const prev = (sheet.config?.fs_data_bars || sheet.fs_data_bars || []).filter((rule) => !(rule.cellrange || []).some((range) => sel.some((s) => rangesOverlap(range, s))))
+  const next = [...prev, { format, cellrange: sel }]
+  api.applyOp([
+    { op: 'replace', id: sheet.id, path: ['config', 'fs_data_bars'], value: next },
+    { op: 'replace', id: sheet.id, path: ['fs_data_bars'], value: next },
+  ])
+  requestAnimationFrame(drawDataBars)
+}
+function paintIcons(item) {
+  const pack = cfNumericCells()
+  if (!pack) return
+  const { api, sheet, cells } = pack
+  const marks = item.marks || ['↑', '→', '↓']
+  const colors = item.format || ['#63c623', '#f5c542', '#ff555a']
+  const sorted = cells.map((x) => x.n).sort((a, b) => a - b)
+  const lo = sorted[Math.floor((sorted.length - 1) / 3)] ?? sorted[0]
+  const hi = sorted[Math.ceil((sorted.length - 1) * 2 / 3)] ?? sorted[sorted.length - 1]
+  cells.forEach(({ r, c, n, cell }) => {
+    const bucket = lo === hi ? 1 : n <= lo ? 2 : n >= hi ? 0 : 1
+    const mark = `${marks[bucket]} `
+    const prev = cell && typeof cell === 'object' ? cell : { v: n }
+    const text = cfPlainText(prev, n)
+    api.setCellValue(r, c, {
+      ...prev,
+      v: n,
+      m: mark + text,
+      ct: {
+        fa: 'General',
+        t: 'inlineStr',
+        s: [{ v: mark, fc: colors[bucket] }, { v: text, fc: '#1f2329' }],
+      },
+    }, { id: sheet.id })
+  })
+}
 function applyPreset(item) {
   pop.show = false
   cfState.fly = ''
-  patchCf([...cfRules(), {
+  if (item.type === 'colorGradation') paintColorScale(item.format)
+  else if (item.type === 'dataBar') {
+    paintDataBar(item.format)
+    markActiveTools()
+    return
+  } else if (item.type === 'icons') paintIcons(item)
+  patchCf([...cfRules().filter((rule) => rule.type !== 'dataBar'), {
     type: item.type,
     cellrange: cfSelection(),
     format: item.format,
@@ -1521,11 +1929,7 @@ function onFreezeCapture(e) {
     if (e.target.closest?.('.fortune-toolbar-combo-popup, .fortune-toolbar-select')) return
     e.preventDefault()
     e.stopPropagation()
-    if (pop.show && pop.kind === 'numfmt') {
-      pop.show = false
-      return
-    }
-    openPop('numfmt', fmtBox)
+    openFmtDlg()
     return
   }
   const cfHit = e.target?.closest?.('.fortune-toobar-combo-container[data-label="条件格式"]')
@@ -1540,6 +1944,13 @@ function onFreezeCapture(e) {
       return
     }
     openCfPop(cfHit)
+    return
+  }
+  const dvHit = e.target?.closest?.('[data-label="下拉列表"], [data-tips="下拉列表"]')
+  if (dvHit && hostRef.value?.contains(dvHit)) {
+    e.preventDefault()
+    e.stopPropagation()
+    openValidation()
     return
   }
   const filterHit = e.target?.closest?.('.fortune-toobar-combo-container[data-label="筛选"], .fortune-toolbar-button[data-tips="筛选"]')
@@ -1648,6 +2059,26 @@ const CTX_ITEMS = [
 let copiedCells = null
 const cellLog = new Map()
 const ctxDlg = reactive({ show: false, title: '', text: '', mode: '', lines: [] })
+const DV_CONDS = ['单选', '多选', '数字', '日期', '文本', '复选框', '手机号', '邮箱']
+const dvDlg = reactive({
+  show: false,
+  tab: 'set',
+  cond: '单选',
+  source: 'custom',
+  text: '',
+  refText: '',
+  optionColor: true,
+  showArrow: true,
+  colors: {},
+  colorEdit: false,
+  hintOn: false,
+  hintTitle: '',
+  hintText: '',
+  warnOn: true,
+  warnStyle: 'stop',
+  warnTitle: '',
+  warnText: '',
+})
 
 function selectionBox() {
   const api = instRef.current
@@ -1838,18 +2269,103 @@ function confirmCtxDlg() {
     const range = { row: [box.r0, box.r0], column: [box.c0, box.c0] }
     if (ctxDlg.mode === 'comment' || ctxDlg.mode === 'note') {
       api.setCellFormatByRange?.('ps', text ? { value: text, isshow: ctxDlg.mode === 'comment' } : null, range, { id: box.id })
-    } else if (ctxDlg.mode === 'validation' && text) {
-      const sheet = api.getSheet?.() || box.sheet
-      const dv = { ...(sheet.dataVerification || {}) }
-      for (let r = box.r0; r <= box.r1; r += 1) {
-        for (let c = box.c0; c <= box.c1; c += 1) {
-          dv[`${r}_${c}`] = { type: 'dropdown', type2: false, value1: text, prohibitInput: false, hintShow: false, hintText: '' }
-        }
-      }
-      api.applyOp?.([{ id: box.id, op: 'replace', path: ['dataVerification'], value: dv }])
     }
   }
   ctxDlg.show = false
+}
+
+function dvOptionList() {
+  return dvDlg.text.split(/[\n,，]/).map((s) => s.trim()).filter(Boolean)
+}
+function openValidation() {
+  const box = selectionBox()
+  const rule = box?.sheet?.dataVerification?.[`${box.r0}_${box.c0}`]
+  dvDlg.tab = 'set'
+  dvDlg.colorEdit = false
+  dvDlg.cond = '单选'
+  dvDlg.source = 'custom'
+  dvDlg.text = ''
+  dvDlg.refText = ''
+  dvDlg.optionColor = true
+  dvDlg.showArrow = true
+  dvDlg.colors = {}
+  dvDlg.hintOn = false
+  dvDlg.hintTitle = ''
+  dvDlg.hintText = ''
+  dvDlg.warnOn = true
+  dvDlg.warnStyle = 'stop'
+  dvDlg.warnTitle = ''
+  dvDlg.warnText = ''
+  if (rule?.type === 'dropdown') {
+    dvDlg.cond = rule.type2 ? '多选' : '单选'
+    const value = String(rule.value1 || '')
+    const isRef = /^\$?[A-Z]+\d+:\$?[A-Z]+\d+$/i.test(value)
+    dvDlg.source = isRef ? 'ref' : 'custom'
+    if (isRef) dvDlg.refText = value
+    else dvDlg.text = value.split(',').join('\n')
+    dvDlg.optionColor = !!rule.optionColor
+    dvDlg.showArrow = rule.showArrow !== false
+    dvDlg.colors = { ...(rule.colors || {}) }
+    dvDlg.hintOn = !!rule.hintShow
+    dvDlg.hintTitle = rule.hintTitle || ''
+    dvDlg.hintText = rule.hintText || ''
+    dvDlg.warnOn = rule.prohibitInput !== false
+    dvDlg.warnText = rule.warnText || ''
+  } else if (rule?.type === 'checkbox') dvDlg.cond = '复选框'
+  else if (rule?.type === 'number') dvDlg.cond = '数字'
+  else if (rule?.type === 'date') dvDlg.cond = '日期'
+  dvDlg.show = true
+}
+function openDvColor(opt, e) {
+  const r = e.currentTarget.getBoundingClientRect()
+  colorPop.kind = 'dv'
+  colorPop.key = opt
+  colorPop.origin = dvDlg.colors[opt] || '#3370ff'
+  colorPop.left = Math.min(r.left, window.innerWidth - 292)
+  colorPop.top = Math.min(r.bottom + 6, window.innerHeight - 420)
+  colorPop.show = true
+}
+function confirmValidation() {
+  const box = selectionBox()
+  const api = instRef.current
+  if (!box || !api?.applyOp) {
+    dvDlg.show = false
+    return
+  }
+  const list = ['单选', '多选'].includes(dvDlg.cond)
+  const value1 = list
+    ? (dvDlg.source === 'ref' ? dvDlg.refText.trim() : dvOptionList().join(','))
+    : ''
+  const rule = {
+    type: dvDlg.cond === '复选框' ? 'checkbox' : (dvDlg.cond === '数字' ? 'number' : (dvDlg.cond === '日期' ? 'date' : 'dropdown')),
+    type2: dvDlg.cond === '多选',
+    value1,
+    prohibitInput: dvDlg.warnOn,
+    hintShow: dvDlg.hintOn,
+    hintTitle: dvDlg.hintTitle,
+    hintText: dvDlg.hintText || dvDlg.warnText,
+    optionColor: dvDlg.optionColor,
+    showArrow: dvDlg.showArrow,
+    colors: { ...dvDlg.colors },
+  }
+  const dv = { ...(box.sheet.dataVerification || {}) }
+  for (let r = box.r0; r <= box.r1; r += 1) {
+    for (let c = box.c0; c <= box.c1; c += 1) dv[`${r}_${c}`] = { ...rule }
+  }
+  api.applyOp([{ id: box.id, op: 'replace', path: ['dataVerification'], value: dv }])
+  dvDlg.show = false
+}
+function clearValidation() {
+  const box = selectionBox()
+  const api = instRef.current
+  if (box && api?.applyOp) {
+    const dv = { ...(box.sheet.dataVerification || {}) }
+    for (let r = box.r0; r <= box.r1; r += 1) {
+      for (let c = box.c0; c <= box.c1; c += 1) delete dv[`${r}_${c}`]
+    }
+    api.applyOp([{ id: box.id, op: 'replace', path: ['dataVerification'], value: dv }])
+  }
+  dvDlg.show = false
 }
 
 function removeDuplicates() {
@@ -1918,8 +2434,7 @@ async function onCtxAction(id) {
       `数字格式 ${cell?.ct?.fa || '常规'}`,
     ])
   } else if (id === 'numfmt') {
-    const el = hostRef.value?.querySelector('[data-tips="格式"]')?.closest('.fortune-toobar-combo-container')
-    if (el) openPop('numfmt', el)
+    openFmtDlg()
   } else if (id === 'link' && box) {
     await copyText(`${location.origin}${location.pathname}?range=${colLetter(box.c0)}${box.r0 + 1}:${colLetter(box.c1)}${box.r1 + 1}`)
   } else if (id === 'protectOn' && box) {
@@ -1931,7 +2446,7 @@ async function onCtxAction(id) {
   } else if (id === 'note') {
     openCtxDlg('note', '添加评论', box?.sheet.data?.[box.r0]?.[box.c0]?.ps?.value || '')
   } else if (id === 'validation') {
-    openCtxDlg('validation', '数据验证', '选项1,选项2,选项3')
+    openValidation()
   } else if (id === 'dedupe') removeDuplicates()
   else if (id === 'history' && box) {
     const lines = cellLog.get(`${box.r0},${box.c0}`) || []
@@ -2121,12 +2636,16 @@ function renderBook(data) {
         onClick: (e) => openPop('insert', e?.currentTarget || hostRef.value?.querySelector('[data-tips="插入"]')),
       },
     ],
-    onChange: (next) => { latest = next || latest; markActiveTools() },
+    onChange: (next) => { latest = next || latest; markActiveTools(); requestAnimationFrame(drawDataBars) },
   }))
   requestAnimationFrame(() => {
     watchToolbarLabels()
     bindFreezeClick()
+    const native = cfRules().filter((rule) => rule.type !== 'dataBar')
+    if (native.length !== cfRules().length) patchCf(native)
+    drawDataBars()
   })
+  box.addEventListener('wheel', () => { requestAnimationFrame(drawDataBars) }, { passive: true })
 }
 
 function load(wb) {
@@ -2934,6 +3453,136 @@ defineExpose({
           </div>
         </button>
       </template>
+    </div>
+    <div v-if="fmtDlg.show" class="fs-fmt" @mousedown.stop>
+      <div class="fs-dv-head">
+        <span>设置单元格格式</span>
+        <button type="button" class="fs-dv-x" @click="fmtDlg.show = false">×</button>
+      </div>
+      <div class="fs-dv-tabs">
+        <button type="button" :class="{ on: fmtDlg.tab === 'number' }" @click="fmtDlg.tab = 'number'">数字</button>
+        <button type="button" :class="{ on: fmtDlg.tab === 'align' }" @click="fmtDlg.tab = 'align'">对齐</button>
+        <button type="button" :class="{ on: fmtDlg.tab === 'font' }" @click="fmtDlg.tab = 'font'">字体</button>
+        <button type="button" :class="{ on: fmtDlg.tab === 'border' }" @click="fmtDlg.tab = 'border'">边框</button>
+        <button type="button" :class="{ on: fmtDlg.tab === 'fill' }" @click="fmtDlg.tab = 'fill'">填充</button>
+      </div>
+      <div v-if="fmtDlg.tab === 'number'" class="fs-fmt-body">
+        <div class="fs-fmt-cats">
+          <div class="fs-fmt-cat-h">分类</div>
+          <button v-for="c in FMT_CATS" :key="c.id" type="button" :class="{ on: fmtDlg.cat === c.id }" @click="fmtDlg.cat = c.id">{{ c.label }}</button>
+        </div>
+        <div class="fs-fmt-main">
+          <div class="fs-fmt-sample"><span>示例</span><b>{{ fmtSampleText() }}</b></div>
+          <p>{{ FMT_CATS.find((c) => c.id === fmtDlg.cat)?.hint }}</p>
+          <div v-if="fmtDlg.cat === 'number' || fmtDlg.cat === 'currency' || fmtDlg.cat === 'accounting' || fmtDlg.cat === 'percent'" class="fs-fmt-opts">
+            <label>小数位数 <input v-model.number="fmtDlg.decimals" type="number" min="0" max="6"></label>
+            <label v-if="fmtDlg.cat !== 'percent'"><input v-model="fmtDlg.thousand" type="checkbox">使用千位分隔符</label>
+            <label v-if="fmtDlg.cat === 'currency' || fmtDlg.cat === 'accounting'">符号
+              <select v-model="fmtDlg.symbol"><option>¥</option><option>$</option></select>
+            </label>
+          </div>
+          <div v-else-if="fmtDlg.cat === 'date'" class="fs-fmt-list">
+            <button v-for="d in FMT_DATES" :key="d.fa" type="button" :class="{ on: fmtDlg.dateFa === d.fa }" @click="fmtDlg.dateFa = d.fa">{{ d.sample }}</button>
+          </div>
+          <div v-else-if="fmtDlg.cat === 'time'" class="fs-fmt-list">
+            <button v-for="d in FMT_TIMES" :key="d.fa" type="button" :class="{ on: fmtDlg.timeFa === d.fa }" @click="fmtDlg.timeFa = d.fa">{{ d.sample }}</button>
+          </div>
+          <input v-else-if="fmtDlg.cat === 'custom'" v-model="fmtDlg.custom" class="fs-dv-input" placeholder="格式代码">
+        </div>
+      </div>
+      <div v-else-if="fmtDlg.tab === 'align'" class="fs-fmt-pane">
+        <label>水平对齐
+          <select v-model="fmtDlg.ht"><option value="1">左对齐</option><option value="0">居中</option><option value="2">右对齐</option></select>
+        </label>
+        <label>垂直对齐
+          <select v-model="fmtDlg.vt"><option value="1">顶端对齐</option><option value="0">居中</option><option value="2">底端对齐</option></select>
+        </label>
+        <label class="fs-dv-check"><input v-model="fmtDlg.wrap" type="checkbox">自动换行</label>
+      </div>
+      <div v-else-if="fmtDlg.tab === 'font'" class="fs-fmt-pane">
+        <label>字体
+          <select v-model="fmtDlg.font"><option>默认字体</option><option>宋体</option><option>微软雅黑</option><option>Arial</option></select>
+        </label>
+        <label>字号 <input v-model.number="fmtDlg.size" type="number" min="8" max="72"></label>
+        <label class="fs-dv-check"><input v-model="fmtDlg.bold" type="checkbox">粗体</label>
+        <button type="button" class="fs-fmt-color" @click="openFmtColor('fmt-fc', $event)"><i :style="{ background: fmtDlg.color }" />字体颜色</button>
+      </div>
+      <div v-else-if="fmtDlg.tab === 'border'" class="fs-fmt-pane">
+        <button type="button" :class="{ on: fmtDlg.border === 'border-all' }" @click="fmtDlg.border = 'border-all'">所有边框</button>
+        <button type="button" :class="{ on: fmtDlg.border === 'border-outside' }" @click="fmtDlg.border = 'border-outside'">外边框</button>
+        <button type="button" :class="{ on: fmtDlg.border === 'border-bottom' }" @click="fmtDlg.border = 'border-bottom'">下边框</button>
+        <button type="button" :class="{ on: fmtDlg.border === 'border-none' }" @click="fmtDlg.border = 'border-none'">无边框</button>
+      </div>
+      <div v-else class="fs-fmt-pane">
+        <button type="button" class="fs-fmt-color" @click="openFmtColor('fmt-bg', $event)"><i :style="{ background: fmtDlg.fill || '#fff' }" />填充颜色</button>
+      </div>
+      <div class="fs-fmt-foot">
+        <button type="button" class="fs-dv-cancel" @click="fmtDlg.show = false">取消</button>
+        <button type="button" class="fs-dv-ok" @click="confirmFmtDlg">确定</button>
+      </div>
+    </div>
+    <div v-if="dvDlg.show" class="fs-dv" @mousedown.stop>
+      <div class="fs-dv-head">
+        <span>数据验证</span>
+        <button type="button" class="fs-dv-x" @click="dvDlg.show = false">×</button>
+      </div>
+      <div class="fs-dv-tabs">
+        <button type="button" :class="{ on: dvDlg.tab === 'set' }" @click="dvDlg.tab = 'set'">设置</button>
+        <button type="button" :class="{ on: dvDlg.tab === 'hint' }" @click="dvDlg.tab = 'hint'">输入警告与帮助</button>
+      </div>
+      <div v-if="dvDlg.tab === 'set'" class="fs-dv-body">
+        <div class="fs-dv-row">
+          <span class="fs-dv-lab">验证条件</span>
+          <select v-model="dvDlg.cond">
+            <option v-for="c in DV_CONDS" :key="c">{{ c }}</option>
+          </select>
+        </div>
+        <template v-if="dvDlg.cond === '单选' || dvDlg.cond === '多选'">
+          <div class="fs-dv-row">
+            <span class="fs-dv-lab">选项来源</span>
+            <label class="fs-dv-radio"><input v-model="dvDlg.source" type="radio" value="custom">自定义</label>
+            <label class="fs-dv-radio"><input v-model="dvDlg.source" type="radio" value="ref">引用数据</label>
+          </div>
+          <textarea
+            v-if="dvDlg.source === 'custom'"
+            v-model="dvDlg.text"
+            class="fs-dv-area"
+            placeholder="请输入选项，选项间通过“回车换行”或“英文逗号（,）”隔开"
+          />
+          <input v-else v-model="dvDlg.refText" class="fs-dv-input" placeholder="例如 A1:A10">
+          <div class="fs-dv-checks">
+            <label><input v-model="dvDlg.optionColor" type="checkbox">选项颜色</label>
+            <button v-if="dvDlg.optionColor" type="button" class="fs-dv-pen" title="编辑选项颜色" @click="dvDlg.colorEdit = !dvDlg.colorEdit">✎</button>
+            <label><input v-model="dvDlg.showArrow" type="checkbox">显示下拉箭头</label>
+          </div>
+          <div v-if="dvDlg.optionColor && dvDlg.colorEdit" class="fs-dv-colors">
+            <button v-for="opt in dvOptionList()" :key="opt" type="button" class="fs-dv-chip" @click="openDvColor(opt, $event)">
+              <i :style="{ background: dvDlg.colors[opt] || '#3370ff' }" />{{ opt }}
+            </button>
+            <span v-if="!dvOptionList().length" class="fs-dv-empty">先填写选项</span>
+          </div>
+        </template>
+        <p v-else class="fs-dv-note">当前条件会作用到选中单元格。</p>
+      </div>
+      <div v-else class="fs-dv-body">
+        <label class="fs-dv-check"><input v-model="dvDlg.hintOn" type="checkbox">选定单元格时显示</label>
+        <input v-model="dvDlg.hintTitle" class="fs-dv-input" placeholder="标题">
+        <textarea v-model="dvDlg.hintText" class="fs-dv-area" placeholder="输入提示内容" />
+        <label class="fs-dv-check"><input v-model="dvDlg.warnOn" type="checkbox">输入无效数据时显示出错警告</label>
+        <select v-model="dvDlg.warnStyle">
+          <option value="stop">停止</option>
+          <option value="warn">警告</option>
+          <option value="info">信息</option>
+        </select>
+        <input v-model="dvDlg.warnTitle" class="fs-dv-input" placeholder="警告标题">
+        <textarea v-model="dvDlg.warnText" class="fs-dv-area" placeholder="警告内容" />
+      </div>
+      <div class="fs-dv-foot">
+        <button type="button" class="fs-dv-clear" @click="clearValidation">清除数据验证</button>
+        <span class="fs-dv-gap" />
+        <button type="button" class="fs-dv-cancel" @click="dvDlg.show = false">取消</button>
+        <button type="button" class="fs-dv-ok" @click="confirmValidation">确定</button>
+      </div>
     </div>
     <div v-if="ctxDlg.show" class="fs-ctx-dlg" @mousedown.stop>
       <div class="fs-ctx-dlg-title">{{ ctxDlg.title }}</div>

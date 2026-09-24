@@ -159,7 +159,7 @@ async function onSave() {
 }
 
 async function onExport() {
-  capture()
+  await capture()
   const t = table.value
   if (!t) return Message.error('请先打开一张表格')
   const buf = await workbookToXlsx(t.workbook, t.title)

@@ -240,7 +240,13 @@ export function colLetter(n) {
 
 function argbOf(hex) {
   if (!hex) return ''
-  let h = String(hex).trim().replace(/^#/, '').replace(/^0x/i, '')
+  const raw = String(hex).trim()
+  const rgb = raw.match(/rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/i)
+  if (rgb) {
+    const p = (n) => Number(n).toString(16).padStart(2, '0')
+    return `FF${p(rgb[1])}${p(rgb[2])}${p(rgb[3])}`.toUpperCase()
+  }
+  let h = raw.replace(/^#/, '').replace(/^0x/i, '')
   if (h.length === 8 && /^[0-9a-fA-F]+$/.test(h)) return h.toUpperCase()
   if (h.length === 6 && /^[0-9a-fA-F]+$/.test(h)) return `FF${h.toUpperCase()}`
   return ''
@@ -276,13 +282,23 @@ function styleFromUniver(cell, styles) {
   if (bg) out.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: argbOf(bg) } }
   const font = {}
   if (s.bl) font.bold = true
+  if (s.it) font.italic = true
+  if (s.un) font.underline = true
+  if (s.cln) font.strike = true
   if (fg) font.color = { argb: argbOf(fg) }
   if (s.fs) font.size = Number(s.fs) || undefined
   if (s.ff) font.name = s.ff
   if (Object.keys(font).length) out.font = font
-  if (s.ht === 2) out.alignment = { horizontal: 'center', vertical: 'middle' }
-  else if (s.ht === 3) out.alignment = { horizontal: 'right', vertical: 'middle' }
-  else if (s.ht === 1) out.alignment = { horizontal: 'left', vertical: 'middle' }
+  const align = {}
+  if (s.ht === 2) align.horizontal = 'center'
+  else if (s.ht === 3) align.horizontal = 'right'
+  else if (s.ht === 1) align.horizontal = 'left'
+  if (s.vt === 1) align.vertical = 'top'
+  else if (s.vt === 2) align.vertical = 'bottom'
+  else if (s.vt === 0 || align.horizontal) align.vertical = 'middle'
+  if (s.tb === 2) align.wrapText = true
+  if (Object.keys(align).length) out.alignment = align
+  if (s.ct?.fa && s.ct.fa !== 'General') out.numFmt = s.ct.fa
   return out
 }
 
@@ -290,6 +306,90 @@ function applyExcelStyle(target, style) {
   if (style.fill) target.fill = style.fill
   if (style.font) target.font = { ...(target.font || {}), ...style.font }
   if (style.alignment) target.alignment = { ...(target.alignment || {}), ...style.alignment }
+  if (style.numFmt) target.numFmt = style.numFmt
+}
+
+const EXCEL_BORDER = { 1: 'thin', 2: 'hair', 3: 'dotted', 4: 'dashed', 5: 'dashDot', 7: 'double', 8: 'medium', 9: 'thick' }
+
+function excelBorderSide(color, style) {
+  const argb = argbOf(colorOf(color) || color || '#000000') || 'FF000000'
+  return { style: EXCEL_BORDER[Number(style)] || 'thin', color: { argb } }
+}
+
+function applyFortuneBorders(ws, borderInfo) {
+  ;(borderInfo || []).forEach((info) => {
+    if (info?.rangeType === 'cell' && info.value) {
+      const v = info.value
+      const cell = ws.getCell(Number(v.row_index) + 1, Number(v.col_index) + 1)
+      const border = { ...(cell.border || {}) }
+      ;[['l', 'left'], ['r', 'right'], ['t', 'top'], ['b', 'bottom']].forEach(([k, name]) => {
+        if (v[k]) border[name] = excelBorderSide(v[k].color, v[k].style)
+      })
+      cell.border = border
+      return
+    }
+    const side = excelBorderSide(info?.color, info?.style)
+    const type = info?.borderType || 'border-all'
+    ;(info?.range || []).forEach((range) => {
+      const r0 = range.row?.[0] ?? 0
+      const r1 = range.row?.[1] ?? r0
+      const c0 = range.column?.[0] ?? 0
+      const c1 = range.column?.[1] ?? c0
+      for (let r = r0; r <= r1; r += 1) {
+        for (let c = c0; c <= c1; c += 1) {
+          const cell = ws.getCell(r + 1, c + 1)
+          if (type === 'border-none') {
+            cell.border = {}
+            continue
+          }
+          const border = { ...(cell.border || {}) }
+          const box = type === 'border-outside'
+          const all = type === 'border-all' || type === 'border-horizontal' || type === 'border-vertical'
+          if ((all && type !== 'border-horizontal') || (box && c === c0) || (type === 'border-left' && c === c0)) border.left = side
+          if ((all && type !== 'border-horizontal') || (box && c === c1) || (type === 'border-right' && c === c1)) border.right = side
+          if ((all && type !== 'border-vertical') || (box && r === r0) || (type === 'border-top' && r === r0)) border.top = side
+          if ((all && type !== 'border-vertical') || (box && r === r1) || (type === 'border-bottom' && r === r1)) border.bottom = side
+          cell.border = border
+        }
+      }
+    })
+  })
+}
+
+function isHiddenBarText(color) {
+  const hex = colorOf(color).replace('#', '').toLowerCase()
+  return hex === 'fff' || hex === 'ffffff'
+}
+
+function applyFortuneDataBars(ws, rules) {
+  ;(rules || []).forEach((rule, i) => {
+    ;(rule.cellrange || []).forEach((range) => {
+      const r0 = range.row?.[0] ?? 0
+      const r1 = range.row?.[1] ?? r0
+      const c0 = range.column?.[0] ?? 0
+      const c1 = range.column?.[1] ?? c0
+      const ref = `${colLetter(c0)}${r0 + 1}:${colLetter(c1)}${r1 + 1}`
+      const color = argbOf(colorOf(rule.format?.[0]) || '#638ec6') || 'FF638EC6'
+      for (let r = r0; r <= r1; r += 1) {
+        for (let c = c0; c <= c1; c += 1) {
+          const cell = ws.getCell(r + 1, c + 1)
+          if (isHiddenBarText(cell.font?.color?.argb)) {
+            cell.font = { ...(cell.font || {}), color: { argb: 'FF1F2329' } }
+          }
+          cell.alignment = { ...(cell.alignment || {}), horizontal: 'right', vertical: 'middle' }
+        }
+      }
+      ws.addConditionalFormatting({
+        ref,
+        rules: [{
+          type: 'dataBar',
+          priority: i + 1,
+          cfvo: [{ type: 'num', value: 0 }, { type: 'max' }],
+          color: { argb: color },
+        }],
+      })
+    })
+  })
 }
 
 function excelCellToUniver(cell) {
@@ -394,6 +494,12 @@ export function univerToBook(wb) {
       try {
         ws.mergeCells(Number(m.startRow) + 1, Number(m.startColumn) + 1, Number(m.endRow) + 1, Number(m.endColumn) + 1)
       } catch { /* */ }
+    })
+    applyFortuneBorders(ws, sh.fortune?.borderInfo)
+    applyFortuneDataBars(ws, sh.fortune?.dataBars)
+    Object.entries(sh.fortune?.columnlen || {}).forEach(([ck, px]) => {
+      const width = Math.max(4, Math.round(Number(px) / 8))
+      if (Number.isFinite(width)) ws.getColumn(Number(ck) + 1).width = width
     })
     ws.properties.defaultRowHeight = 20
     ws.properties.defaultColWidth = 12
@@ -605,7 +711,8 @@ function fortuneCellToUniver(cell) {
   if (cell.un) s.un = cell.un
   if (cell.cl) s.cln = 1
   if (cell.bg) s.bg = { rgb: colorOf(cell.bg) || cell.bg }
-  if (cell.fc) s.cl = { rgb: colorOf(cell.fc) || cell.fc }
+  const fontColor = cell.fsBarColor || cell.fc
+  if (fontColor && !/^#?f{3,6}$/i.test(String(fontColor).trim())) s.cl = { rgb: colorOf(fontColor) || fontColor }
   if (cell.ht === 0) s.ht = 2
   else if (cell.ht === 2) s.ht = 3
   else if (cell.ht === 1) s.ht = 1
@@ -728,6 +835,7 @@ export function univerToFortune(wb) {
         ...(sh.fortune?.columnlen ? { columnlen: sh.fortune.columnlen } : {}),
         ...(sh.fortune?.rowhidden ? { rowhidden: sh.fortune.rowhidden } : {}),
         ...(sh.fortune?.colhidden ? { colhidden: sh.fortune.colhidden } : {}),
+        ...(sh.fortune?.dataBars ? { fs_data_bars: sh.fortune.dataBars } : {}),
       },
       ...(sh.fortune?.frozen ? { frozen: sh.fortune.frozen } : {}),
       ...(sh.fortune?.conditionformat ? { luckysheet_conditionformat_save: sh.fortune.conditionformat } : {}),
@@ -764,6 +872,8 @@ export function fortuneToUniver(sheets, meta = {}) {
     if (sh.config?.colhidden) fortune.colhidden = sh.config.colhidden
     if (sh.frozen) fortune.frozen = sh.frozen
     if (sh.luckysheet_conditionformat_save?.length) fortune.conditionformat = sh.luckysheet_conditionformat_save
+    const dataBars = sh.config?.fs_data_bars || sh.fs_data_bars
+    if (dataBars?.length) fortune.dataBars = dataBars
     out[id] = {
       id,
       name: sh.name || `Sheet${i + 1}`,
