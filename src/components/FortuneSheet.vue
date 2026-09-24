@@ -3,7 +3,7 @@ import { createElement, createRef } from 'react'
 import { createRoot } from 'react-dom/client'
 import { handleBorder } from '@fortune-sheet/core'
 import { Workbook } from '@fortune-sheet/react'
-import { nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { colLetter, fortuneToUniver, paintWorkbookThumb, univerToFortune, xlsxToUniver } from '../utils/workbook'
 import {
   applyFeishuIcons,
@@ -164,6 +164,21 @@ const dataBar = reactive({
   filter: false,
   cf: false,
 })
+const filterHidden = new Map()
+const filterPop = reactive({
+  show: false,
+  left: 0,
+  top: 0,
+  tab: 'value',
+  query: '',
+  onlyMine: false,
+  col: 0,
+  r0: 1,
+  r1: 1,
+  items: [],
+  cond: 'contains',
+  condValue: '',
+})
 let findMark = null
 const numFmt = reactive({ id: 'general' })
 const NUM_FMTS = [
@@ -274,9 +289,15 @@ const CF_FLIES = {
     { id: 'cg1', type: 'colorGradation', format: ['rgb(99, 190, 123)', 'rgb(255, 235, 132)', 'rgb(248, 105, 107)'], label: '绿-黄-红' },
     { id: 'cg2', type: 'colorGradation', format: ['rgb(248, 105, 107)', 'rgb(255, 235, 132)', 'rgb(99, 190, 123)'], label: '红-黄-绿' },
     { id: 'cg3', type: 'colorGradation', format: ['rgb(99, 190, 123)', 'rgb(255, 255, 255)', 'rgb(248, 105, 107)'], label: '绿-白-红' },
-    { id: 'cg4', type: 'colorGradation', format: ['rgb(90, 138, 198)', 'rgb(255, 255, 255)', 'rgb(248, 105, 107)'], label: '蓝-白-红' },
-    { id: 'cg5', type: 'colorGradation', format: ['rgb(248, 105, 107)', 'rgb(255, 255, 255)'], label: '红-白' },
-    { id: 'cg6', type: 'colorGradation', format: ['rgb(99, 190, 123)', 'rgb(255, 255, 255)'], label: '绿-白' },
+    { id: 'cg4', type: 'colorGradation', format: ['rgb(248, 105, 107)', 'rgb(255, 255, 255)', 'rgb(99, 190, 123)'], label: '红-白-绿' },
+    { id: 'cg5', type: 'colorGradation', format: ['rgb(90, 138, 198)', 'rgb(255, 255, 255)', 'rgb(248, 105, 107)'], label: '蓝-白-红' },
+    { id: 'cg6', type: 'colorGradation', format: ['rgb(248, 105, 107)', 'rgb(255, 255, 255)', 'rgb(90, 138, 198)'], label: '红-白-蓝' },
+    { id: 'cg7', type: 'colorGradation', format: ['rgb(90, 138, 198)', 'rgb(255, 255, 255)', 'rgb(99, 190, 123)'], label: '蓝-白-绿' },
+    { id: 'cg8', type: 'colorGradation', format: ['rgb(99, 190, 123)', 'rgb(255, 255, 255)', 'rgb(90, 138, 198)'], label: '绿-白-蓝' },
+    { id: 'cg9', type: 'colorGradation', format: ['rgb(248, 105, 107)', 'rgb(255, 255, 255)'], label: '红-白' },
+    { id: 'cg10', type: 'colorGradation', format: ['rgb(255, 255, 255)', 'rgb(248, 105, 107)'], label: '白-红' },
+    { id: 'cg11', type: 'colorGradation', format: ['rgb(99, 190, 123)', 'rgb(255, 255, 255)'], label: '绿-白' },
+    { id: 'cg12', type: 'colorGradation', format: ['rgb(255, 255, 255)', 'rgb(99, 190, 123)'], label: '白-绿' },
   ],
   bar: [
     { id: 'db1', type: 'dataBar', format: ['#638ec6', '#ffffff'], label: '蓝-白渐变' },
@@ -375,6 +396,26 @@ function stampFeishuLabelsNow(box) {
     if (label) el.setAttribute('data-label', label)
   })
   paintToolbarIcons(box)
+  ;['清除格式', '插入', '粗体 (Ctrl+B)', '合并单元格', '减少小数位数'].forEach((tip) => {
+    const el = box.querySelector(`.fortune-toolbar [data-tips="${tip}"]`)?.closest('.fortune-toolbar-button, .fortune-toobar-combo-container')
+      || box.querySelector(`.fortune-toolbar [data-tips="${tip}"]`)
+    if (!el) return
+    el.setAttribute('data-split', '1')
+    if (!el.querySelector(':scope > .fs-split')) {
+      const mark = document.createElement('i')
+      mark.className = 'fs-split'
+      el.appendChild(mark)
+    }
+  })
+  const formula = box.querySelector('.fortune-toolbar [data-label="公式"]')
+  if (formula) {
+    formula.setAttribute('data-split', '1')
+    if (!formula.querySelector(':scope > .fs-split')) {
+      const mark = document.createElement('i')
+      mark.className = 'fs-split'
+      formula.appendChild(mark)
+    }
+  }
   placeFontBar(box)
   placeAlignBar(box)
 }
@@ -387,9 +428,9 @@ function overlayPos(wrap, el, height) {
   const open = wrap.classList.contains('fs-open')
   return {
     left: Math.round(r.left - base.left),
-    top: open && height
-      ? Math.max(0, Math.round((base.height - height) / 2))
-      : Math.round(r.top - base.top),
+    top: open
+      ? Math.max(0, Math.round((base.height - (height || r.height)) / 2))
+      : Math.round((base.height - 24) / 2),
   }
 }
 
@@ -508,12 +549,174 @@ function applyAlign(attr, value) {
 }
 
 function clickMerge() {
-  const box = hostRef.value
-  const el = box?.querySelector('[data-label="合并单元格"] .fortune-toolbar-combo-button, [data-tips="合并单元格"], [data-label="合并单元格"]')
-  el?.click()
+  const api = instRef.current
+  const sheet = api?.getSheet?.()
+  const sel = api?.getSelection?.()?.[0]
+  if (!api?.mergeCells || !sheet?.id || !sel?.row || !sel?.column) return
+  const r0 = sel.row[0] ?? 0
+  const r1 = sel.row[1] ?? r0
+  const c0 = sel.column[0] ?? 0
+  const c1 = sel.column[1] ?? c0
+  const cell = sheet.data?.[r0]?.[c0]
+  const mc = cell?.mc
+  const merged = !!(mc && ((mc.rs || 1) > 1 || (mc.cs || 1) > 1 || mc.r !== r0 || mc.c !== c0))
+  if (merged) {
+    const top = mc.r ?? r0
+    const left = mc.c ?? c0
+    api.cancelMerge([{
+      row: [top, top + (mc.rs || 1) - 1],
+      column: [left, left + (mc.cs || 1) - 1],
+    }], { id: sheet.id })
+  } else if (r0 !== r1 || c0 !== c1) {
+    api.mergeCells([{ row: [r0, r1], column: [c0, c1] }], 'merge-all', { id: sheet.id })
+  } else {
+    return
+  }
+  markActiveTools()
+}
+
+function cellLabel(cell) {
+  if (cell == null || cell === '') return ''
+  if (typeof cell !== 'object') return String(cell)
+  if (cell.m != null && cell.m !== '') return String(cell.m)
+  if (cell.v != null && cell.v !== '') return String(cell.v)
+  return ''
+}
+
+function openFilter(el) {
+  const sheet = instRef.current?.getSheet?.()
+  const sel = instRef.current?.getSelection?.()?.[0]
+  if (!sheet) return
+  const c0 = sel?.column?.[0] ?? 0
+  let head = sel?.row?.[0] ?? 0
+  let end = sel?.row?.[1] ?? head
+  if (head === end) {
+    head = 0
+    end = 0
+    ;(sheet.data || []).forEach((row, r) => {
+      if ((row || []).some((cell) => cellLabel(cell))) end = r
+    })
+  }
+  const counts = new Map()
+  for (let r = head + 1; r <= end; r += 1) {
+    const label = cellLabel(sheet.data?.[r]?.[c0]) || '(空白)'
+    counts.set(label, (counts.get(label) || 0) + 1)
+  }
+  filterPop.col = c0
+  filterPop.r0 = head + 1
+  filterPop.r1 = end
+  filterPop.query = ''
+  filterPop.tab = 'value'
+  filterPop.items = [...counts.entries()].map(([label, count]) => ({ label, count, checked: true }))
+  const box = el?.getBoundingClientRect?.()
+  filterPop.left = Math.min(box?.left || 80, window.innerWidth - 340)
+  filterPop.top = (box?.bottom || 80) + 4
+  filterPop.show = true
+  pop.show = false
+}
+
+const filterView = computed(() => {
+  const words = filterPop.query.trim().toLowerCase().split(/\s+/).filter(Boolean)
+  return filterPop.items.filter((item) => !words.length || words.every((word) => item.label.toLowerCase().includes(word)))
+})
+const filterAllOn = computed(() => filterView.value.length > 0 && filterView.value.every((item) => item.checked))
+const filterCheckedCount = computed(() => filterPop.items.filter((item) => item.checked).reduce((sum, item) => sum + item.count, 0))
+
+function toggleFilterAll() {
+  const on = !filterAllOn.value
+  const labels = new Set(filterView.value.map((item) => item.label))
+  filterPop.items.forEach((item) => {
+    if (labels.has(item.label)) item.checked = on
+  })
+}
+
+function rowKept(label) {
+  if (filterPop.tab === 'cond') {
+    const raw = label === '(空白)' ? '' : label
+    const n = Number(raw)
+    const cv = filterPop.condValue
+    const cn = Number(cv)
+    if (filterPop.cond === 'empty') return raw === ''
+    if (filterPop.cond === 'notEmpty') return raw !== ''
+    if (filterPop.cond === 'eq') return raw === cv
+    if (filterPop.cond === 'ne') return raw !== cv
+    if (filterPop.cond === 'gt') return Number.isFinite(n) && Number.isFinite(cn) && n > cn
+    if (filterPop.cond === 'lt') return Number.isFinite(n) && Number.isFinite(cn) && n < cn
+    return raw.toLowerCase().includes(String(cv).toLowerCase())
+  }
+  return filterPop.items.find((item) => item.label === label)?.checked !== false
+}
+
+function applyFilter() {
+  const api = instRef.current
+  const sheet = api?.getSheet?.()
+  if (!api?.hideRowOrColumn || !sheet) {
+    filterPop.show = false
+    return
+  }
+  const hide = []
+  const show = []
+  for (let r = filterPop.r0; r <= filterPop.r1; r += 1) {
+    const label = cellLabel(sheet.data?.[r]?.[filterPop.col]) || '(空白)'
+    if (rowKept(label)) show.push(r)
+    else hide.push(r)
+  }
+  if (show.length) api.showRowOrColumn(show, 'row')
+  if (hide.length) api.hideRowOrColumn(hide, 'row')
+  filterHidden.set(sheet.id, { rows: hide })
+  filterPop.show = false
+  markActiveTools()
+}
+
+function clearFilter() {
+  const api = instRef.current
+  const sheet = api?.getSheet?.()
+  const saved = sheet && filterHidden.get(sheet.id)
+  if (api?.showRowOrColumn && saved?.rows?.length) api.showRowOrColumn(saved.rows, 'row')
+  if (sheet) filterHidden.delete(sheet.id)
+  filterPop.items.forEach((item) => { item.checked = true })
+  filterPop.show = false
+  markActiveTools()
+}
+
+function sortFromFilter(asc) {
+  filterPop.show = false
+  const api = instRef.current
+  const sheet = api?.getSheet?.()
+  if (!api?.setCellValue || !sheet) return
+  const rows = []
+  let maxC = filterPop.col
+  for (let r = filterPop.r0; r <= filterPop.r1; r += 1) {
+    const line = sheet.data?.[r] || []
+    maxC = Math.max(maxC, line.length - 1)
+    rows.push(line.slice())
+  }
+  const keyOf = (cell) => {
+    const v = cell?.m ?? cell?.v ?? ''
+    const n = Number(v)
+    return v !== '' && v != null && Number.isFinite(n) ? n : String(v ?? '')
+  }
+  rows.sort((a, b) => {
+    const av = keyOf(a[filterPop.col])
+    const bv = keyOf(b[filterPop.col])
+    if (av < bv) return asc ? -1 : 1
+    if (av > bv) return asc ? 1 : -1
+    return 0
+  })
+  rows.forEach((line, i) => {
+    for (let c = 0; c <= maxC; c += 1) {
+      const cell = line[c]
+      api.setCellValue(filterPop.r0 + i, c, cell == null ? '' : { ...cell }, { id: sheet.id })
+    }
+  })
 }
 
 function clickData(label) {
+  if (label === '筛选') {
+    const el = hostRef.value?.querySelector('[data-label="筛选"], [data-tips="筛选"]')
+    openFilter(el)
+    return
+  }
   const box = hostRef.value
   const el = box?.querySelector(`[data-label="${label}"] .fortune-toolbar-combo-button, [data-label="${label}"], [data-tips="${label}"]`)
   el?.click()
@@ -555,20 +758,22 @@ function applySort(asc) {
 }
 
 function applyFontName(name) {
-  fontBar.name = name
   const api = instRef.current
+  const sheet = api?.getSheet?.()
   const sel = api?.getSelection?.()?.[0]
-  if (!api?.setCellFormatByRange || !sel) return
-  api.setCellFormatByRange('ff', name, { row: sel.row, column: sel.column })
+  if (!api?.setCellFormatByRange || !sheet?.id || !sel?.row || !sel?.column) return
+  api.setCellFormatByRange('ff', name, { row: sel.row, column: sel.column }, { id: sheet.id })
+  fontBar.name = name
 }
 
 function applyFontSize(size) {
   const n = Number(size)
-  fontBar.size = n
   const api = instRef.current
+  const sheet = api?.getSheet?.()
   const sel = api?.getSelection?.()?.[0]
-  if (!api?.setCellFormatByRange || !sel) return
-  api.setCellFormatByRange('fs', n, { row: sel.row, column: sel.column })
+  if (!api?.setCellFormatByRange || !sheet?.id || !sel?.row || !sel?.column) return
+  api.setCellFormatByRange('fs', n, { row: sel.row, column: sel.column }, { id: sheet.id })
+  fontBar.size = n
 }
 
 function toggleStyle(attr) {
@@ -600,15 +805,25 @@ function markActiveTools() {
   const byLabel = (label) => box.querySelector(
     `.fortune-toolbar-button[data-label="${label}"], .fortune-toobar-combo-container[data-label="${label}"]`,
   )
-  setOn(byLabel('冻结'), !!(sheet?.frozen && sheet.frozen.type && sheet.frozen.type !== 'cancel'))
-  setOn(byLabel('筛选'), !!(sheet?.filter_select || sheet?.filter))
+  const byTip = (tip) => box.querySelector(`.fortune-toolbar [data-tips="${tip}"]`)?.closest('.fortune-toolbar-button, .fortune-toobar-combo-container')
+  const frozen = !!(sheet?.frozen && sheet.frozen.type && sheet.frozen.type !== 'cancel')
+  const filtered = !!(sheet?.filter_select || sheet?.filter)
+  setOn(byLabel('冻结'), frozen)
+  setOn(byLabel('筛选'), filtered || filterHidden.has(sheet?.id))
   setOn(byLabel('合并单元格'), !!(cell?.mc))
   setOn(byLabel('对齐'), cell?.ht === 0 || cell?.ht === 2)
+  setOn(byLabel('垂直对齐'), cell?.vt === 1 || cell?.vt === 2)
+  setOn(byLabel('文本换行'), cell?.tb === 2)
+  setOn(byTip('粗体 (Ctrl+B)'), !!cell?.bl)
+  setOn(byTip('斜体 (Ctrl+I)'), !!cell?.it)
+  setOn(byTip('下划线'), !!cell?.un)
+  setOn(byTip('删除线 (Alt+Shift+5)'), !!cell?.cl)
   setOn(byLabel('边框'), pop.show && pop.kind === 'border')
   setOn(byLabel('条件格式'), pop.show && pop.kind === 'cf')
   setOn(byLabel('查找和替换'), findState.open)
+  setOn(box.querySelector('.fs-fold-find'), findState.open)
   dataBar.freeze = !!(sheet?.frozen && sheet.frozen.type && sheet.frozen.type !== 'cancel')
-  dataBar.filter = !!(sheet?.filter_select || sheet?.filter)
+  dataBar.filter = !!(sheet?.filter_select || sheet?.filter) || filterHidden.has(sheet?.id)
   dataBar.cf = pop.show && pop.kind === 'cf'
   fontBar.bl = cell?.bl ? 1 : 0
   fontBar.it = cell?.it ? 1 : 0
@@ -616,8 +831,8 @@ function markActiveTools() {
   fontBar.cl = cell?.cl ? 1 : 0
   fontBar.fc = cell?.fc || '#1f2329'
   fontBar.bg = cell?.bg || '#fff258'
-  if (cell?.ff) fontBar.name = cell.ff
-  if (cell?.fs) fontBar.size = Number(cell.fs) || fontBar.size
+  fontBar.name = cell?.ff || '微软雅黑'
+  fontBar.size = Number(cell?.fs) || 10
   alignBar.ht = cell?.ht ?? 1
   alignBar.vt = cell?.vt ?? 0
   alignBar.tb = cell?.tb ?? 0
@@ -627,6 +842,33 @@ function markActiveTools() {
   if (hit) numFmt.id = hit.id
   else if (!fa || fa === 'General') numFmt.id = 'general'
   paintToolbarIcons(box)
+  syncCorner()
+}
+
+function syncCorner() {
+  const corner = hostRef.value?.querySelector('.fortune-left-top')
+  const sheet = instRef.current?.getSheet?.()
+  const sel = instRef.current?.getSelection?.()?.[0]
+  if (!corner) return
+  const rows = sheet?.data?.length || sheet?.row || 0
+  const cols = sheet?.data?.[0]?.length || sheet?.column || 0
+  const all = !!sel && rows > 0 && cols > 0
+    && sel.row?.[0] === 0
+    && sel.column?.[0] === 0
+    && (sel.row?.[1] ?? 0) >= rows - 1
+    && (sel.column?.[1] ?? 0) >= cols - 1
+  corner.classList.toggle('is-on', all)
+}
+
+function selectWholeSheet() {
+  const api = instRef.current
+  const sheet = api?.getSheet?.()
+  if (!api?.setSelection || !sheet?.id) return
+  const rows = Math.max((sheet.data?.length || sheet.row || 1) - 1, 0)
+  const cols = Math.max((sheet.data?.[0]?.length || sheet.column || 1) - 1, 0)
+  api.setSelection([{ row: [0, rows], column: [0, cols] }], { id: sheet.id })
+  syncCorner()
+  markActiveTools()
 }
 
 function paintToolbarIcons(box) {
@@ -638,6 +880,14 @@ function paintToolbarIcons(box) {
     svg.setAttribute('viewBox', icon.vb)
     svg.innerHTML = icon.html
     svg.dataset.paint = href
+  })
+  box.querySelectorAll('.fortune-toolbar svg[data-paint="#font-color"]').forEach((svg) => {
+    const bar = svg.querySelector('path:last-child')
+    const color = bar?.getAttribute('fill') || '#1f2329'
+    if (svg.dataset.aligned === color) return
+    svg.setAttribute('viewBox', '0 0 16 16')
+    svg.innerHTML = `<path fill="currentColor" d="M8 1.2 3.2 12h1.7l.9-2.2h4.4l.9 2.2h1.7L8 1.2Zm0 3.3 1.6 4H6.4L8 4.5Z"/><path fill="${color}" d="M3.2 13.1h9.6v1.8H3.2z"/>`
+    svg.dataset.aligned = color
   })
   box.querySelectorAll('.fortune-toolbar svg[data-paint="#search"]').forEach((svg) => {
     const btn = svg.closest('.fortune-toolbar-button')
@@ -902,8 +1152,9 @@ function showCfFly(id, e) {
   cfState.fly = id
   cfState.flyTop = e?.currentTarget?.offsetTop || cfState.flyTop || 0
   cfState.flyY = pop.top + cfState.flyTop
-  cfState.flyX = cfState.flyLeft
-    ? Math.max(8, pop.left - 180)
+  const flyW = id === 'color' ? 240 : 180
+  cfState.flyX = pop.left + 176 + flyW > window.innerWidth - 8
+    ? Math.max(8, pop.left - flyW)
     : pop.left + 176
 }
 
@@ -1291,6 +1542,17 @@ function onFreezeCapture(e) {
     openCfPop(cfHit)
     return
   }
+  const filterHit = e.target?.closest?.('.fortune-toobar-combo-container[data-label="筛选"], .fortune-toolbar-button[data-tips="筛选"]')
+  if (filterHit && hostRef.value?.contains(filterHit)) {
+    e.preventDefault()
+    e.stopPropagation()
+    if (filterPop.show) {
+      filterPop.show = false
+      return
+    }
+    openFilter(filterHit)
+    return
+  }
   const findBtn = e.target?.closest?.('.fortune-toolbar-button, .fortune-toobar-combo-container')
   if (findBtn && hostRef.value?.contains(findBtn)) {
     const paint = findBtn.querySelector('svg')?.getAttribute('data-paint') || ''
@@ -1321,11 +1583,23 @@ function onFreezeCapture(e) {
 }
 
 const ctxMenu = reactive({ show: false, x: 0, y: 0, fly: '' })
+const CTX_ICONS = {
+  copy: 'M4 2.5h6.2A1.3 1.3 0 0 1 11.5 3.8V11a1.3 1.3 0 0 1-1.3 1.3H4A1.3 1.3 0 0 1 2.7 11V3.8A1.3 1.3 0 0 1 4 2.5Zm0 1.2a.1.1 0 0 0-.1.1V11c0 .06.04.1.1.1h6.2a.1.1 0 0 0 .1-.1V3.8a.1.1 0 0 0-.1-.1H4Zm2.2 10h4.6A1.3 1.3 0 0 0 12.1 12.4V5.2h1.2v7.2A2.5 2.5 0 0 1 10.8 14.9H6.2V13.7Z',
+  image: 'M2.5 3.2h11a1.3 1.3 0 0 1 1.3 1.3v7a1.3 1.3 0 0 1-1.3 1.3h-11A1.3 1.3 0 0 1 1.2 11.5v-7A1.3 1.3 0 0 1 2.5 3.2Zm0 1.2v7h11v-7h-11Zm1.6 5.2 1.7-1.8 1.4 1.5 2.2-2.4 2.3 2.7H4.1Zm1.3-3.2a.9.9 0 1 0 0-1.8.9.9 0 0 0 0 1.8Z',
+  cut: 'M5.2 6.4a1.7 1.7 0 1 1-1.4-1.6l2.2 2.2-2.2 2.2a1.7 1.7 0 1 1 .4 1.1l2.4-2.4 5.2 5.2 1.1-1.1-5.2-5.2 5.2-5.2-1.1-1.1-5.2 5.2-1.4-1.4Zm-1.5-2.2a.7.7 0 1 0 0 1.4.7.7 0 0 0 0-1.4Zm0 6.2a.7.7 0 1 0 0 1.4.7.7 0 0 0 0-1.4Z',
+  paste: 'M5.2 1.8h3.2a1.6 1.6 0 0 1 3.1.8H6.2v1.2h5.6v1.1H4.2V2.6h1Zm-.2 2.2h8.2A1.3 1.3 0 0 1 14.5 5.3v8.2a1.3 1.3 0 0 1-1.3 1.3H5A1.3 1.3 0 0 1 3.7 13.5V5.3A1.3 1.3 0 0 1 5 4Zm0 1.2v8.3h8.2V5.2H5Z',
+  detail: 'M8 3.1a5.4 5.4 0 0 1 5.2 3.6A5.4 5.4 0 0 1 8 10.3 5.4 5.4 0 0 1 2.8 6.7 5.4 5.4 0 0 1 8 3.1Zm0 1.2A4.2 4.2 0 0 0 4 6.7 4.2 4.2 0 0 0 8 9.1a4.2 4.2 0 0 0 4-2.4A4.2 4.2 0 0 0 8 4.3Zm0 1.1a1.3 1.3 0 1 1 0 2.6 1.3 1.3 0 0 1 0-2.6Z',
+  link: 'M6.6 9.4a2.6 2.6 0 0 1 0-3.7l1.6-1.6a2.6 2.6 0 0 1 3.7 3.7L10.7 9l-.9-.9 1.2-1.2a1.4 1.4 0 0 0-2-2L7.4 6.5a1.4 1.4 0 0 0 0 2l.4.4-.9.9-.3-.4Zm2.8-2.8.9.9-.4.4a1.4 1.4 0 0 1 0 2l-1.6 1.6a1.4 1.4 0 0 1-2-2L7.5 8.3l-.9.9L5.4 10.4a2.6 2.6 0 0 0 3.7 3.7l1.6-1.6a2.6 2.6 0 0 0 0-3.7l-1.3-1.2Z',
+  shield: 'M8 1.6 13 3.4v4.2c0 2.7-1.8 4.8-5 6.2-3.2-1.4-5-3.5-5-6.2V3.4L8 1.6Zm0 1.4L4.2 4.3v3.3c0 2 .1 3.6 3.8 4.9 2.1-1.2 3.8-2.7 3.8-4.9V4.3L8 3Z',
+  comment: 'M2.4 3.2h11.2A1.2 1.2 0 0 1 14.8 4.4v6.2a1.2 1.2 0 0 1-1.2 1.2H6.2L3.2 14.2V4.4a1.2 1.2 0 0 1 1.2-1.2Zm0 1.2v8.1l1.8-1.5h9.4V4.4H2.4Z',
+  note: 'M3.2 2.4h7.1L13.6 5.7v7.9a1.2 1.2 0 0 1-1.2 1.2H3.2A1.2 1.2 0 0 1 2 13.6V3.6a1.2 1.2 0 0 1 1.2-1.2Zm6.6 1.2H3.2v10h9.2V6.2H9.8V3.6Z',
+  validation: 'M2.6 3.4h10.8v1.2H2.6V3.4Zm0 3.6h7.4v1.2H2.6V7Zm0 3.6h10.8v1.2H2.6v-1.2Zm9.2-4.2 1.5 1.6-1.5 1.6V6.4Z',
+}
 const CTX_ITEMS = [
-  { id: 'copy', label: '复制', shortcut: 'Ctrl+C' },
-  { id: 'copyImage', label: '复制为图片' },
-  { id: 'cut', label: '剪切', shortcut: 'Ctrl+X' },
-  { id: 'paste', label: '粘贴', shortcut: 'Ctrl+V' },
+  { id: 'copy', label: '复制', shortcut: 'Ctrl+C', icon: 'copy' },
+  { id: 'copyImage', label: '复制为图片', icon: 'image' },
+  { id: 'cut', label: '剪切', shortcut: 'Ctrl+X', icon: 'cut' },
+  { id: 'paste', label: '粘贴', shortcut: 'Ctrl+V', icon: 'paste' },
   { id: 'pasteSpecial', label: '选择性粘贴', caret: true, children: [
     { id: 'pasteValue', label: '仅粘贴值' },
     { id: 'pasteFormat', label: '仅粘贴格式' },
@@ -1339,8 +1613,11 @@ const CTX_ITEMS = [
     { id: 'insertColRight', label: '向右插入列' },
   ] },
   { id: 'remove', label: '删除', caret: true, children: [
-    { id: 'deleteRow', label: '删除所选行' },
-    { id: 'deleteCol', label: '删除所选列' },
+    { id: 'deleteRow', label: '删除行' },
+    { id: 'deleteCol', label: '删除列' },
+    { sep: true },
+    { id: 'deleteShiftUp', label: '删除单元格，下方单元格上移' },
+    { id: 'deleteShiftLeft', label: '删除单元格，右侧单元格左移' },
   ] },
   { id: 'clear', label: '清除', caret: true, children: [
     { id: 'clearValue', label: '清除内容' },
@@ -1348,19 +1625,24 @@ const CTX_ITEMS = [
     { id: 'clearAll', label: '全部清除' },
   ] },
   { sep: true },
-  { id: 'detail', label: '查看单元格详情' },
+  { id: 'detail', label: '查看单元格详情', icon: 'detail' },
   { id: 'numfmt', label: '设置单元格数字格式' },
   { sep: true },
-  { id: 'link', label: '复制选区链接' },
-  { id: 'protect', label: '设置保护范围', caret: true, children: [
-    { id: 'protectOn', label: '保护所选范围' },
-    { id: 'protectOff', label: '取消保护' },
+  { id: 'sort', label: '排序', caret: true, children: [
+    { id: 'sortAsc', label: '升序' },
+    { id: 'sortDesc', label: '降序' },
   ] },
+  { id: 'link', label: '复制选区链接', icon: 'link' },
   { sep: true },
-  { id: 'comment', label: '添加批注', shortcut: 'Ctrl+Alt+M' },
-  { id: 'note', label: '添加评论', shortcut: 'Shift+F2' },
-  { id: 'validation', label: '数据验证' },
+  { id: 'split', label: '拆分单元格' },
+  { id: 'protectOn', label: '设置保护范围', icon: 'shield' },
+  { sep: true },
+  { id: 'comment', label: '添加评论', shortcut: 'Ctrl+Alt+M', icon: 'comment' },
+  { id: 'note', label: '添加备注', shortcut: 'Shift+F2', icon: 'note', badge: 'New' },
+  { sep: true },
+  { id: 'validation', label: '数据验证', icon: 'validation' },
   { id: 'dedupe', label: '删除重复项' },
+  { sep: true },
   { id: 'history', label: '单元格历史记录' },
 ]
 let copiedCells = null
@@ -1618,6 +1900,11 @@ async function onCtxAction(id) {
   else if (id === 'insertColRight') insertAxis('column', 'rightbottom')
   else if (id === 'deleteRow') deleteAxis('row')
   else if (id === 'deleteCol') deleteAxis('column')
+  else if (id === 'deleteShiftUp') shiftCells('up')
+  else if (id === 'deleteShiftLeft') shiftCells('left')
+  else if (id === 'sortAsc') applySort(true)
+  else if (id === 'sortDesc') applySort(false)
+  else if (id === 'split') clickMerge()
   else if (id === 'clearValue') clearSelection('value')
   else if (id === 'clearFormat') clearSelection('format')
   else if (id === 'clearAll') clearSelection('all')
@@ -1652,13 +1939,46 @@ async function onCtxAction(id) {
   }
 }
 
+function shiftCells(dir) {
+  const box = selectionBox()
+  const api = instRef.current
+  if (!box || !api?.setCellValue) return
+  const sheet = box.sheet
+  const data = sheet.data || []
+  if (dir === 'up') {
+    for (let c = box.c0; c <= box.c1; c += 1) {
+      const span = box.r1 - box.r0 + 1
+      for (let r = box.r0; r < (data.length || box.r1 + span + 1); r += 1) {
+        const src = data[r + span]?.[c]
+        api.setCellValue(r, c, cellPlain(src), { id: box.id })
+      }
+    }
+    return
+  }
+  for (let r = box.r0; r <= box.r1; r += 1) {
+    const span = box.c1 - box.c0 + 1
+    const width = data[r]?.length || box.c1 + span + 1
+    for (let c = box.c0; c < width; c += 1) {
+      api.setCellValue(r, c, cellPlain(data[r]?.[c + span]), { id: box.id })
+    }
+  }
+}
+
 function onSheetContext(e) {
   if (!hostRef.value?.contains(e.target)) return
   const grid = e.target?.closest?.('.fortune-cell-area, .fortune-row-header, .fortune-col-header, canvas')
   if (!grid) return
   e.preventDefault()
   e.stopPropagation()
-  const menuW = 240
+  const box = selectionBox()
+  const remove = CTX_ITEMS.find((item) => item.id === 'remove')
+  if (remove && box) {
+    const a = box.r0 + 1
+    const b = box.r1 + 1
+    remove.children[0].label = a === b ? `删除第 ${a} 行` : `删除第 ${a} - ${b} 行`
+    remove.children[1].label = box.c0 === box.c1 ? '删除列' : `删除 ${colLetter(box.c0)} - ${colLetter(box.c1)} 列`
+  }
+  const menuW = 260
   const menuH = 520
   ctxMenu.x = Math.min(e.clientX, window.innerWidth - menuW - 8)
   ctxMenu.y = Math.min(e.clientY, window.innerHeight - Math.min(menuH, window.innerHeight - 16))
@@ -1670,6 +1990,10 @@ function bindFreezeClick() {
   const box = hostRef.value
   if (!box || freezeClickBound) return
   box.addEventListener('click', onFreezeCapture, true)
+  box.addEventListener('click', (e) => {
+    if (e.target?.closest?.('.fortune-left-top')) selectWholeSheet()
+    else requestAnimationFrame(syncCorner)
+  }, true)
   box.addEventListener('contextmenu', onSheetContext, true)
   freezeClickBound = true
 }
@@ -1693,7 +2017,7 @@ function onTipOver(e) {
     fsTip.show = false
     return
   }
-  if (!t.closest('.fortune-toolbar, .fs-fold')) {
+  if (t.closest('.fs-fold') || !t.closest('.fortune-toolbar')) {
     fsTip.show = false
     return
   }
@@ -1701,7 +2025,7 @@ function onTipOver(e) {
     fsTip.show = false
     return
   }
-  const hit = t.closest('[data-tip], .fs-arco-font, .fs-arco-size, .fortune-toolbar-button[data-tips], .fortune-toobar-combo-container[data-label], .fs-fold')
+  const hit = t.closest('[data-tip], .fs-arco-font, .fs-arco-size, .fortune-toolbar-button[data-tips], .fortune-toobar-combo-container[data-label]')
   if (!hit) {
     fsTip.show = false
     return
@@ -1711,9 +2035,7 @@ function onTipOver(e) {
     fsTip.show = false
     return
   }
-  const text = hit.classList.contains('fs-fold')
-    ? (folded.value ? '展开工具栏' : '收起工具栏')
-    : tipFor(hit)
+  const text = tipFor(hit)
   if (!text) {
     fsTip.show = false
     return
@@ -1732,8 +2054,9 @@ function onTipLeave() {
 function onWrapDown(e) {
   fsTip.show = false
   if (e.button === 2) return
-  if (e.target.closest?.('.cp, .fs-pop, .fs-fold, .fs-cf-dlg, .fs-cf-fly, .fs-find, .fs-ctx, .fs-ctx-dlg, .fs-style-cluster, .fs-align-cluster, .fs-fmt-cluster, .fs-data-cluster')) return
+  if (e.target.closest?.('.cp, .fs-pop, .fs-fold, .fs-cf-dlg, .fs-cf-fly, .fs-find, .fs-ctx, .fs-ctx-dlg, .fs-filter, .fs-style-cluster, .fs-align-cluster, .fs-fmt-cluster, .fs-data-cluster')) return
   pop.show = false
+  filterPop.show = false
   colorPop.show = false
   borderState.styleOpen = false
   cfState.fly = ''
@@ -1798,7 +2121,7 @@ function renderBook(data) {
         onClick: (e) => openPop('insert', e?.currentTarget || hostRef.value?.querySelector('[data-tips="插入"]')),
       },
     ],
-    onChange: (next) => { latest = next || latest },
+    onChange: (next) => { latest = next || latest; markActiveTools() },
   }))
   requestAnimationFrame(() => {
     watchToolbarLabels()
@@ -2084,11 +2407,20 @@ defineExpose({
         <span>公式</span>
       </button>
     </div>
+    <button v-if="folded" type="button" class="fs-fold-sort" data-tip="排序" @mousedown.stop @click="openPop('sort', $event.currentTarget)">
+      <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M4.2 2.2h1.6l2.6 6.4H7.1l-.5-1.3H3.8l-.5 1.3H2Zm1.4 1.6L4.4 6.4h2.4L5.6 3.8Zm5.4-.2h1.3v7.3h2.1L11.3 14 8.2 10.9h2.8V3.6Z" fill="currentColor"/></svg>
+    </button>
+    <button v-if="folded" type="button" class="fs-fold-sort fs-fold-end fs-fold-comment" data-tip="评论" data-split="1" @mousedown.stop @click="openCtxDlg('comment', '添加批注', '')">
+      <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M4 4.5A2.5 2.5 0 0 1 6.5 2h11A2.5 2.5 0 0 1 20 4.5v9A2.5 2.5 0 0 1 17.5 16H9.2L5 19.4V4.5Zm2.5-.5a.5.5 0 0 0-.5.5v11.2L9.8 14h7.7a.5.5 0 0 0 .5-.5v-9a.5.5 0 0 0-.5-.5h-11Z" fill="currentColor"/></svg>
+      <i class="fs-split"></i>
+    </button>
+    <button v-if="folded" type="button" class="fs-fold-sort fs-fold-end fs-fold-find" data-tip="查找和替换" @mousedown.stop @click="openFindPop($event.currentTarget)">
+      <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M10.5 3a7.5 7.5 0 0 1 5.96 12.05l4.24 4.25-1.4 1.4-4.25-4.24A7.5 7.5 0 1 1 10.5 3Zm0 2a5.5 5.5 0 1 0 0 11 5.5 5.5 0 0 0 0-11Z" fill="currentColor"/></svg>
+    </button>
     </Teleport>
     <button
       type="button"
       class="fs-fold"
-      :data-tip="folded ? '展开工具栏' : '收起工具栏'"
       @mousedown.stop
       @click="folded = !folded; nextTick(() => requestAnimationFrame(() => { placeFontBar(hostRef.value); placeAlignBar(hostRef.value); placeFmtBar(hostRef.value); placeDataBar(hostRef.value) }))"
     >
@@ -2096,6 +2428,61 @@ defineExpose({
         <path d="M6.3 9.2a1 1 0 0 1 1.4 0L12 13.5l4.3-4.3a1 1 0 1 1 1.4 1.4l-5 5a1 1 0 0 1-1.4 0l-5-5a1 1 0 0 1 0-1.4Z" fill="currentColor" />
       </svg>
     </button>
+    <div
+      v-if="filterPop.show"
+      class="fs-filter"
+      :style="{ left: `${filterPop.left}px`, top: `${filterPop.top}px` }"
+      @mousedown.stop
+    >
+      <div class="fs-filter-sort">
+        <button type="button" @click="sortFromFilter(true)">升序</button>
+        <button type="button" @click="sortFromFilter(false)">降序</button>
+      </div>
+      <div class="fs-filter-tabs">
+        <button type="button" :class="{ on: filterPop.tab === 'value' }" @click="filterPop.tab = 'value'">按值筛选</button>
+        <button type="button" :class="{ on: filterPop.tab === 'cond' }" @click="filterPop.tab = 'cond'">按条件筛选</button>
+      </div>
+      <template v-if="filterPop.tab === 'value'">
+        <label class="fs-filter-search">
+          <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M7 1.6a5.4 5.4 0 0 1 4.28 8.66l2.7 2.7-1 1-2.7-2.7A5.4 5.4 0 1 1 7 1.6Zm0 1.4a4 4 0 1 0 0 8 4 4 0 0 0 0-8Z" fill="currentColor"/></svg>
+          <input v-model="filterPop.query" placeholder="可使用空格分隔多个关键词">
+        </label>
+        <label class="fs-filter-all">
+          <input type="checkbox" :checked="filterAllOn" @change="toggleFilterAll">
+          <span>全选</span>
+          <em>{{ filterCheckedCount }}</em>
+        </label>
+        <div class="fs-filter-list">
+          <label v-for="item in filterView" :key="item.label" class="fs-filter-item">
+            <input v-model="item.checked" type="checkbox">
+            <span>{{ item.label }}</span>
+            <em>{{ item.count }}</em>
+          </label>
+          <div v-if="!filterView.length" class="fs-filter-empty">没有可筛选的内容</div>
+        </div>
+      </template>
+      <div v-else class="fs-filter-cond">
+        <select v-model="filterPop.cond">
+          <option value="contains">包含</option>
+          <option value="eq">等于</option>
+          <option value="ne">不等于</option>
+          <option value="gt">大于</option>
+          <option value="lt">小于</option>
+          <option value="empty">为空</option>
+          <option value="notEmpty">不为空</option>
+        </select>
+        <input v-if="filterPop.cond !== 'empty' && filterPop.cond !== 'notEmpty'" v-model="filterPop.condValue" placeholder="输入条件">
+      </div>
+      <div class="fs-filter-mine">
+        <span>筛选结果仅我可见</span>
+        <button type="button" class="fs-filter-switch" :class="{ on: filterPop.onlyMine }" @click="filterPop.onlyMine = !filterPop.onlyMine" />
+      </div>
+      <div class="fs-filter-foot">
+        <button type="button" class="fs-filter-clear" @click="clearFilter">清除筛选</button>
+        <button type="button" class="fs-filter-cancel" @click="filterPop.show = false">取消</button>
+        <button type="button" class="fs-filter-ok" @click="applyFilter">确认</button>
+      </div>
+    </div>
     <div
       v-if="pop.show"
       class="fs-pop"
@@ -2256,13 +2643,25 @@ defineExpose({
     <div
       v-if="pop.show && pop.kind === 'cf' && cfState.fly && CF_FLIES[cfState.fly]"
       class="fs-cf-fly"
+      :class="{ scale: cfState.fly === 'color' }"
       :style="{ top: `${cfState.flyY}px`, left: `${cfState.flyX}px` }"
       @mousedown.stop
       @mouseenter="showCfFly(cfState.fly)"
       @mouseleave="hideCfFly()"
     >
+      <div v-if="cfState.fly === 'color'" class="fs-cf-scales">
+        <button
+          v-for="sub in CF_FLIES.color"
+          :key="sub.id"
+          type="button"
+          :title="sub.label"
+          @click="applyPreset(sub)"
+        >
+          <span class="fs-cf-scale" :style="{ background: `linear-gradient(90deg, ${sub.format.join(',')})` }" />
+        </button>
+      </div>
       <button
-        v-for="sub in CF_FLIES[cfState.fly]"
+        v-for="sub in (cfState.fly === 'color' ? [] : CF_FLIES[cfState.fly])"
         :key="sub.id"
         type="button"
         @click="sub.id === 'other' ? openCfDialog('textContains', true) : sub.type ? applyPreset(sub) : openCfDialog(sub.id, cfState.fly === 'highlight' || cfState.fly === 'item')"
@@ -2521,16 +2920,17 @@ defineExpose({
           @mouseenter="ctxMenu.fly = item.caret ? item.id : ''"
           @click="item.caret ? null : onCtxAction(item.id)"
         >
+          <svg v-if="item.icon" class="fs-ctx-ico" viewBox="0 0 16 16" aria-hidden="true"><path :d="CTX_ICONS[item.icon]" fill="currentColor" /></svg>
+          <span v-else class="fs-ctx-gap" />
           <span>{{ item.label }}</span>
+          <b v-if="item.badge" class="fs-ctx-new">{{ item.badge }}</b>
           <em v-if="item.shortcut">{{ item.shortcut }}</em>
           <i v-else-if="item.caret">›</i>
           <div v-if="item.caret && ctxMenu.fly === item.id" class="fs-ctx-sub" @mousedown.stop>
-            <button
-              v-for="sub in item.children"
-              :key="sub.id"
-              type="button"
-              @click="onCtxAction(sub.id)"
-            >{{ sub.label }}</button>
+            <template v-for="(sub, si) in item.children" :key="sub.sep ? `subsep-${si}` : sub.id">
+              <div v-if="sub.sep" class="fs-ctx-sep" />
+              <button v-else type="button" @click="onCtxAction(sub.id)">{{ sub.label }}</button>
+            </template>
           </div>
         </button>
       </template>

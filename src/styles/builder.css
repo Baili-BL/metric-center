@@ -205,6 +205,7 @@
 .cb-root .fld-item .f-dot,.cb-root .fld-item .f-dot.color-well{
   width:12px;height:12px;border-radius:2px;flex-shrink:0;cursor:pointer;
   border:1px solid rgba(0,0,0,.1);position:relative;overflow:hidden;padding:0;margin:0;
+  appearance:none;line-height:0;
 }
 .cb-root .fld-item .f-dot.color-well:hover{outline:2px solid var(--primary);outline-offset:1px}
 .cb-root .fld-item .f-dot input{position:absolute;inset:-6px;opacity:0;cursor:pointer}

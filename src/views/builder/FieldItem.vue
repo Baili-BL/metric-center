@@ -1,5 +1,6 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import ColorPop from '../../components/ColorPop.vue'
 import Icon from '../../components/Icon.vue'
 import {
   FMT_PRESETS,
@@ -22,6 +23,9 @@ const props = defineProps({
 const emit = defineEmits(['remove', 'configure', 'color', 'mark', 'fmt', 'null', 'sort'])
 
 const menuOpen = ref(false)
+const colorOpen = ref(false)
+const colorLeft = ref(0)
+const colorTop = ref(0)
 const markOpen = ref(false)
 const openSub = ref('')
 const menuEl = ref(null)
@@ -66,6 +70,28 @@ function closeAll() {
 }
 
 function toggleMenu() {
+  colorOpen.value = false
+  markOpen.value = false
+  menuOpen.value = !menuOpen.value
+  openSub.value = ''
+  if (menuOpen.value) nextTick(placeMenu)
+}
+
+function openColor(e) {
+  menuOpen.value = false
+  markOpen.value = false
+  const r = e.currentTarget.getBoundingClientRect()
+  const width = 284
+  const height = 420
+  colorLeft.value = Math.min(Math.max(8, r.left), window.innerWidth - width - 8)
+  let top = r.bottom + 6
+  if (top + height > window.innerHeight - 8) top = Math.max(8, r.top - height - 6)
+  colorTop.value = Math.round(top)
+  colorOpen.value = true
+}
+
+function onFieldColor(color) {
+  emit('color', props.index, color || props.series.color)
   markOpen.value = false
   menuOpen.value = !menuOpen.value
   openSub.value = ''
@@ -92,6 +118,8 @@ function onDoc(e) {
   if (itemEl.value?.contains(e.target)) return
   if (menuEl.value?.contains(e.target)) return
   if (markEl.value?.contains(e.target)) return
+  if (e.target.closest?.('.cp')) return
+  colorOpen.value = false
   closeAll()
 }
 
@@ -119,12 +147,13 @@ onBeforeUnmount(() => {
     :class="{ open: menuOpen, 'has-cond': hasCond }"
     @click="toggleMenu"
   >
-    <label class="f-dot color-well" :style="{ background: series.color }" title="点击更换颜色" @click.stop>
-      <input type="color" :value="series.color" @input="emit('color', index, $event.target.value)">
-    </label>
-    <span v-if="!combo" class="f-ico" aria-hidden="true"><Icon :name="ico" :size="14" /></span>
-    <span v-if="hasCond" class="f-cond" title="已设置数据条件">条件</span>
-    <span class="f-name">{{ disp }}</span>
+    <button
+      type="button"
+      class="f-dot color-well"
+      :style="{ background: series.color }"
+      title="点击更换颜色"
+      @click.stop="openColor"
+    />
     <span v-if="showAxis" class="f-axis" :class="{ right: isRight }">{{ isRight ? '从轴' : '主轴' }}</span>
     <button
       v-if="combo"
@@ -146,6 +175,14 @@ onBeforeUnmount(() => {
   </div>
 
   <Teleport to="body">
+    <ColorPop
+      :show="colorOpen"
+      :left="colorLeft"
+      :top="colorTop"
+      :origin="series.color"
+      @update:show="colorOpen = $event"
+      @pick="onFieldColor"
+    />
     <div v-if="menuOpen" ref="menuEl" class="dim-menu fld-dim-menu show">
       <div class="dim-mi" :class="{ open: openSub === 'fmt' }" @click.stop="openSub = openSub === 'fmt' ? '' : 'fmt'">
         <span class="dim-mi-t">数据展示格式</span>

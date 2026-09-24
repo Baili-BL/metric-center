@@ -633,6 +633,45 @@ function fortuneCellsOf(sh) {
   return [...map.values()]
 }
 
+function putMerge(merge, m) {
+  if (!m) return
+  const r = Number(m.r)
+  const c = Number(m.c)
+  const rs = Number(m.rs) || 1
+  const cs = Number(m.cs) || 1
+  if (!Number.isFinite(r) || !Number.isFinite(c)) return
+  if (rs <= 1 && cs <= 1) return
+  merge[`${r}_${c}`] = { r, c, rs, cs }
+}
+
+function collectFortuneMerges(sh) {
+  const merge = {}
+  Object.values(sh?.config?.merge || {}).forEach((m) => putMerge(merge, m))
+  fortuneCellsOf(sh).forEach((item) => putMerge(merge, item?.v?.mc))
+  return merge
+}
+
+function stampMergeCells(celldata, merge) {
+  const at = (r, c) => {
+    let item = celldata.find((x) => x.r === r && x.c === c)
+    if (!item) {
+      item = { r, c, v: {} }
+      celldata.push(item)
+    }
+    if (!item.v || typeof item.v !== 'object') item.v = {}
+    return item.v
+  }
+  Object.values(merge).forEach((m) => {
+    at(m.r, m.c).mc = { r: m.r, c: m.c, rs: m.rs, cs: m.cs }
+    for (let r = m.r; r < m.r + m.rs; r += 1) {
+      for (let c = m.c; c < m.c + m.cs; c += 1) {
+        if (r === m.r && c === m.c) continue
+        at(r, c).mc = { r: m.r, c: m.c }
+      }
+    }
+  })
+}
+
 export function univerToFortune(wb) {
   const data = normalizeWorkbook(wb)
   const list = sheetList(data)
@@ -662,12 +701,17 @@ export function univerToFortune(wb) {
     ;(sh.mergeData || []).forEach((m) => {
       const r = Number(m.startRow) || 0
       const c = Number(m.startColumn) || 0
-      merge[`${r}_${c}`] = {
+      putMerge(merge, {
         r,
         c,
         rs: Math.max(1, Number(m.endRow) - r + 1),
         cs: Math.max(1, Number(m.endColumn) - c + 1),
-      }
+      })
+    })
+    stampMergeCells(celldata, merge)
+    Object.values(merge).forEach((m) => {
+      maxR = Math.max(maxR, m.r + m.rs - 1)
+      maxC = Math.max(maxC, m.c + m.cs - 1)
     })
     return {
       name: sh.name || `Sheet${i + 1}`,
@@ -706,11 +750,11 @@ export function fortuneToUniver(sheets, meta = {}) {
       if (!cellData[r]) cellData[r] = {}
       cellData[r][c] = mapped
     })
-    const mergeData = Object.values(sh.config?.merge || {}).map((m) => ({
-      startRow: Number(m.r) || 0,
-      startColumn: Number(m.c) || 0,
-      endRow: (Number(m.r) || 0) + Math.max(1, Number(m.rs) || 1) - 1,
-      endColumn: (Number(m.c) || 0) + Math.max(1, Number(m.cs) || 1) - 1,
+    const mergeData = Object.values(collectFortuneMerges(sh)).map((m) => ({
+      startRow: m.r,
+      startColumn: m.c,
+      endRow: m.r + m.rs - 1,
+      endColumn: m.c + m.cs - 1,
     }))
     const fortune = {}
     if (sh.config?.borderInfo?.length) fortune.borderInfo = sh.config.borderInfo

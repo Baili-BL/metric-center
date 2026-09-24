@@ -1,7 +1,14 @@
 <script setup>
 import { computed, reactive, ref, watch } from 'vue'
 
-const PRESETS = ['#2E74FF', '#58CAF4', '#867EEC', '#FCBC3D', '#45D0B5', '#5B7BBA', '#E78E5B', '#B570D8', '#EE99FF', '#9F7563', '#73A0B6', '#8AB3E5']
+const MATRIX = [
+  '#ffffff', '#165dff', '#00d6c8', '#14c9c9', '#00b42a', '#9fdb1d', '#f7ba1e', '#ff7d00', '#f53f3f', '#f5319d', '#722ed1', '#d91ad9',
+  '#f7f8fa', '#e8f3ff', '#e8fffb', '#e8fffb', '#e8ffea', '#fcffe8', '#fffce8', '#fff7e8', '#ffece8', '#ffe8f1', '#f5e8ff', '#ffe8fb',
+  '#f2f3f5', '#bedaff', '#b7f4ec', '#b5f4ea', '#aff0b5', '#edf8bb', '#fdf4bf', '#ffe4ba', '#fdcdc5', '#fdd4e8', '#ddbef6', '#f7baef',
+  '#c9cdd4', '#6aa1ff', '#5edfd6', '#37d4cf', '#23c343', '#c9e968', '#fadc6d', '#ffb65d', '#f98981', '#f979b7', '#a871e3', '#e865df',
+  '#86909c', '#165dff', '#0fc6c2', '#14c9c9', '#00b42a', '#9fdb1d', '#f7ba1e', '#ff7d00', '#f53f3f', '#f5319d', '#722ed1', '#d91ad9',
+  '#4e5969', '#0e42d2', '#0aa5a8', '#07828b', '#008026', '#7eb712', '#cc9213', '#d25f00', '#cb272d', '#cb1e83', '#551db0', '#b010b6',
+]
 const RECENT_SLOTS = 12
 const SHADE_STEPS = 13
 const STORE_KEY = 'cbRecentColors'
@@ -70,6 +77,15 @@ function parseColorToRgb(c) {
   return [47, 107, 255, 1]
 }
 
+const matrix = computed(() => MATRIX)
+function swatchLight(color) {
+  const [r, g, b] = parseColorToRgb(color)
+  return (r * 299 + g * 587 + b * 114) / 1000 > 186
+}
+function swatchOn(color) {
+  return String(color).toLowerCase() === hex.value.toLowerCase()
+}
+
 function currentColor() {
   const r = cp.hueBase
   if (cp.alpha <= 0.005) return ''
@@ -94,23 +110,6 @@ const shadeIndex = computed(() => {
   const l = Math.max(7, Math.min(91, cp.hsl[2]))
   return Math.max(0, Math.min(SHADE_STEPS - 1, Math.round(((l - 7) / 84) * (SHADE_STEPS - 1))))
 })
-const presetOn = computed(() => {
-  let best = -1
-  let bestD = 1e9
-  PRESETS.forEach((c, i) => {
-    const rgb = parseColorToRgb(c)
-    const hsl = rgbToHsl(rgb[0], rgb[1], rgb[2])
-    let dh = Math.abs(hsl[0] - cp.hsl[0])
-    if (dh > 180) dh = 360 - dh
-    if (hsl[1] < 12 && cp.hsl[1] < 12) dh = Math.abs(hsl[2] - cp.hsl[2]) / 4
-    if (dh < bestD) {
-      bestD = dh
-      best = i
-    }
-  })
-  return bestD < 22 ? best : -1
-})
-
 function loadColor(color) {
   const rgb = parseColorToRgb(color)
   cp.hueBase = [rgb[0], rgb[1], rgb[2]]
@@ -126,6 +125,9 @@ function apply(color, record) {
 function pick(color, record) {
   loadColor(color)
   apply(currentColor(), record)
+}
+function resetColor() {
+  pick(cp.origin, false)
 }
 
 function loadRecent() {
@@ -193,13 +195,21 @@ watch(() => props.show, (on) => {
     :style="{ left: `${left}px`, top: `${top}px` }"
     @mousedown.stop
   >
-    <div class="cp-swatch-grid">
+    <div class="cp-tabs">
+      <button type="button" class="cp-reset" @click="resetColor">
+        <svg viewBox="0 0 12 12" width="12" height="12" fill="currentColor" aria-hidden="true">
+          <path d="M10.9 5.6a.4.4 0 0 1 .4.4A5.25 5.25 0 0 1 1.7 9.4l-.6.6a.15.15 0 0 1-.26-.09L.4 8.05a.15.15 0 0 1 .17-.17l2.14.3a.15.15 0 0 1 .09.26l-.72.71A4.5 4.5 0 0 0 6 10.5 4.5 4.5 0 0 0 10.5 6a.4.4 0 0 1 .4-.4zM6 .75a5.25 5.25 0 0 1 3.78 1.6l.59-.59a.15.15 0 0 1 .25.09l.31 2.14a.15.15 0 0 1-.17.17l-2.14-.3a.15.15 0 0 1-.09-.26l.72-.71A4.5 4.5 0 0 0 1.5 6a.4.4 0 1 1-.8 0A5.25 5.25 0 0 1 6 .75z" />
+        </svg>
+        重置
+      </button>
+    </div>
+    <div class="cp-matrix">
       <button
-        v-for="(c, i) in PRESETS"
-        :key="c"
+        v-for="(c, i) in matrix"
+        :key="`${c}-${i}`"
         type="button"
         class="cp-sw"
-        :class="{ on: i === presetOn }"
+        :class="{ on: swatchOn(c), light: swatchLight(c) }"
         :style="{ background: c }"
         :title="c"
         @click="pick(c)"
@@ -258,12 +268,6 @@ watch(() => props.show, (on) => {
             </svg>
           </span>
         </span>
-        <button type="button" class="cp-reset" @click="pick(cp.origin, false)">
-          <svg viewBox="0 0 12 12" width="12" height="12" fill="currentColor" aria-hidden="true">
-            <path d="M10.9 5.6a.4.4 0 0 1 .4.4A5.25 5.25 0 0 1 1.7 9.4l-.6.6a.15.15 0 0 1-.26-.09L.4 8.05a.15.15 0 0 1 .17-.17l2.14.3a.15.15 0 0 1 .09.26l-.72.71A4.5 4.5 0 0 0 6 10.5 4.5 4.5 0 0 0 10.5 6a.4.4 0 0 1 .4-.4zM6 .75a5.25 5.25 0 0 1 3.78 1.6l.59-.59a.15.15 0 0 1 .25.09l.31 2.14a.15.15 0 0 1-.17.17l-2.14-.3a.15.15 0 0 1-.09-.26l.72-.71A4.5 4.5 0 0 0 1.5 6a.4.4 0 1 1-.8 0A5.25 5.25 0 0 1 6 .75z" />
-          </svg>
-          重置
-        </button>
       </div>
       <div class="cp-swatch-grid">
         <button
