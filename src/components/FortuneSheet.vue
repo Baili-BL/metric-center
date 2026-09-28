@@ -3,6 +3,7 @@ import { createElement, createRef } from 'react'
 import { createRoot } from 'react-dom/client'
 import { handleBorder } from '@fortune-sheet/core'
 import { Workbook } from '@fortune-sheet/react'
+import { Message, Modal } from '@arco-design/web-vue'
 import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { colLetter, fortuneToUniver, paintWorkbookThumb, univerToFortune, xlsxToUniver } from '../utils/workbook'
 import {
@@ -78,6 +79,8 @@ const LABEL_MAP = {
   文本颜色: '颜色',
   背景色: '填充',
   水平对齐: '对齐',
+  垂直对齐: '垂直对齐',
+  文本换行: '文本换行',
   边框设置: '边框',
   边框: '边框',
 }
@@ -104,7 +107,25 @@ const cfState = reactive({
   side: false,
   panel: 'edit',
   list: [],
+  scaleOpen: false,
+  scaleX: 0,
+  scaleY: 0,
+  scaleW: 292,
+  kindOpen: false,
+  kindX: 0,
+  kindY: 0,
+  kindW: 292,
+  pickingRange: false,
+  ruleScope: 'sel',
+  scopeOpen: false,
+  scopeX: 0,
+  scopeY: 0,
+  scopeW: 160,
 })
+const CF_RULE_SCOPES = [
+  { id: 'sel', label: '所选单元格' },
+  { id: 'sheet', label: '整张工作表' },
+]
 let cfFlyTimer = 0
 const findState = reactive({
   open: false,
@@ -126,27 +147,42 @@ const sizePopup = {
   autoFitPopupWidth: false,
   contentClass: 'fs-arco-drop',
 }
-const fontPopup = {
-  popupStyle: { zIndex: 5200, minWidth: '160px' },
-  position: 'bl',
-  autoFitPopupWidth: false,
-  contentClass: 'fs-arco-drop',
-}
 const FONT_NAMES = [
-  { id: '微软雅黑', label: '默认字体' },
-  { id: '宋体', label: '宋体' },
-  { id: '黑体', label: '黑体' },
-  { id: '楷体', label: '楷体' },
-  { id: '仿宋', label: '仿宋' },
-  { id: 'Arial', label: 'Arial' },
-  { id: 'Tahoma', label: 'Tahoma' },
-  { id: 'Verdana', label: 'Verdana' },
-  { id: 'Times New Roman', label: 'Times New Roman' },
+  { key: 'default', id: '微软雅黑', label: '默认字体', family: '"微软雅黑", "Microsoft YaHei", sans-serif' },
+  { key: 'harmony', id: 'HarmonyOS Sans SC', label: '华为鸿蒙字体', family: '"HarmonyOS Sans SC", "华为鸿蒙字体", sans-serif' },
+  { key: 'alibaba', id: '阿里巴巴普惠体', label: '阿里巴巴普惠体', family: '"阿里巴巴普惠体", sans-serif' },
+  { key: 'pingfang', id: 'PingFang SC', label: '苹方（简体）', family: '"PingFang SC", "苹方-简", "Microsoft YaHei", sans-serif' },
+  { key: 'arial', id: 'Arial', label: 'Arial', family: 'Arial, Helvetica, sans-serif' },
+  { key: 'arial-black', id: 'Arial Black', label: 'Arial Black', family: '"Arial Black", Gadget, sans-serif' },
+  { key: 'arial-narrow', id: 'Arial Narrow', label: 'Arial Narrow', family: '"Arial Narrow", Arial, sans-serif' },
+  { key: 'courier', id: 'Courier New', label: 'Courier New', family: '"Courier New", Courier, monospace' },
+  { key: 'comic', id: 'Comic Sans MS', label: 'Comic Sans MS', family: '"Comic Sans MS", "Comic Sans", cursive' },
+  { key: 'georgia', id: 'Georgia', label: 'Georgia', family: 'Georgia, serif' },
+  { key: 'impact', id: 'Impact', label: 'Impact', family: 'Impact, Charcoal, sans-serif' },
+  { key: 'tahoma', id: 'Tahoma', label: 'Tahoma', family: 'Tahoma, Geneva, sans-serif' },
+  { key: 'times', id: 'Times New Roman', label: 'Times New Roman', family: '"Times New Roman", Times, serif' },
+  { key: 'verdana', id: 'Verdana', label: 'Verdana', family: 'Verdana, Geneva, sans-serif' },
+  { key: 'calibri', id: 'Calibri', label: 'Calibri', family: 'Calibri, Candara, Segoe, sans-serif' },
+  { key: 'cambria', id: 'Cambria', label: 'Cambria', family: 'Cambria, Georgia, serif' },
+  { key: 'consolas', id: 'Consolas', label: 'Consolas', family: 'Consolas, "Courier New", monospace' },
+  { key: 'dengxian', id: '等线', label: '等线', family: 'DengXian, "Microsoft YaHei", sans-serif' },
+  { key: 'yahei', id: '微软雅黑', label: '微软雅黑', family: '"微软雅黑", "Microsoft YaHei", sans-serif' },
+  { key: 'fangsong', id: '仿宋', label: '仿宋', family: 'FangSong, "STFangsong", serif' },
+  { key: 'kaiti', id: '楷体', label: '楷体', family: 'KaiTi, "STKaiti", serif' },
+  { key: 'simsun', id: '宋体', label: '宋体', family: 'SimSun, "Songti SC", serif' },
+  { key: 'simhei', id: '黑体', label: '黑体', family: 'SimHei, "Heiti SC", sans-serif' },
 ]
 const FONT_SIZES = [9, 10, 11, 12, 14, 16, 18, 20, 22, 24, 26, 28, 36, 48, 72]
+const fontMenu = reactive({
+  open: false,
+  query: '',
+  left: 0,
+  top: 0,
+})
 const fontBar = reactive({
   show: false,
   name: '微软雅黑',
+  key: 'default',
   size: 10,
   left: 0,
   top: 0,
@@ -157,15 +193,91 @@ const fontBar = reactive({
   fc: '#1f2329',
   bg: '#fff258',
 })
+const fontLabel = computed(() => {
+  const hit = FONT_NAMES.find((f) => f.key === fontBar.key)
+    || FONT_NAMES.find((f) => f.id === fontBar.name)
+  return hit?.label || fontBar.name || '默认字体'
+})
+const fontFamilyPreview = computed(() => {
+  const hit = FONT_NAMES.find((f) => f.key === fontBar.key)
+    || FONT_NAMES.find((f) => f.id === fontBar.name)
+  return hit?.family || '"微软雅黑", "Microsoft YaHei", sans-serif'
+})
+const filteredFonts = computed(() => {
+  const q = fontMenu.query.trim().toLowerCase()
+  if (!q) return FONT_NAMES
+  return FONT_NAMES.filter((f) => f.label.toLowerCase().includes(q) || f.id.toLowerCase().includes(q))
+})
 const alignBar = reactive({
   show: false,
   left: 0,
   top: 0,
   ht: 1,
-  vt: 2,
-  tb: 0,
+  vt: 0,
+  tb: 1,
   merge: false,
 })
+const alignPop = reactive({ show: false, left: 0, top: 0 })
+const wrapPop = reactive({ show: false, left: 0, top: 0 })
+const vtPop = reactive({ show: false, left: 0, top: 0 })
+const stylePop = reactive({ show: false, left: 0, top: 0 })
+const STYLE_OPTS = [
+  { attr: 'bl', label: '加粗', cls: 'b', letter: 'B' },
+  { attr: 'un', label: '下划线', cls: 'u', letter: 'U' },
+  { attr: 'it', label: '斜体', cls: 'i', letter: 'I' },
+  { attr: 'cl', label: '删除线', cls: 's', letter: 'S' },
+]
+const HT_OPTS = [
+  {
+    id: 1,
+    label: '向左对齐',
+    path: 'M2 3.2h12v1.4H2V3.2Zm0 4.1h8v1.4H2V7.3Zm0 4.1h12v1.4H2v-1.4Z',
+  },
+  {
+    id: 0,
+    label: '居中对齐',
+    path: 'M2 3.2h12v1.4H2V3.2Zm2.2 4.1h7.6v1.4H4.2V7.3ZM2 11.4h12v1.4H2v-1.4Z',
+  },
+  {
+    id: 2,
+    label: '向右对齐',
+    path: 'M2 3.2h12v1.4H2V3.2Zm4 4.1h8v1.4H6V7.3ZM2 11.4h12v1.4H2v-1.4Z',
+  },
+]
+const TB_OPTS = [
+  {
+    id: 1,
+    label: '溢出',
+    path: 'M2 3.2h7v1.4H2V3.2Zm0 4.1h6v1.4H2V7.3Zm0 4.1h12v1.4H2v-1.4ZM9.2 2.5h1.2v6.2H9.2V2.5Zm1.6 1.5 3.6 1.6-3.6 1.6V4Z',
+  },
+  {
+    id: 0,
+    label: '截断',
+    path: 'M2 3.2h7v1.4H2V3.2Zm0 4.1h7v1.4H2V7.3Zm0 4.1h5.2v1.4H2v-1.4ZM9.8 2.5h1.2v11H9.8V2.5Z',
+  },
+  {
+    id: 2,
+    label: '自动换行',
+    path: 'M2 3.2h7.5v1.4H2V3.2Zm0 4.1h5v1.4H2V7.3ZM8.8 2.5h1.3v7.2c0 1.2.9 2.1 2.1 2.1H14v1.3h-1.8a3.4 3.4 0 0 1-3.4-3.4V2.5Zm3.6 7.6 2.2 2.2-2.2 2.2V10.1Z',
+  },
+]
+const VT_OPTS = [
+  {
+    id: 1,
+    label: '顶部对齐',
+    path: 'M3 2.4h10v1.4H3V2.4ZM7.3 5.2h1.4v7.8H7.3V5.2Zm-2.5 3.2 3.2-3.2 3.2 3.2H4.8Z',
+  },
+  {
+    id: 0,
+    label: '垂直居中',
+    path: 'M4.2 6.5h7.6v1.3H4.2V6.5Zm0 1.7h7.6v1.3H4.2V8.2ZM7.3 2.4h1.4v3.2H7.3V2.4Zm0 8h1.4v3.2H7.3V10.4ZM5.2 4.8 8 2.6l2.8 2.2H5.2Zm0 6.4h5.6L8 13.4 5.2 11.2Z',
+  },
+  {
+    id: 2,
+    label: '底部对齐',
+    path: 'M3 12.2h10v1.4H3v-1.4ZM7.3 2.6h1.4v7.8H7.3V2.6Zm-2.5 4.6h5.6L8 10.4 4.8 7.2Z',
+  },
+]
 const fmtBar = reactive({
   left: 0,
   top: 0,
@@ -274,11 +386,35 @@ const cfForm = reactive({
   cellColor: '#ffc7ce',
   range: 'A1',
   group: 'value',
+  kind: 'highlight',
+  rank: 'top',
+  percent: false,
+  bl: false,
+  it: false,
+  un: false,
+  cl: false,
   style: 0,
+  presetId: '',
+  scaleStops: [],
 })
+const CF_SCALE_GREEN = 'rgb(108, 191, 99)'
+const CF_SCALE_YELLOW = 'rgb(250, 234, 97)'
+const CF_SCALE_RED = 'rgb(237, 123, 119)'
+const CF_SCALE_WHITE = 'rgb(255, 255, 255)'
+const CF_SCALE_STOP_TYPES = [
+  { id: 'min', label: '最低值' },
+  { id: 'max', label: '最高值' },
+  { id: 'num', label: '数字' },
+  { id: 'percent', label: '百分比' },
+  { id: 'percentile', label: '百分点值' },
+]
 const CF_TYPES = [
   { id: 'highlight', label: '突出显示单元格' },
-  { id: 'item', label: '最前/最后/平均值' },
+  { id: 'item', label: '最前、最后、平均值' },
+  { id: 'formula', label: '自定义公式为' },
+  { id: 'color', label: '色阶' },
+  { id: 'bar', label: '数据条' },
+  { id: 'icons', label: '图标集' },
 ]
 const CF_GROUPS = [
   { id: 'value', label: '限定值范围' },
@@ -309,7 +445,7 @@ const CF_STYLES = [
 ]
 const CF_MENU = [
   { id: 'highlight', label: '突出显示单元格', caret: true },
-  { id: 'item', label: '最前/最后/平均值', caret: true },
+  { id: 'item', label: '最前、最后、平均值', caret: true },
   { id: 'formula', label: '自定义公式' },
   { sep: true },
   { id: 'color', label: '色阶', caret: true },
@@ -343,19 +479,20 @@ const CF_FLIES = {
     { id: 'aboveAverage', label: '高于平均值' },
     { id: 'belowAverage', label: '低于平均值' },
   ],
+  // format：低→高；label / 预览按高→低（与飞书一致）
   color: [
-    { id: 'cg1', type: 'colorGradation', format: ['rgb(248, 105, 107)', 'rgb(255, 235, 132)', 'rgb(99, 190, 123)'], label: '绿-黄-红' },
-    { id: 'cg2', type: 'colorGradation', format: ['rgb(99, 190, 123)', 'rgb(255, 235, 132)', 'rgb(248, 105, 107)'], label: '红-黄-绿' },
-    { id: 'cg3', type: 'colorGradation', format: ['rgb(248, 105, 107)', 'rgb(255, 255, 255)', 'rgb(99, 190, 123)'], label: '绿-白-红' },
-    { id: 'cg4', type: 'colorGradation', format: ['rgb(99, 190, 123)', 'rgb(255, 255, 255)', 'rgb(248, 105, 107)'], label: '红-白-绿' },
-    { id: 'cg5', type: 'colorGradation', format: ['rgb(248, 105, 107)', 'rgb(255, 255, 255)', 'rgb(90, 138, 198)'], label: '蓝-白-红' },
-    { id: 'cg6', type: 'colorGradation', format: ['rgb(90, 138, 198)', 'rgb(255, 255, 255)', 'rgb(248, 105, 107)'], label: '红-白-蓝' },
-    { id: 'cg7', type: 'colorGradation', format: ['rgb(255, 255, 255)', 'rgb(248, 105, 107)'], label: '红-白' },
-    { id: 'cg8', type: 'colorGradation', format: ['rgb(248, 105, 107)', 'rgb(255, 255, 255)'], label: '白-红' },
-    { id: 'cg9', type: 'colorGradation', format: ['rgb(255, 255, 255)', 'rgb(99, 190, 123)'], label: '绿-白' },
-    { id: 'cg10', type: 'colorGradation', format: ['rgb(99, 190, 123)', 'rgb(255, 255, 255)'], label: '白-绿' },
-    { id: 'cg11', type: 'colorGradation', format: ['rgb(255, 235, 132)', 'rgb(99, 190, 123)'], label: '绿-黄' },
-    { id: 'cg12', type: 'colorGradation', format: ['rgb(99, 190, 123)', 'rgb(255, 235, 132)'], label: '黄-绿' },
+    { id: 'cg-gw', group: 'two', type: 'colorGradation', format: [CF_SCALE_WHITE, CF_SCALE_GREEN], label: '绿 - 白' },
+    { id: 'cg-wg', group: 'two', type: 'colorGradation', format: [CF_SCALE_GREEN, CF_SCALE_WHITE], label: '白 - 绿' },
+    { id: 'cg-rw', group: 'two', type: 'colorGradation', format: [CF_SCALE_WHITE, CF_SCALE_RED], label: '红 - 白' },
+    { id: 'cg-wr', group: 'two', type: 'colorGradation', format: [CF_SCALE_RED, CF_SCALE_WHITE], label: '白 - 红' },
+    { id: 'cg-yw', group: 'two', type: 'colorGradation', format: [CF_SCALE_WHITE, CF_SCALE_YELLOW], label: '黄 - 白' },
+    { id: 'cg-wy', group: 'two', type: 'colorGradation', format: [CF_SCALE_YELLOW, CF_SCALE_WHITE], label: '白 - 黄' },
+    { id: 'cg-gy', group: 'two', type: 'colorGradation', format: [CF_SCALE_YELLOW, CF_SCALE_GREEN], label: '绿 - 黄' },
+    { id: 'cg-yg', group: 'two', type: 'colorGradation', format: [CF_SCALE_GREEN, CF_SCALE_YELLOW], label: '黄 - 绿' },
+    { id: 'cg-gwr', group: 'three', type: 'colorGradation', format: [CF_SCALE_RED, CF_SCALE_WHITE, CF_SCALE_GREEN], label: '绿 - 白 - 红' },
+    { id: 'cg-rwg', group: 'three', type: 'colorGradation', format: [CF_SCALE_GREEN, CF_SCALE_WHITE, CF_SCALE_RED], label: '红 - 白 - 绿' },
+    { id: 'cg-gyr', group: 'three', type: 'colorGradation', format: [CF_SCALE_RED, CF_SCALE_YELLOW, CF_SCALE_GREEN], label: '绿 - 黄 - 红' },
+    { id: 'cg-ryg', group: 'three', type: 'colorGradation', format: [CF_SCALE_GREEN, CF_SCALE_YELLOW, CF_SCALE_RED], label: '红 - 黄 - 绿' },
   ],
   bar: [
     { id: 'dbg1', type: 'dataBar', format: ['#638ec6', '#ffffff'], label: '蓝色数据条', group: 'gradient' },
@@ -674,6 +811,13 @@ function stampFeishuLabelsNow(box) {
     const label = shortLabel(tip)
     if (label) el.setAttribute('data-label', label)
   })
+  // 颜色/填充强制打标，保证自定义色板拦截与样式生效
+  box.querySelectorAll('.fortune-toobar-combo-container:has([data-tips="文本颜色"])').forEach((el) => {
+    el.setAttribute('data-label', '颜色')
+  })
+  box.querySelectorAll('.fortune-toobar-combo-container:has([data-tips="背景色"])').forEach((el) => {
+    el.setAttribute('data-label', '填充')
+  })
   paintToolbarIcons(box)
   ;['清除格式', '插入', '粗体 (Ctrl+B)', '合并单元格', '减少小数位数'].forEach((tip) => {
     const el = box.querySelector(`.fortune-toolbar [data-tips="${tip}"]`)?.closest('.fortune-toolbar-button, .fortune-toobar-combo-container')
@@ -825,6 +969,106 @@ function applyAlign(attr, value) {
   const sel = api?.getSelection?.()?.[0]
   if (!api?.setCellFormatByRange || !sel) return
   api.setCellFormatByRange(attr, value, { row: sel.row, column: sel.column })
+  if (attr === 'ht') {
+    alignPop.show = false
+    syncFoldAlignIcon()
+  }
+  if (attr === 'tb') {
+    wrapPop.show = false
+    syncFoldWrapIcon()
+  }
+  if (attr === 'vt') {
+    vtPop.show = false
+    syncFoldVtIcon()
+  }
+  markActiveTools()
+}
+
+function openFoldAlignPop(el) {
+  if (!folded.value) return
+  const r = el?.getBoundingClientRect?.()
+  if (!r) return
+  pop.show = false
+  colorPop.show = false
+  wrapPop.show = false
+  vtPop.show = false
+  stylePop.show = false
+  cfState.fly = ''
+  alignPop.left = Math.min(r.left, window.innerWidth - 180)
+  alignPop.top = r.bottom + 4
+  alignPop.show = !alignPop.show
+  markActiveTools()
+}
+
+function openFoldWrapPop(el) {
+  if (!folded.value) return
+  const r = el?.getBoundingClientRect?.()
+  if (!r) return
+  pop.show = false
+  colorPop.show = false
+  alignPop.show = false
+  vtPop.show = false
+  stylePop.show = false
+  cfState.fly = ''
+  wrapPop.left = Math.min(r.left, window.innerWidth - 180)
+  wrapPop.top = r.bottom + 4
+  wrapPop.show = !wrapPop.show
+  markActiveTools()
+}
+
+function openFoldVtPop(el) {
+  if (!folded.value) return
+  const r = el?.getBoundingClientRect?.()
+  if (!r) return
+  pop.show = false
+  colorPop.show = false
+  alignPop.show = false
+  wrapPop.show = false
+  stylePop.show = false
+  cfState.fly = ''
+  vtPop.left = Math.min(r.left, window.innerWidth - 180)
+  vtPop.top = r.bottom + 4
+  vtPop.show = !vtPop.show
+  markActiveTools()
+}
+
+function syncFoldAlignIcon() {
+  if (!folded.value) return
+  const box = hostRef.value
+  const btn = box?.querySelector('[data-tips="水平对齐"]')?.closest('.fortune-toolbar-button, .fortune-toobar-combo-container')
+    || box?.querySelector('.fortune-toobar-combo-container[data-label="对齐"]')
+  const svg = btn?.querySelector('svg')
+  if (!svg) return
+  const opt = HT_OPTS.find((x) => x.id === Number(alignBar.ht)) || HT_OPTS[0]
+  svg.setAttribute('viewBox', '0 0 16 16')
+  svg.innerHTML = `<path fill="currentColor" d="${opt.path}" />`
+  svg.dataset.paint = `#align-ht-${alignBar.ht}`
+}
+
+function syncFoldWrapIcon() {
+  if (!folded.value) return
+  const box = hostRef.value
+  const btn = box?.querySelector('[data-tips="文本换行"]')?.closest('.fortune-toolbar-button, .fortune-toobar-combo-container')
+    || box?.querySelector('.fortune-toobar-combo-container[data-label="文本换行"]')
+  const svg = btn?.querySelector('svg')
+  if (!svg) return
+  const opt = TB_OPTS.find((x) => x.id === Number(alignBar.tb)) || TB_OPTS[0]
+  svg.setAttribute('viewBox', '0 0 16 16')
+  svg.innerHTML = `<path fill="currentColor" d="${opt.path}" />`
+  svg.dataset.paint = `#align-tb-${alignBar.tb}`
+}
+
+function syncFoldVtIcon() {
+  if (!folded.value) return
+  const box = hostRef.value
+  const btn = box?.querySelector('[data-tips="垂直对齐"]')?.closest('.fortune-toolbar-button, .fortune-toobar-combo-container')
+    || box?.querySelector('.fortune-toobar-combo-container[data-label="垂直对齐"]')
+  const svg = btn?.querySelector('svg')
+  if (!svg) return
+  const opt = VT_OPTS.find((x) => x.id === Number(alignBar.vt)) || VT_OPTS[1]
+  svg.setAttribute('viewBox', '0 0 16 16')
+  svg.innerHTML = `<path fill="currentColor" d="${opt.path}" />`
+  svg.dataset.paint = `#align-vt-${alignBar.vt}`
 }
 
 function clickMerge() {
@@ -1040,13 +1284,40 @@ function applySort(asc) {
   })
 }
 
-function applyFontName(name) {
+function applyFontName(name, key) {
   const api = instRef.current
   const sheet = api?.getSheet?.()
   const sel = api?.getSelection?.()?.[0]
   if (!api?.setCellFormatByRange || !sheet?.id || !sel?.row || !sel?.column) return
   api.setCellFormatByRange('ff', name, { row: sel.row, column: sel.column }, { id: sheet.id })
   fontBar.name = name
+  fontBar.key = key || FONT_NAMES.find((f) => f.id === name)?.key || 'default'
+  fontMenu.open = false
+  fontMenu.query = ''
+}
+
+function openFontMenu(el) {
+  const anchor = el?.closest?.('.fs-arco-font') || el
+  const r = anchor?.getBoundingClientRect?.()
+  if (!r) return
+  fontMenu.left = Math.round(r.left)
+  fontMenu.top = Math.round(r.bottom + 4)
+  fontMenu.query = ''
+  fontMenu.open = true
+}
+
+function toggleFontMenu(e) {
+  e?.stopPropagation?.()
+  if (fontMenu.open) {
+    fontMenu.open = false
+    return
+  }
+  openFontMenu(e?.currentTarget)
+}
+
+function isFontSelected(item) {
+  if (fontBar.key) return fontBar.key === item.key
+  return item.id === fontBar.name && item.key === (FONT_NAMES.find((f) => f.id === fontBar.name)?.key)
 }
 
 function applyFontSize(size) {
@@ -1066,6 +1337,23 @@ function toggleStyle(attr) {
   const sel = api?.getSelection?.()?.[0]
   if (!api?.setCellFormatByRange || !sel) return
   api.setCellFormatByRange(attr, next, { row: sel.row, column: sel.column })
+  markActiveTools()
+}
+
+function openFoldStylePop(el) {
+  if (!folded.value) return
+  const r = el?.getBoundingClientRect?.()
+  if (!r) return
+  pop.show = false
+  colorPop.show = false
+  alignPop.show = false
+  wrapPop.show = false
+  vtPop.show = false
+  cfState.fly = ''
+  stylePop.left = Math.min(r.left, window.innerWidth - 180)
+  stylePop.top = r.bottom + 4
+  stylePop.show = !stylePop.show
+  markActiveTools()
 }
 
 function setOn(el, on) {
@@ -1094,17 +1382,18 @@ function markActiveTools() {
   setOn(byLabel('冻结'), frozen)
   setOn(byLabel('筛选'), filtered || filterHidden.has(sheet?.id))
   setOn(byLabel('合并单元格'), !!(cell?.mc))
-  setOn(byLabel('对齐'), cell?.ht === 0 || cell?.ht === 2)
-  setOn(byLabel('垂直对齐'), cell?.vt === 1 || cell?.vt === 2)
-  setOn(byLabel('文本换行'), cell?.tb === 2)
-  setOn(byTip('粗体 (Ctrl+B)'), !!cell?.bl)
+  setOn(byLabel('对齐'), alignPop.show || cell?.ht === 0 || cell?.ht === 2)
+  setOn(byLabel('垂直对齐'), vtPop.show || Number(cell?.vt) === 1 || Number(cell?.vt) === 2)
+  setOn(byLabel('文本换行'), wrapPop.show || Number(cell?.tb) === 2)
+  setOn(byTip('粗体 (Ctrl+B)'), stylePop.show || !!cell?.bl)
   setOn(byTip('斜体 (Ctrl+I)'), !!cell?.it)
   setOn(byTip('下划线'), !!cell?.un)
   setOn(byTip('删除线 (Alt+Shift+5)'), !!cell?.cl)
   setOn(byLabel('边框'), pop.show && pop.kind === 'border')
   setOn(byLabel('条件格式'), pop.show && pop.kind === 'cf')
   setOn(byLabel('查找和替换'), findState.open)
-  setOn(box.querySelector('.fs-fold-find'), findState.open)
+  setOn(byTip('查找替换'), findState.open)
+  setOn(byLabel('评论'), false)
   dataBar.freeze = !!(sheet?.frozen && sheet.frozen.type && sheet.frozen.type !== 'cancel')
   dataBar.filter = !!(sheet?.filter_select || sheet?.filter) || filterHidden.has(sheet?.id)
   dataBar.cf = pop.show && pop.kind === 'cf'
@@ -1115,11 +1404,15 @@ function markActiveTools() {
   fontBar.fc = cell?.fc || '#1f2329'
   fontBar.bg = cell?.bg || '#fff258'
   fontBar.name = cell?.ff || '微软雅黑'
+  fontBar.key = FONT_NAMES.find((f) => f.id === fontBar.name)?.key || 'default'
   fontBar.size = Number(cell?.fs) || 10
-  alignBar.ht = cell?.ht ?? 1
-  alignBar.vt = cell?.vt ?? 0
-  alignBar.tb = cell?.tb ?? 0
+  alignBar.ht = cell?.ht == null ? 1 : Number(cell.ht)
+  alignBar.vt = cell?.vt == null ? 0 : Number(cell.vt)
+  alignBar.tb = cell?.tb == null || cell?.tb === '' ? 1 : Number(cell.tb)
   alignBar.merge = !!(cell?.mc)
+  syncFoldAlignIcon()
+  syncFoldWrapIcon()
+  syncFoldVtIcon()
   const fa = cell?.ct?.fa
   const hit = NUM_FMTS.find((item) => item.fa === fa)
   if (hit) numFmt.id = hit.id
@@ -1261,9 +1554,34 @@ function currentCell() {
   }
 }
 
+function findColorCombo(target) {
+  if (!target?.closest) return null
+  const byTip = target.closest('[data-tips="文本颜色"], [data-tips="背景色"]')
+    ?.closest('.fortune-toobar-combo-container')
+  if (byTip) return byTip
+  const byLabel = target.closest(
+    '.fortune-toobar-combo-container[data-label="颜色"], .fortune-toobar-combo-container[data-label="填充"]',
+  )
+  if (byLabel) return byLabel
+  const painted = target.closest('svg[data-paint="#font-color"], svg[data-paint="#background"]')
+  return painted?.closest('.fortune-toobar-combo-container') || null
+}
+
+function colorKindOf(el) {
+  const tip = el?.querySelector?.('[data-tips]')?.getAttribute('data-tips') || ''
+  const label = el?.getAttribute?.('data-label') || ''
+  if (label === '填充' || tip === '背景色') return 'bg'
+  if (el?.querySelector?.('svg[data-paint="#background"]')) return 'bg'
+  return 'fc'
+}
+
 function openColorPicker(kind, el, keepPop) {
   if (!keepPop) pop.show = false
   borderState.styleOpen = false
+  alignPop.show = false
+  wrapPop.show = false
+  vtPop.show = false
+  stylePop.show = false
   const r = el?.getBoundingClientRect?.()
   if (!r) return
   const cell = currentCell()
@@ -1274,7 +1592,9 @@ function openColorPicker(kind, el, keepPop) {
       ? cfForm.textColor
       : kind === 'cf-bg'
         ? cfForm.cellColor
-        : (kind === 'fc' ? cell?.fc : cell?.bg) || (kind === 'fc' ? '#1f2329' : '#ffffff')
+        : kind === 'cf-scale'
+          ? (cfForm.scaleStops.find((s) => s.key === colorPop.key)?.color || '#ffffff')
+          : (kind === 'fc' ? cell?.fc : cell?.bg) || (kind === 'fc' ? '#1f2329' : '#ffffff')
   const pw = 293
   const ph = 228
   let top = r.bottom + 6
@@ -1297,6 +1617,11 @@ function applyCellColor(color) {
     cfForm.cellOn = true
     return
   }
+  if (colorPop.kind === 'cf-scale') {
+    const stop = cfForm.scaleStops.find((s) => s.key === colorPop.key)
+    if (stop) stop.color = color || '#ffffff'
+    return
+  }
   if (colorPop.kind === 'bd') {
     borderState.color = color || '#1f2329'
     if (borderState.type && borderState.type !== 'border-draw') applyBorder(borderState.type)
@@ -1314,6 +1639,10 @@ function applyCellColor(color) {
     fmtDlg.fill = color || '#fff3e0'
     return
   }
+  if (colorPop.kind === 'sheet-tab') {
+    setSheetTabColor(color || '')
+    return
+  }
   const api = instRef.current
   const sel = api?.getSelection?.()?.[0]
   if (!api?.setCellFormatByRange || !sel) return
@@ -1322,16 +1651,51 @@ function applyCellColor(color) {
   scheduleDataBars()
 }
 
+function isPlainNumberText(raw) {
+  const s = String(raw ?? '').trim().replace(/,/g, '')
+  if (!s) return false
+  return /^-?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?$/.test(s)
+}
+
+/** 货币/百分比等数值格式只作用于数字单元格，纯文本与混合字符串跳过 */
+function isNumericFormatTarget(cell) {
+  if (cell == null) return true
+  if (typeof cell === 'number') return Number.isFinite(cell)
+  if (typeof cell === 'string') return isPlainNumberText(cell)
+  if (cell.ct?.t === 's' || cell.ct?.t === 'inlineStr' || cell.ct?.fa === '@') return false
+  if (Array.isArray(cell.ct?.s) || cell.ct?.s) return false
+  const v = cell.v
+  if (v == null || v === '') return true
+  if (typeof v === 'number') return Number.isFinite(v)
+  if (typeof v === 'string') return isPlainNumberText(v)
+  return false
+}
+
 function applyNumFmt(item) {
-  if (!item.fa) {
+  if (!item?.fa) {
     pop.show = false
     return
   }
   numFmt.id = item.id
   const api = instRef.current
   const sel = api?.getSelection?.()?.[0]
-  if (api?.setCellFormatByRange && sel) {
-    api.setCellFormatByRange('ct', { fa: item.fa, t: item.t }, { row: sel.row, column: sel.column })
+  if (api?.setCellFormatByRange && sel?.row && sel?.column) {
+    const numericFmt = item.t === 'n' || item.t === 'd'
+    if (!numericFmt || item.fa === '@' || item.fa === 'General') {
+      api.setCellFormatByRange('ct', { fa: item.fa, t: item.t }, { row: sel.row, column: sel.column })
+    } else {
+      const sheets = api.getAllSheets?.() || []
+      const sheet = sheets.find((s) => s.status === 1) || sheets[0]
+      const [r0, r1] = sel.row
+      const [c0, c1] = sel.column
+      for (let r = r0; r <= r1; r += 1) {
+        for (let c = c0; c <= c1; c += 1) {
+          const cell = sheet?.data?.[r]?.[c]
+          if (!isNumericFormatTarget(cell)) continue
+          api.setCellFormatByRange('ct', { fa: item.fa, t: item.t }, { row: [r, r], column: [c, c] })
+        }
+      }
+    }
   }
   const box = hostRef.value?.querySelector('[data-tips="格式"]')?.closest('.fortune-toobar-combo-container')
   const label = box?.querySelector('.fortune-toolbar-combo-text')
@@ -1413,7 +1777,7 @@ function confirmFmtDlg() {
   if (api?.setCellFormatByRange && sel?.row && sel?.column) {
     const range = { row: sel.row, column: sel.column }
     const item = fmtFa()
-    api.setCellFormatByRange('ct', { fa: item.fa, t: item.t }, range)
+    applyNumFmt({ ...item, id: item.short })
     api.setCellFormatByRange('ht', Number(fmtDlg.ht), range)
     api.setCellFormatByRange('vt', Number(fmtDlg.vt), range)
     api.setCellFormatByRange('tb', fmtDlg.wrap ? 2 : 0, range)
@@ -1422,9 +1786,6 @@ function confirmFmtDlg() {
     if (fmtDlg.font && fmtDlg.font !== '默认字体') api.setCellFormatByRange('ff', fmtDlg.font, range)
     api.setCellFormatByRange('fc', fmtDlg.color || '#1f2329', range)
     if (fmtDlg.fill) api.setCellFormatByRange('bg', fmtDlg.fill, range)
-    numFmt.id = item.short
-    const label = hostRef.value?.querySelector('[data-tips="格式"]')?.closest('.fortune-toobar-combo-container')?.querySelector('.fortune-toolbar-combo-text')
-    if (label) label.textContent = item.short
   }
   if (fmtDlg.border) applyBorder(fmtDlg.border)
   fmtDlg.show = false
@@ -1512,12 +1873,27 @@ function rangesOverlap(a, b) {
     && a.column[0] <= b.column[1] && a.column[1] >= b.column[0]
 }
 
+function allManageRules() {
+  const sheet = cfSheet()
+  const fromCf = cfRules().map((r, i) => ({ ...r, _src: 'cf', _idx: i }))
+  const fromBar = barRulesOf(sheet).map((r, i) => ({
+    type: 'dataBar',
+    format: r.format,
+    cellrange: r.cellrange,
+    _src: 'bar',
+    _idx: i,
+  }))
+  return [...fromCf.filter((r) => r.type !== 'dataBar'), ...fromBar]
+}
+
 function refreshCfFlags() {
-  const rules = cfRules()
+  const all = allManageRules()
   const sel = cfSelection()
-  cfState.list = rules
-  cfState.hasRules = rules.length > 0
-  cfState.hasSel = rules.some((rule) => (rule.cellrange || []).some((range) => sel.some((s) => rangesOverlap(range, s))))
+  cfState.list = cfState.ruleScope === 'sel'
+    ? all.filter((rule) => (rule.cellrange || []).some((range) => sel.some((s) => rangesOverlap(range, s))))
+    : all
+  cfState.hasRules = all.length > 0
+  cfState.hasSel = all.some((rule) => (rule.cellrange || []).some((range) => sel.some((s) => rangesOverlap(range, s))))
 }
 
 function patchCf(next) {
@@ -1575,7 +1951,7 @@ function onCfItem(item, e) {
     return
   }
   if (item.id === 'formula' || item.id === 'new') {
-    openCfDialog(item.id === 'new' ? 'greaterThan' : 'formula')
+    openCfDialog(item.id === 'new' ? 'greaterThan' : 'formula', true)
     return
   }
   if (item.id === 'manage') {
@@ -1623,11 +1999,216 @@ function resetCfForm() {
   cfForm.textColor = '#9c0006'
   cfForm.cellOn = true
   cfForm.cellColor = '#ffc7ce'
+  cfForm.kind = 'highlight'
+  cfForm.rank = 'top'
+  cfForm.percent = false
+  cfForm.group = 'value'
+  cfForm.presetId = ''
+  cfForm.scaleStops = []
+  cfForm.bl = false
+  cfForm.it = false
+  cfForm.un = false
+  cfForm.cl = false
+  cfForm.style = 0
+  cfState.scaleOpen = false
+  cfState.kindOpen = false
+  cfState.pickingRange = false
+}
+
+function rgbToCssHex(color) {
+  const m = String(color || '').match(/(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/)
+  if (!m) {
+    const h = String(color || '').trim()
+    if (/^#[0-9a-fA-F]{6}$/.test(h)) return h.toLowerCase()
+    return '#ffffff'
+  }
+  return `#${[m[1], m[2], m[3]].map((n) => Number(n).toString(16).padStart(2, '0')).join('')}`
+}
+
+function currentColorPreset() {
+  return CF_FLIES.color.find((x) => x.id === cfForm.presetId) || CF_FLIES.color.find((x) => x.id === 'cg-gyr') || CF_FLIES.color[0]
+}
+
+function scalePreviewCss(format) {
+  const colors = [...(format || [])].reverse()
+  if (!colors.length) return '#fff'
+  if (colors.length === 1) return colors[0]
+  const stops = colors.map((c, i) => `${c} ${(i / (colors.length - 1)) * 100}%`).join(', ')
+  return `linear-gradient(180deg, ${stops})`
+}
+
+function syncScaleStops(item) {
+  const fmt = item?.format || []
+  if (fmt.length >= 3) {
+    cfForm.scaleStops = [
+      { key: 'min', label: '最小值', type: 'min', value: '', color: rgbToCssHex(fmt[0]) },
+      { key: 'mid', label: '中间值', type: 'percentile', value: '50', color: rgbToCssHex(fmt[1]) },
+      { key: 'max', label: '最大值', type: 'max', value: '', color: rgbToCssHex(fmt[2]) },
+    ]
+    return
+  }
+  cfForm.scaleStops = [
+    { key: 'min', label: '最小值', type: 'min', value: '', color: rgbToCssHex(fmt[0] || CF_SCALE_RED) },
+    { key: 'max', label: '最大值', type: 'max', value: '', color: rgbToCssHex(fmt[1] || CF_SCALE_GREEN) },
+  ]
+}
+
+function scaleStopDisabled(stop) {
+  return stop.type === 'min' || stop.type === 'max'
+}
+
+function scaleFormatFromStops() {
+  return cfForm.scaleStops.map((s) => {
+    const hex = String(s.color || '#ffffff').replace('#', '')
+    if (hex.length !== 6) return s.color
+    const r = parseInt(hex.slice(0, 2), 16)
+    const g = parseInt(hex.slice(2, 4), 16)
+    const b = parseInt(hex.slice(4, 6), 16)
+    return `rgb(${r}, ${g}, ${b})`
+  })
+}
+
+function toggleScaleGallery(e) {
+  cfState.kindOpen = false
+  if (cfState.scaleOpen) {
+    cfState.scaleOpen = false
+    return
+  }
+  const el = e?.currentTarget
+  const r = el?.getBoundingClientRect?.()
+  if (r) {
+    const h = 268
+    let top = r.bottom + 4
+    if (top + h > window.innerHeight - 8) top = Math.max(8, r.top - h - 4)
+    cfState.scaleY = top
+    cfState.scaleX = Math.min(r.left, window.innerWidth - 304)
+    cfState.scaleW = Math.max(292, r.width)
+  }
+  cfState.scaleOpen = true
+}
+
+function toggleKindMenu(e) {
+  cfState.scaleOpen = false
+  if (cfState.kindOpen) {
+    cfState.kindOpen = false
+    return
+  }
+  const el = e?.currentTarget
+  const r = el?.getBoundingClientRect?.()
+  if (r) {
+    const h = 260
+    let top = r.bottom + 4
+    if (top + h > window.innerHeight - 8) top = Math.max(8, r.top - h - 4)
+    cfState.kindY = top
+    cfState.kindX = Math.min(r.left, window.innerWidth - 304)
+    cfState.kindW = Math.max(292, r.width)
+  }
+  cfState.kindOpen = true
+}
+
+function pickCfKind(id) {
+  cfState.kindOpen = false
+  onCfKind(id)
+}
+
+function onDocScaleDown(e) {
+  if (cfState.scaleOpen && !e.target.closest?.('.fs-cf-scale-gallery, .fs-cf-scale-select')) {
+    cfState.scaleOpen = false
+  }
+  if (cfState.kindOpen && !e.target.closest?.('.fs-cf-kind-menu, .fs-cf-kind-select')) {
+    cfState.kindOpen = false
+  }
+  if (cfState.scopeOpen && !e.target.closest?.('.fs-cf-scope-menu, .fs-cf-scope')) {
+    cfState.scopeOpen = false
+  }
+}
+
+function pickScalePreset(item) {
+  cfForm.presetId = item.id
+  syncScaleStops(item)
+  cfState.scaleOpen = false
+}
+
+function openScaleStopColor(stop, el) {
+  colorPop.key = stop.key
+  openColorPicker('cf-scale', el, true)
+}
+
+function colIndexFromLetters(letters) {
+  let n = 0
+  const s = String(letters || '').toUpperCase()
+  for (let i = 0; i < s.length; i += 1) n = n * 26 + (s.charCodeAt(i) - 64)
+  return Math.max(0, n - 1)
+}
+
+function parseCfRangeText(text) {
+  const raw = String(text || '').trim().toUpperCase().replace(/\$/g, '')
+  const m = raw.match(/^([A-Z]+)(\d+)(?::([A-Z]+)(\d+))?$/)
+  if (!m) return cfSelection()
+  const c1 = colIndexFromLetters(m[1])
+  const r1 = Math.max(0, Number(m[2]) - 1)
+  const c2 = m[3] ? colIndexFromLetters(m[3]) : c1
+  const r2 = m[4] ? Math.max(0, Number(m[4]) - 1) : r1
+  return [{
+    row: [Math.min(r1, r2), Math.max(r1, r2)],
+    column: [Math.min(c1, c2), Math.max(c1, c2)],
+  }]
+}
+
+function selectionToA1(sel) {
+  if (!sel) return 'A1'
+  const r0 = sel.row?.[0] ?? 0
+  const r1 = sel.row?.[1] ?? r0
+  const c0 = sel.column?.[0] ?? 0
+  const c1 = sel.column?.[1] ?? c0
+  const a = `${colLetter(c0)}${r0 + 1}`
+  const b = `${colLetter(c1)}${r1 + 1}`
+  return a === b ? a : `${a}:${b}`
+}
+
+function syncCfRangeFromSelection(sel) {
+  if (!cfState.pickingRange || !cfState.side || cfState.panel === 'rules') return
+  const text = selectionToA1(sel || cfSelection()[0])
+  if (text) cfForm.range = text
+}
+
+function toggleCfRangePick() {
+  cfState.kindOpen = false
+  cfState.scaleOpen = false
+  cfState.pickingRange = !cfState.pickingRange
+  if (cfState.pickingRange) syncCfRangeFromSelection()
+}
+
+function beginCfRangePick() {
+  cfState.kindOpen = false
+  cfState.scaleOpen = false
+  cfState.pickingRange = true
+  syncCfRangeFromSelection()
+}
+
+function onCfRangeFocus() {
+  beginCfRangePick()
+}
+
+function closeCfSide() {
+  cfState.dlg = ''
+  cfState.side = false
+  cfState.pickingRange = false
+  cfState.kindOpen = false
+  cfState.scaleOpen = false
+  cfState.scopeOpen = false
+}
+
+function cfTargetRange() {
+  if (cfState.side && cfForm.range) return parseCfRangeText(cfForm.range)
+  return cfSelection()
 }
 
 function openCfRules() {
   pop.show = false
   cfState.fly = ''
+  cfState.ruleScope = 'sel'
+  cfState.scopeOpen = false
   refreshCfFlags()
   cfState.side = true
   cfState.panel = 'rules'
@@ -1636,12 +2217,29 @@ function openCfRules() {
 }
 
 function backCf() {
+  cfState.ruleScope = 'sel'
+  cfState.scopeOpen = false
   refreshCfFlags()
   cfState.panel = 'rules'
   cfState.dlg = 'rules'
 }
 
+function focusCfRule(rule) {
+  const range = rule?.cellrange?.[0]
+  const api = instRef.current
+  if (!range || !api?.setSelection) return
+  api.setSelection([{
+    row: [range.row[0], range.row[1]],
+    column: [range.column[0], range.column[1]],
+  }])
+  scheduleDataBars()
+}
+
 function cfRuleText(rule) {
+  if (rule.type === 'colorGradation') return '色阶'
+  if (rule.type === 'dataBar') return '数据条'
+  if (rule.type === 'icons') return '图标集'
+  if (rule.conditionName === 'formula' || rule.type === 'formula') return '自定义公式'
   const names = {
     greaterThan: '大于', lessThan: '小于', between: '介于', equal: '等于',
     textContains: '包含', occurrenceDate: '日期为', duplicateValue: '重复',
@@ -1652,6 +2250,75 @@ function cfRuleText(rule) {
   const val = (rule.conditionValue || []).filter((v) => v != null && v !== '').join(' 和 ')
   if (rule.conditionName === 'aboveAverage' || rule.conditionName === 'belowAverage') return name
   return val ? `值${name} ${val}` : name
+}
+
+function cfRulePreviewStyle(rule) {
+  if (rule.type === 'colorGradation' && rule.format?.length) {
+    return { background: `linear-gradient(90deg, ${[...rule.format].reverse().join(',')})`, color: 'transparent' }
+  }
+  if (rule.type === 'dataBar' && rule.format?.length) {
+    const c0 = rule.format[0]
+    const c1 = rule.format[1] || '#ffffff'
+    return { background: `linear-gradient(90deg, ${c0} 0%, ${c0} 55%, ${c1} 55%, ${c1} 100%)`, color: 'transparent' }
+  }
+  if (rule.type === 'icons') {
+    return { background: '#f5f6f7', color: '#1f2329' }
+  }
+  return {
+    color: rule.format?.textColor || '#1f2329',
+    background: rule.format?.cellColor || '#ffc7ce',
+  }
+}
+
+function cfRulePreviewText(rule) {
+  if (rule.type === 'colorGradation' || rule.type === 'dataBar') return ''
+  if (rule.type === 'icons') return '▲'
+  return '123'
+}
+
+function removeCfRule(rule) {
+  if (!rule) return
+  const ranges = rule.cellrange || []
+  const sheet = cfSheet()
+  const api = instRef.current
+  if (rule._src === 'bar') {
+    if (sheet) saveBarRules(sheet, barRulesOf(sheet).filter((_, i) => i !== rule._idx))
+  } else {
+    patchCf(cfRules().filter((_, i) => i !== rule._idx))
+    if (sheet && rule.type === 'icons') {
+      saveBarRules(sheet, barRulesOf(sheet).filter((r) => !(r.cellrange || []).some((range) => ranges.some((s) => rangesOverlap(range, s)))))
+    }
+    if (api && sheet && rule.type === 'colorGradation' && ranges.length) {
+      const pack = cfNumericCells(ranges)
+      if (pack) clearCfVisual(api, sheet, pack.cells)
+    }
+  }
+  refreshCfFlags()
+  scheduleDataBars()
+  markActiveTools()
+}
+
+function toggleCfScopeMenu(e) {
+  cfState.kindOpen = false
+  cfState.scaleOpen = false
+  if (cfState.scopeOpen) {
+    cfState.scopeOpen = false
+    return
+  }
+  const el = e?.currentTarget
+  const r = el?.getBoundingClientRect?.()
+  if (r) {
+    cfState.scopeY = r.bottom + 4
+    cfState.scopeX = r.left
+    cfState.scopeW = Math.max(160, r.width + 24)
+  }
+  cfState.scopeOpen = true
+}
+
+function pickCfScope(id) {
+  cfState.ruleScope = id
+  cfState.scopeOpen = false
+  refreshCfFlags()
 }
 
 function cfRuleRange(rule) {
@@ -1667,24 +2334,43 @@ function openCfDialog(type, side = false) {
   resetCfForm()
   cfState.dlg = type
   cfState.panel = 'edit'
-  cfState.side = side && !!CF_RULES[type]
+  const presetKinds = ['color', 'bar', 'icons']
+  cfState.side = side && (!!CF_RULES[type] || presetKinds.includes(type))
   if (cfState.side) {
     const sel = cfSelection()[0]
     const a = `${colLetter(sel.column[0])}${sel.row[0] + 1}`
     const b = `${colLetter(sel.column[1])}${sel.row[1] + 1}`
     cfForm.range = a === b ? a : `${a}:${b}`
-    const group = Object.keys(CF_OPS).find((id) => CF_OPS[id].some((op) => op.id === type)) || 'value'
-    cfForm.group = group
-    cfForm.kind = ['top10', 'top10_percent', 'last10', 'last10_percent', 'aboveAverage', 'belowAverage'].includes(type) ? 'item' : 'highlight'
-    cfForm.percent = type.endsWith('_percent')
-    cfForm.rank = type.startsWith('last') ? 'last' : type === 'aboveAverage' ? 'above' : type === 'belowAverage' ? 'below' : 'top'
-    if (type.startsWith('top') || type.startsWith('last')) cfForm.project = '10'
-    cfForm.cellColor = '#c6efce'
-    cfForm.textColor = '#1f2329'
-    cfForm.bl = false
-    cfForm.it = false
-    cfForm.un = false
-    cfForm.cl = false
+    if (presetKinds.includes(type)) {
+      cfForm.kind = type
+      if (type === 'color') {
+        const preset = CF_FLIES.color.find((x) => x.id === 'cg-gyr') || CF_FLIES.color[0]
+        cfForm.presetId = preset?.id || ''
+        syncScaleStops(preset)
+      } else {
+        cfForm.presetId = CF_FLIES[type][0]?.id || ''
+      }
+      cfState.dlg = type
+      cfState.scaleOpen = false
+      cfState.kindOpen = false
+    } else if (type === 'formula') {
+      cfForm.kind = 'formula'
+      cfForm.cellColor = '#c6efce'
+      cfForm.textColor = '#1f2329'
+    } else if (['top10', 'top10_percent', 'last10', 'last10_percent', 'aboveAverage', 'belowAverage'].includes(type)) {
+      cfForm.kind = 'item'
+      cfForm.percent = type.endsWith('_percent')
+      cfForm.rank = type.startsWith('last') ? 'last' : type === 'aboveAverage' ? 'above' : type === 'belowAverage' ? 'below' : 'top'
+      if (type.startsWith('top') || type.startsWith('last')) cfForm.project = '10'
+      cfForm.cellColor = '#c6efce'
+      cfForm.textColor = '#1f2329'
+    } else {
+      const group = Object.keys(CF_OPS).find((id) => CF_OPS[id].some((op) => op.id === type)) || 'value'
+      cfForm.group = group
+      cfForm.kind = 'highlight'
+      cfForm.cellColor = '#c6efce'
+      cfForm.textColor = '#1f2329'
+    }
   }
   markActiveTools()
 }
@@ -1706,6 +2392,8 @@ function onCfGroup(id) {
 
 function onCfKind(id) {
   cfForm.kind = id
+  cfForm.presetId = ''
+  cfState.kindOpen = false
   if (id === 'item') {
     cfForm.rank = 'top'
     cfForm.percent = false
@@ -1713,8 +2401,56 @@ function onCfKind(id) {
     cfState.dlg = 'top10'
     return
   }
+  if (id === 'formula') {
+    cfState.dlg = 'formula'
+    cfForm.formula = cfForm.formula || ''
+    return
+  }
+  if (id === 'color') {
+    const preset = CF_FLIES.color.find((x) => x.id === 'cg-gyr') || CF_FLIES.color[0]
+    cfForm.presetId = preset?.id || ''
+    syncScaleStops(preset)
+    cfState.dlg = 'color'
+    cfState.scaleOpen = false
+    return
+  }
+  if (id === 'bar') {
+    cfForm.presetId = CF_FLIES.bar[0]?.id || ''
+    cfState.dlg = 'bar'
+    return
+  }
+  if (id === 'icons') {
+    cfForm.presetId = CF_FLIES.icons[0]?.id || ''
+    cfState.dlg = 'icons'
+    return
+  }
   cfForm.group = 'value'
   cfState.dlg = 'greaterThan'
+}
+
+function pickCfPreset(item) {
+  cfForm.presetId = item.id
+  if (item.type === 'colorGradation') syncScaleStops(item)
+}
+
+function confirmSidePreset() {
+  const list = cfForm.kind === 'color'
+    ? CF_FLIES.color
+    : cfForm.kind === 'bar'
+      ? CF_FLIES.bar
+      : CF_FLIES.icons
+  const item = list.find((x) => x.id === cfForm.presetId) || list[0]
+  if (!item) return
+  if (cfForm.kind === 'color') {
+    applyPreset({ ...item, format: scaleFormatFromStops() }, cfTargetRange())
+  } else {
+    applyPreset(item, cfTargetRange())
+  }
+  cfState.dlg = ''
+  cfState.side = false
+  cfState.scaleOpen = false
+  cfState.kindOpen = false
+  cfState.pickingRange = false
 }
 
 function syncRankType() {
@@ -1739,12 +2475,12 @@ function scaleColor(format, t) {
   if (t <= 0.5) return mixRgb(cols[0], cols[1], t * 2)
   return mixRgb(cols[1], cols[2], (t - 0.5) * 2)
 }
-function cfNumericCells() {
+function cfNumericCells(ranges) {
   const api = instRef.current
   const sheet = api?.getSheet?.()
   if (!api?.setCellValue || !sheet) return null
   const cells = []
-  cfSelection().forEach((range) => {
+  ;(ranges || cfSelection()).forEach((range) => {
     for (let r = range.row[0]; r <= range.row[1]; r += 1) {
       for (let c = range.column[0]; c <= range.column[1]; c += 1) {
         const cell = sheet.data?.[r]?.[c]
@@ -1781,11 +2517,11 @@ function clearCfVisual(api, sheet, cells) {
     }, { id: sheet.id })
   })
 }
-function paintColorScale(format) {
-  const pack = cfNumericCells()
+function paintColorScale(format, ranges) {
+  const sel = ranges || cfSelection()
+  const pack = cfNumericCells(sel)
   if (!pack || !format?.length) return
   const { api, sheet, cells } = pack
-  const sel = cfSelection()
   saveBarRules(sheet, barRulesOf(sheet).filter((rule) => !(rule.cellrange || []).some((range) => sel.some((s) => rangesOverlap(range, s)))))
   scheduleDataBars()
   clearCfVisual(api, sheet, cells)
@@ -2032,14 +2768,15 @@ function drawDataBars() {
     requestAnimationFrame(() => { barHideBusy = false })
   }
 }
-function paintDataBar(format) {
-  const pack = cfNumericCells()
+function paintDataBar(format, ranges) {
+  const sel = ranges || cfSelection()
+  const pack = cfNumericCells(sel)
   if (!pack) return
   const { api, sheet } = pack
   const native = cfRules().filter((rule) => rule.type !== 'dataBar' && rule.type !== 'colorGradation' && rule.type !== 'icons')
   if (native.length !== cfRules().length) patchCf(native)
   clearCfVisual(api, sheet, pack.cells)
-  const refreshed = cfNumericCells()
+  const refreshed = cfNumericCells(sel)
   if (!refreshed) return
   refreshed.cells.forEach(({ r, c, n, cell }) => {
     const prev = cell && typeof cell === 'object' ? cell : { v: n, m: String(n) }
@@ -2057,16 +2794,16 @@ function paintDataBar(format) {
     }
     api.setCellValue(r, c, next, { id: sheet.id })
   })
-  const sel = cfSelection()
   const prev = barRulesOf(sheet).filter((rule) => !(rule.cellrange || []).some((range) => sel.some((s) => rangesOverlap(range, s))))
   saveBarRules(sheet, [...prev, { format, cellrange: sel }])
   scheduleDataBars()
+  refreshCfFlags()
 }
-function paintIcons(item) {
-  const pack = cfNumericCells()
+function paintIcons(item, ranges) {
+  const sel = ranges || cfSelection()
+  const pack = cfNumericCells(sel)
   if (!pack) return
   const { api, sheet, cells } = pack
-  const sel = cfSelection()
   // 图标集与数据条互斥
   saveBarRules(sheet, barRulesOf(sheet).filter((rule) => !(rule.cellrange || []).some((range) => sel.some((s) => rangesOverlap(range, s)))))
   // 清掉以前写进单元格的 unicode 图标，保留数值与数字格式；数值右对齐给左侧图标让位
@@ -2163,21 +2900,22 @@ function drawIconSets() {
     })
   })
 }
-function applyPreset(item) {
+function applyPreset(item, ranges) {
   pop.show = false
   cfState.fly = ''
-  if (item.type === 'colorGradation') paintColorScale(item.format)
+  const cellrange = ranges || cfSelection()
+  if (item.type === 'colorGradation') paintColorScale(item.format, cellrange)
   else if (item.type === 'dataBar') {
-    paintDataBar(item.format)
+    paintDataBar(item.format, cellrange)
     markActiveTools()
     return
   } else if (item.type === 'icons') {
-    paintIcons(item)
+    paintIcons(item, cellrange)
     patchCf([
       ...cfRules().filter((rule) => rule.type !== 'dataBar' && rule.type !== 'colorGradation' && rule.type !== 'icons'),
       {
         type: 'icons',
-        cellrange: cfSelection(),
+        cellrange,
         format: item.format,
         marks: item.marks,
         preview: item.preview,
@@ -2193,7 +2931,7 @@ function applyPreset(item) {
     ...cfRules().filter((rule) => rule.type !== 'dataBar' && rule.type !== 'colorGradation' && rule.type !== 'icons'),
     {
       type: item.type,
-      cellrange: cfSelection(),
+      cellrange,
       format: item.format,
       ...(item.marks ? { marks: item.marks } : {}),
     },
@@ -2205,6 +2943,10 @@ function confirmCfDialog() {
   const type = cfState.dlg
   if (!type || type === 'manage') {
     cfState.dlg = ''
+    return
+  }
+  if (cfForm.kind === 'color' || cfForm.kind === 'bar' || cfForm.kind === 'icons') {
+    confirmSidePreset()
     return
   }
   const format = {
@@ -2225,7 +2967,7 @@ function confirmCfDialog() {
   else conditionValue = [cfForm.value]
   const rule = {
     type: 'default',
-    cellrange: cfSelection(),
+    cellrange: cfTargetRange(),
     format,
     conditionName: type === 'formula' ? 'formula' : type,
     conditionRange: [],
@@ -2235,6 +2977,9 @@ function confirmCfDialog() {
   paintHighlightRule(rule)
   cfState.dlg = ''
   cfState.side = false
+  cfState.pickingRange = false
+  cfState.kindOpen = false
+  cfState.scaleOpen = false
 }
 
 function normalizeCfConditionValue(type, values) {
@@ -2485,14 +3230,71 @@ function replaceAllHits() {
   refreshFindHits()
 }
 
+function onColorToolbarCapture(e) {
+  const colorHit = findColorCombo(e.target)
+  if (!colorHit || !hostRef.value?.contains(colorHit)) return
+  if (e.target.closest?.('.fortune-toolbar-combo-popup, .fortune-toolbar-select, .fortune-toolbar-color-picker, .cp')) return
+  e.preventDefault()
+  e.stopPropagation()
+  // mousedown 负责开关；click 只拦截原生色板
+  if (e.type !== 'mousedown') return
+  const kind = colorKindOf(colorHit)
+  if (colorPop.show && colorPop.kind === kind) {
+    colorPop.show = false
+    return
+  }
+  openColorPicker(kind, colorHit)
+}
+
 function onFreezeCapture(e) {
-  const colorHit = e.target?.closest?.('.fortune-toobar-combo-container[data-label="颜色"], .fortune-toobar-combo-container[data-label="填充"]')
-  if (colorHit && hostRef.value?.contains(colorHit)) {
-    if (e.target.closest?.('.fortune-toolbar-combo-popup, .fortune-toolbar-select, .fortune-toolbar-color-picker')) return
+  const currencyHit = e.target?.closest?.(
+    '.fortune-toolbar-button[data-tips="货币格式"], .fortune-toolbar-button:has(svg[data-paint="#currency-format"])',
+  )
+  if (currencyHit && hostRef.value?.contains(currencyHit)) {
     e.preventDefault()
     e.stopPropagation()
-    const label = colorHit.getAttribute('data-label')
-    openColorPicker(label === '填充' ? 'bg' : 'fc', colorHit)
+    applyNumFmt(NUM_FMTS.find((item) => item.id === 'cny'))
+    return
+  }
+  const percentHit = e.target?.closest?.(
+    '.fortune-toolbar-button[data-tips="百分比格式"], .fortune-toolbar-button:has(svg[data-paint="#percentage-format"])',
+  )
+  if (percentHit && hostRef.value?.contains(percentHit)) {
+    e.preventDefault()
+    e.stopPropagation()
+    applyNumFmt(NUM_FMTS.find((item) => item.id === 'pct'))
+    return
+  }
+  const styleHit = e.target?.closest?.('.fortune-toolbar-button[data-tips="粗体 (Ctrl+B)"]')
+  if (styleHit && folded.value && hostRef.value?.contains(styleHit)) {
+    if (e.target.closest?.('.fs-ht-menu')) return
+    e.preventDefault()
+    e.stopPropagation()
+    openFoldStylePop(styleHit)
+    return
+  }
+  const alignHit = e.target?.closest?.('.fortune-toobar-combo-container[data-label="对齐"], [data-tips="水平对齐"]')
+  if (alignHit && folded.value && hostRef.value?.contains(alignHit)) {
+    if (e.target.closest?.('.fortune-toolbar-combo-popup, .fortune-toolbar-select, .fs-ht-menu')) return
+    e.preventDefault()
+    e.stopPropagation()
+    openFoldAlignPop(alignHit.closest('.fortune-toobar-combo-container') || alignHit)
+    return
+  }
+  const wrapHit = e.target?.closest?.('.fortune-toobar-combo-container[data-label="文本换行"], [data-tips="文本换行"]')
+  if (wrapHit && folded.value && hostRef.value?.contains(wrapHit)) {
+    if (e.target.closest?.('.fortune-toolbar-combo-popup, .fortune-toolbar-select, .fs-ht-menu')) return
+    e.preventDefault()
+    e.stopPropagation()
+    openFoldWrapPop(wrapHit.closest('.fortune-toobar-combo-container') || wrapHit)
+    return
+  }
+  const vtHit = e.target?.closest?.('.fortune-toobar-combo-container[data-label="垂直对齐"], [data-tips="垂直对齐"]')
+  if (vtHit && folded.value && hostRef.value?.contains(vtHit)) {
+    if (e.target.closest?.('.fortune-toolbar-combo-popup, .fortune-toolbar-select, .fs-ht-menu')) return
+    e.preventDefault()
+    e.stopPropagation()
+    openFoldVtPop(vtHit.closest('.fortune-toobar-combo-container') || vtHit)
     return
   }
   const borderHit = e.target?.closest?.('.fortune-toobar-combo-container[data-label="边框"], .fortune-toobar-combo-container[data-label="边框设置"]')
@@ -2548,6 +3350,21 @@ function onFreezeCapture(e) {
     openFilter(filterHit)
     return
   }
+  const commentHit = e.target?.closest?.(
+    '.fortune-toolbar-button[data-label="评论"], .fortune-toolbar-button[data-tips="批注"], .fortune-toolbar-button:has(svg[data-paint="#comment"])',
+  )
+  if (commentHit && hostRef.value?.contains(commentHit)) {
+    e.preventDefault()
+    e.stopPropagation()
+    const api = instRef.current
+    const sheet = api?.getSheet?.()
+    const sel = api?.getSelection?.()?.[0]
+    const r = sel?.row?.[0] ?? 0
+    const c = sel?.column?.[0] ?? 0
+    const existing = sheet?.data?.[r]?.[c]?.ps?.value || ''
+    openCtxDlg('comment', '添加批注', existing)
+    return
+  }
   const findBtn = e.target?.closest?.('.fortune-toolbar-button, .fortune-toobar-combo-container')
   if (findBtn && hostRef.value?.contains(findBtn)) {
     const paint = findBtn.querySelector('svg')?.getAttribute('data-paint') || ''
@@ -2578,6 +3395,38 @@ function onFreezeCapture(e) {
 }
 
 const ctxMenu = reactive({ show: false, x: 0, y: 0, fly: '' })
+const sheetTabMenu = reactive({
+  show: false,
+  x: 0,
+  y: 0,
+  fly: '',
+  sheetId: '',
+  sheetName: '',
+  tabEl: null,
+})
+const sheetListPop = reactive({
+  open: false,
+  query: '',
+  left: 0,
+  top: 0,
+  activeId: '',
+  rev: 0,
+})
+const sheetDrag = reactive({
+  id: '',
+  overId: '',
+  moved: false,
+})
+const filteredSheetList = computed(() => {
+  sheetListPop.rev
+  const sheets = (instRef.current?.getAllSheets?.() || liveSheets() || [])
+    .slice()
+    .sort((a, b) => Number(a.order) - Number(b.order))
+  const q = sheetListPop.query.trim().toLowerCase()
+  if (!q) return sheets
+  return sheets.filter((s) => String(s.name || '').toLowerCase().includes(q))
+})
+const sheetListCanDrag = computed(() => !sheetListPop.query.trim())
 const CTX_ICONS = {
   copy: 'M4 2.5h6.2A1.3 1.3 0 0 1 11.5 3.8V11a1.3 1.3 0 0 1-1.3 1.3H4A1.3 1.3 0 0 1 2.7 11V3.8A1.3 1.3 0 0 1 4 2.5Zm0 1.2a.1.1 0 0 0-.1.1V11c0 .06.04.1.1.1h6.2a.1.1 0 0 0 .1-.1V3.8a.1.1 0 0 0-.1-.1H4Zm2.2 10h4.6A1.3 1.3 0 0 0 12.1 12.4V5.2h1.2v7.2A2.5 2.5 0 0 1 10.8 14.9H6.2V13.7Z',
   image: 'M2.5 3.2h11a1.3 1.3 0 0 1 1.3 1.3v7a1.3 1.3 0 0 1-1.3 1.3h-11A1.3 1.3 0 0 1 1.2 11.5v-7A1.3 1.3 0 0 1 2.5 3.2Zm0 1.2v7h11v-7h-11Zm1.6 5.2 1.7-1.8 1.4 1.5 2.2-2.4 2.3 2.7H4.1Zm1.3-3.2a.9.9 0 1 0 0-1.8.9.9 0 0 0 0 1.8Z',
@@ -3063,12 +3912,402 @@ function shiftCells(dir) {
   }
 }
 
+function closeSheetTabMenu() {
+  sheetTabMenu.show = false
+  sheetTabMenu.fly = ''
+  sheetTabMenu.sheetId = ''
+  sheetTabMenu.sheetName = ''
+  sheetTabMenu.tabEl = null
+}
+
+function closeSheetListPop() {
+  sheetListPop.open = false
+  sheetListPop.query = ''
+}
+
+function openSheetListPop(anchor) {
+  const el = anchor?.closest?.('.sheet-list-container, .fortune-sheettab-button') || anchor
+  const r = el?.getBoundingClientRect?.()
+  if (!r) return
+  closeSheetTabMenu()
+  sheetListPop.query = ''
+  try { sheetListPop.activeId = instRef.current?.getSheet?.()?.id || '' }
+  catch { sheetListPop.activeId = '' }
+  sheetListPop.left = Math.round(r.left)
+  sheetListPop.top = Math.round(r.top - 8)
+  sheetListPop.open = true
+  nextTick(() => {
+    const pop = document.querySelector('.fs-sheet-list')
+    if (!pop) return
+    const h = pop.getBoundingClientRect().height
+    sheetListPop.top = Math.max(8, Math.round(r.top - h - 4))
+  })
+}
+
+function onSheetListBtnClick(e) {
+  if (!hostRef.value?.contains(e.target)) return
+  const btn = e.target?.closest?.('#all-sheets, .sheet-list-container')
+  if (!btn) return
+  e.preventDefault()
+  e.stopPropagation()
+  if (sheetListPop.open) {
+    closeSheetListPop()
+    return
+  }
+  openSheetListPop(btn)
+}
+
+function activateFromSheetList(sheet) {
+  if (sheetDrag.moved) {
+    sheetDrag.moved = false
+    return
+  }
+  if (!sheet?.id) return
+  try {
+    if (sheet.hide === 1) {
+      instRef.current?.applyOp?.([
+        { op: 'replace', id: sheet.id, path: ['hide'], value: 0 },
+      ])
+      sheetListPop.rev += 1
+    }
+    instRef.current?.activateSheet?.({ id: sheet.id })
+    sheetListPop.activeId = sheet.id
+  } catch { /* */ }
+  closeSheetListPop()
+}
+
+function onSheetListDragStart(e, sheet) {
+  if (!sheetListCanDrag.value || !sheet?.id) {
+    e.preventDefault()
+    return
+  }
+  sheetDrag.id = sheet.id
+  sheetDrag.overId = ''
+  sheetDrag.moved = false
+  try {
+    e.dataTransfer.effectAllowed = 'move'
+    e.dataTransfer.setData('text/sheet-id', sheet.id)
+    e.dataTransfer.setData('text/plain', sheet.id)
+    const row = e.currentTarget?.closest?.('.fs-sheet-list-li')
+    if (row) e.dataTransfer.setDragImage(row, 24, 16)
+  } catch { /* */ }
+}
+
+function onSheetListDragOver(e, sheet) {
+  if (!sheetDrag.id || !sheet?.id || sheetDrag.id === sheet.id) return
+  e.preventDefault()
+  try { e.dataTransfer.dropEffect = 'move' } catch { /* */ }
+  sheetDrag.overId = sheet.id
+}
+
+function onSheetListDragLeave(sheet) {
+  if (sheetDrag.overId === sheet?.id) sheetDrag.overId = ''
+}
+
+function onSheetListDrop(e, sheet) {
+  e.preventDefault()
+  const fromId = sheetDrag.id || e.dataTransfer?.getData?.('text/sheet-id') || e.dataTransfer?.getData?.('text/plain')
+  const toId = sheet?.id
+  sheetDrag.overId = ''
+  if (!fromId || !toId || fromId === toId) {
+    sheetDrag.id = ''
+    return
+  }
+  reorderSheetTabs(fromId, toId)
+  sheetDrag.moved = true
+  sheetDrag.id = ''
+}
+
+function onSheetListDragEnd() {
+  sheetDrag.id = ''
+  sheetDrag.overId = ''
+}
+
+/** 把 fromId 工作表移动到 toId 的位置（插入到目标前） */
+function reorderSheetTabs(fromId, toId) {
+  const api = instRef.current
+  if (!api?.applyOp) return
+  const sheets = (api.getAllSheets?.() || [])
+    .slice()
+    .sort((a, b) => Number(a.order) - Number(b.order))
+  const fromIdx = sheets.findIndex((s) => s.id === fromId)
+  const toIdx = sheets.findIndex((s) => s.id === toId)
+  if (fromIdx < 0 || toIdx < 0 || fromIdx === toIdx) return
+  const next = sheets.slice()
+  const [item] = next.splice(fromIdx, 1)
+  next.splice(toIdx, 0, item)
+  try {
+    api.applyOp(next.map((s, i) => ({
+      op: 'replace',
+      id: s.id,
+      path: ['order'],
+      value: i,
+    })))
+    sheetListPop.rev += 1
+  } catch {
+    Message.error('移动失败')
+  }
+}
+
+function resolveSheetFromTab(tab) {
+  if (!tab) return null
+  const name = tab.querySelector?.('.luckysheet-sheets-item-name')?.textContent?.trim()
+  const sheets = (instRef.current?.getAllSheets?.() || liveSheets() || [])
+    .filter((s) => s.hide !== 1)
+    .sort((a, b) => Number(a.order) - Number(b.order))
+  if (name) {
+    const byName = sheets.find((s) => s.name === name)
+    if (byName) return byName
+  }
+  const items = [...(hostRef.value?.querySelectorAll('.luckysheet-sheets-item') || [])]
+    .filter((el) => el.style.display !== 'none')
+  const idx = items.indexOf(tab)
+  return idx >= 0 ? sheets[idx] || null : null
+}
+
+function openSheetTabMenu(e, tab) {
+  const sheet = resolveSheetFromTab(tab)
+  if (!sheet) return
+  ctxMenu.show = false
+  try {
+    if (sheet.id) instRef.current?.activateSheet?.({ id: sheet.id })
+  } catch { /* */ }
+  const menuW = 220
+  const menuH = 320
+  sheetTabMenu.sheetId = sheet.id || ''
+  sheetTabMenu.sheetName = sheet.name || ''
+  sheetTabMenu.tabEl = tab
+  sheetTabMenu.fly = ''
+  sheetTabMenu.x = Math.min(e.clientX, window.innerWidth - menuW - 8)
+  sheetTabMenu.y = Math.min(e.clientY, window.innerHeight - Math.min(menuH, window.innerHeight - 16))
+  sheetTabMenu.show = true
+}
+
+function onSheetTabContext(e) {
+  if (!hostRef.value?.contains(e.target)) return
+  const tab = e.target?.closest?.('.luckysheet-sheets-item')
+  if (!tab || tab.style.display === 'none') return
+  e.preventDefault()
+  e.stopPropagation()
+  openSheetTabMenu(e, tab)
+}
+
+function onSheetTabFuncClick(e) {
+  if (!hostRef.value?.contains(e.target)) return
+  const btn = e.target?.closest?.('.luckysheet-sheets-item-function')
+  if (!btn) return
+  e.preventDefault()
+  e.stopPropagation()
+  const tab = btn.closest('.luckysheet-sheets-item')
+  if (tab) openSheetTabMenu(e, tab)
+}
+
+function currentSheetTab() {
+  const id = sheetTabMenu.sheetId
+  const sheets = instRef.current?.getAllSheets?.() || liveSheets() || []
+  return sheets.find((s) => s.id === id) || sheets.find((s) => s.name === sheetTabMenu.sheetName) || null
+}
+
+function uniqueSheetCopyName(base) {
+  const names = new Set((instRef.current?.getAllSheets?.() || []).map((s) => s.name))
+  let name = `${base} 的副本`
+  let n = 2
+  while (names.has(name)) {
+    name = `${base} 的副本 ${n}`
+    n += 1
+  }
+  return name
+}
+
+function setSheetTabColor(color) {
+  const api = instRef.current
+  const sheet = currentSheetTab()
+  if (!api?.applyOp || !sheet?.id) return
+  try {
+    api.applyOp([{ op: 'replace', id: sheet.id, path: ['color'], value: color || undefined }])
+  } catch { /* */ }
+}
+
+function openSheetTabColorPicker() {
+  const sheet = currentSheetTab()
+  if (!sheet?.id) return
+  const item = document.querySelector('.fs-sheet-ctx .fs-sheet-color-item')
+  const r = item?.getBoundingClientRect?.()
+  const pw = 293
+  const ph = 340
+  let left = r ? Math.round(r.right + 6) : sheetTabMenu.x + 220
+  let top = r ? Math.round(r.top) : sheetTabMenu.y + 56
+  if (left + pw > window.innerWidth - 8) {
+    left = Math.max(8, Math.round((r?.left || sheetTabMenu.x) - pw - 6))
+  }
+  if (top + ph > window.innerHeight - 8) {
+    top = Math.max(8, window.innerHeight - ph - 8)
+  }
+  const keepId = sheetTabMenu.sheetId
+  const keepName = sheetTabMenu.sheetName
+  sheetTabMenu.show = false
+  sheetTabMenu.fly = ''
+  sheetTabMenu.tabEl = null
+  sheetTabMenu.sheetId = keepId
+  sheetTabMenu.sheetName = keepName
+  colorPop.kind = 'sheet-tab'
+  colorPop.origin = sheet.color || ''
+  colorPop.left = left
+  colorPop.top = top
+  colorPop.show = true
+}
+
+function renameSheetTab() {
+  const tab = sheetTabMenu.tabEl
+  closeSheetTabMenu()
+  const nameEl = tab?.querySelector?.('.luckysheet-sheets-item-name')
+  if (!nameEl) return
+  nextTick(() => {
+    nameEl.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true }))
+  })
+}
+
+function deleteSheetTab() {
+  const api = instRef.current
+  const sheet = currentSheetTab()
+  closeSheetTabMenu()
+  if (!api?.deleteSheet || !sheet?.id) return
+  const shown = (api.getAllSheets?.() || []).filter((s) => s.hide !== 1)
+  if (shown.length <= 1) {
+    Message.warning('至少保留一个工作表')
+    return
+  }
+  Modal.confirm({
+    title: '删除工作表',
+    content: `确定删除「${sheet.name}」吗？删除后不可恢复。`,
+    okText: '删除',
+    okButtonProps: { status: 'danger' },
+    cancelText: '取消',
+    onOk: () => {
+      try { api.deleteSheet({ id: sheet.id }) }
+      catch { Message.error('删除失败') }
+    },
+  })
+}
+
+function insertSheetTab() {
+  closeSheetTabMenu()
+  try { instRef.current?.addSheet?.() }
+  catch { Message.error('插入失败') }
+}
+
+function copySheetTab() {
+  const api = instRef.current
+  const sheet = currentSheetTab()
+  closeSheetTabMenu()
+  if (!api?.addSheet || !sheet) return
+  try {
+    const name = uniqueSheetCopyName(sheet.name || 'Sheet')
+    const data = sheet.data
+      || (typeof api.celldataToData === 'function' ? api.celldataToData(sheet.celldata || []) : null)
+    api.addSheet()
+    const cur = api.getSheet?.()
+    if (!cur?.id) return
+    api.setSheetName?.(name)
+    if (data) {
+      api.updateSheet?.([{
+        id: cur.id,
+        name,
+        data,
+        row: sheet.row,
+        column: sheet.column,
+        config: JSON.parse(JSON.stringify(sheet.config || {})),
+        color: sheet.color,
+      }])
+    }
+  } catch {
+    Message.error('复制失败')
+  }
+}
+
+function hideSheetTab() {
+  const api = instRef.current
+  const sheet = currentSheetTab()
+  closeSheetTabMenu()
+  if (!api?.applyOp || !sheet?.id) return
+  const shown = (api.getAllSheets?.() || []).filter((s) => s.hide !== 1)
+  if (shown.length <= 1) {
+    Message.warning('至少保留一个工作表')
+    return
+  }
+  try {
+    // path[0]==='hide' 时 applyOp 会切到下一张可见表
+    api.applyOp([
+      { op: 'replace', id: sheet.id, path: ['hide'], value: 1 },
+      { op: 'replace', id: sheet.id, path: ['status'], value: 0 },
+    ])
+    sheetListPop.rev += 1
+  } catch {
+    Message.error('隐藏失败')
+  }
+}
+
+function protectSheetTab() {
+  const api = instRef.current
+  const sheet = currentSheetTab()
+  closeSheetTabMenu()
+  if (!api?.applyOp || !sheet?.id) return
+  const config = { ...(sheet.config || {}) }
+  const on = !(config.authority?.sheet === 1)
+  config.authority = on
+    ? { ...(config.authority || {}), sheet: 1, hintText: '此工作表已受保护' }
+    : { ...(config.authority || {}), sheet: 0 }
+  try {
+    api.applyOp([{ op: 'replace', id: sheet.id, path: ['config'], value: config }])
+    Message.success(on ? '已开启工作表保护' : '已取消工作表保护')
+  } catch {
+    Message.error('设置失败')
+  }
+}
+
+function exportSheetTabImage() {
+  const sheet = currentSheetTab()
+  closeSheetTabMenu()
+  try {
+    const url = paintWorkbookThumb(fortuneToUniver([sheet || liveSheets()[0]].filter(Boolean)))
+    if (!url) {
+      Message.warning('暂无法导出图片')
+      return
+    }
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `${sheet?.name || 'sheet'}.png`
+    a.click()
+  } catch {
+    Message.error('导出失败')
+  }
+}
+
+function onSheetTabAction(key) {
+  if (key === 'color') {
+    openSheetTabColorPicker()
+    return
+  }
+  if (key === 'delete') deleteSheetTab()
+  else if (key === 'rename') renameSheetTab()
+  else if (key === 'insert') insertSheetTab()
+  else if (key === 'copy') copySheetTab()
+  else if (key === 'hide') hideSheetTab()
+  else if (key === 'protect') protectSheetTab()
+  else if (key === 'export') exportSheetTabImage()
+}
+
 function onSheetContext(e) {
   if (!hostRef.value?.contains(e.target)) return
+  if (e.target?.closest?.('.luckysheet-sheets-item, .luckysheet-sheet-area')) {
+    onSheetTabContext(e)
+    return
+  }
   const grid = e.target?.closest?.('.fortune-cell-area, .fortune-row-header, .fortune-col-header, canvas')
   if (!grid) return
   e.preventDefault()
   e.stopPropagation()
+  closeSheetTabMenu()
   const box = selectionBox()
   const remove = CTX_ITEMS.find((item) => item.id === 'remove')
   if (remove && box) {
@@ -3088,7 +4327,11 @@ function onSheetContext(e) {
 function bindFreezeClick() {
   const box = hostRef.value
   if (!box || freezeClickBound) return
+  box.addEventListener('mousedown', onColorToolbarCapture, true)
+  box.addEventListener('click', onColorToolbarCapture, true)
   box.addEventListener('click', onFreezeCapture, true)
+  box.addEventListener('click', onSheetTabFuncClick, true)
+  box.addEventListener('mousedown', onSheetListBtnClick, true)
   box.addEventListener('click', (e) => {
     if (e.target?.closest?.('.fortune-left-top')) selectWholeSheet()
     else requestAnimationFrame(syncCorner)
@@ -3153,16 +4396,36 @@ function onTipLeave() {
 function onWrapDown(e) {
   fsTip.show = false
   if (e.button === 2) return
-  if (e.target.closest?.('.cp, .fs-pop, .fs-fold, .fs-cf-dlg, .fs-cf-fly, .fs-find, .fs-ctx, .fs-ctx-dlg, .fs-filter, .fs-style-cluster, .fs-align-cluster, .fs-fmt-cluster, .fs-data-cluster')) return
+  if (e.target.closest?.('.cp, .fs-pop, .fs-fold, .fs-cf-dlg, .fs-cf-fly, .fs-find, .fs-ctx, .fs-ctx-dlg, .fs-filter, .fs-style-cluster, .fs-align-cluster, .fs-fmt-cluster, .fs-data-cluster, .fs-ht-menu, .fs-sheet-ctx, .fs-sheet-list, .fs-font-menu, .sheet-list-container, #all-sheets, .arco-trigger-popup')) return
+  // 颜色按钮由 onFreezeCapture 负责开关，避免 mousedown 先关掉、click 再打开时被冲掉
+  if (findColorCombo(e.target)) return
   pop.show = false
   filterPop.show = false
   colorPop.show = false
   borderState.styleOpen = false
+  alignPop.show = false
+  wrapPop.show = false
+  vtPop.show = false
+  stylePop.show = false
+  fontMenu.open = false
+  closeSheetListPop()
   cfState.fly = ''
+  cfState.scaleOpen = false
+  cfState.kindOpen = false
   if (!cfState.side) cfState.dlg = ''
   findState.scopeOpen = false
   ctxMenu.show = false
+  closeSheetTabMenu()
   markActiveTools()
+}
+
+function onCfSideDown(e) {
+  if (!e.target.closest?.('.fs-cf-scale-select-wrap, .fs-cf-kind-wrap, .fs-cf-range, .fs-cf-range-pick, .fs-cf-scope')) {
+    cfState.scaleOpen = false
+    cfState.kindOpen = false
+    cfState.scopeOpen = false
+    if (!e.target.closest?.('.fs-cf-range, .fs-cf-range-pick')) cfState.pickingRange = false
+  }
 }
 
 function clickFortune(tip) {
@@ -3203,6 +4466,7 @@ function renderBook(data) {
     showToolbar: !props.readonly,
     showFormulaBar: true,
     showSheetTabs: true,
+    sheetTabContextMenu: [],
     defaultFontSize: 10,
     defaultRowHeight: 24,
     toolbarItems: TOOLBAR_ITEMS,
@@ -3220,6 +4484,13 @@ function renderBook(data) {
         onClick: (e) => openPop('insert', e?.currentTarget || hostRef.value?.querySelector('[data-tips="插入"]')),
       },
     ],
+    hooks: {
+      afterSelectionChange: (_id, sel) => {
+        syncCfRangeFromSelection(sel)
+        scheduleDataBars()
+        if (cfState.side && cfState.panel === 'rules') refreshCfFlags()
+      },
+    },
     onChange: (next) => { latest = next || latest; markActiveTools(); scheduleDataBars() },
   }))
   requestAnimationFrame(() => {
@@ -3356,18 +4627,35 @@ async function onImport(ev) {
 }
 
 watch(folded, () => {
+  alignPop.show = false
+  wrapPop.show = false
+  vtPop.show = false
+  stylePop.show = false
   nextTick(() => requestAnimationFrame(() => {
     placeFontBar(hostRef.value)
     placeAlignBar(hostRef.value)
     placeFmtBar(hostRef.value)
     placeDataBar(hostRef.value)
+    syncFoldAlignIcon()
+    syncFoldWrapIcon()
+    syncFoldVtIcon()
   }))
 })
 
+watch(() => cfState.scaleOpen || cfState.kindOpen || cfState.scopeOpen, (open) => {
+  if (open) document.addEventListener('mousedown', onDocScaleDown, true)
+  else document.removeEventListener('mousedown', onDocScaleDown, true)
+})
+
 onBeforeUnmount(() => {
+  document.removeEventListener('mousedown', onDocScaleDown, true)
   labelObs?.disconnect()
   labelObs = null
+  hostRef.value?.removeEventListener('mousedown', onColorToolbarCapture, true)
+  hostRef.value?.removeEventListener('click', onColorToolbarCapture, true)
   hostRef.value?.removeEventListener('click', onFreezeCapture, true)
+  hostRef.value?.removeEventListener('click', onSheetTabFuncClick, true)
+  hostRef.value?.removeEventListener('mousedown', onSheetListBtnClick, true)
   hostRef.value?.removeEventListener('contextmenu', onSheetContext, true)
   freezeClickBound = false
   if (root) {
@@ -3389,7 +4677,7 @@ defineExpose({
 </script>
 
 <template>
-  <div class="fortune-wrap" :class="{ 'fs-open': !folded, 'cf-side': cfState.side && cfState.dlg }" @mousedown="onWrapDown" @mouseover="onTipOver" @mouseleave="onTipLeave">
+  <div class="fortune-wrap" :class="{ 'fs-open': !folded, 'cf-side': cfState.side && cfState.dlg, 'cf-picking': cfState.pickingRange, 'fs-sheet-list-open': sheetListPop.open }" @mousedown="onWrapDown" @mouseover="onTipOver" @mouseleave="onTipLeave">
     <input ref="fileRef" type="file" accept=".xlsx,.xls" hidden @change="onImport">
     <div ref="hostRef" class="fortune-host"></div>
     <Teleport v-if="toolbarEl" :to="toolbarEl">
@@ -3400,17 +4688,16 @@ defineExpose({
       @mousedown.stop
     >
       <div class="fs-style-top">
-        <a-select
+        <button
+          type="button"
           class="fs-arco-font"
           data-tip="字体"
-          :model-value="fontBar.name"
-          size="mini"
-          popup-container="body"
-          :trigger-props="fontPopup"
-          @change="applyFontName"
+          :class="{ open: fontMenu.open }"
+          @click.stop="toggleFontMenu"
         >
-          <a-option v-for="name in FONT_NAMES" :key="name.id" :value="name.id">{{ name.label }}</a-option>
-        </a-select>
+          <span class="fs-font-value" :style="{ fontFamily: fontFamilyPreview }">{{ fontLabel }}</span>
+          <i class="fs-caret" />
+        </button>
         <a-select
           class="fs-arco-size"
           data-tip="字号"
@@ -3450,6 +4737,115 @@ defineExpose({
         <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M2 4a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v16a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V4Zm11 0v7h7V4h-7Zm-2 0H4v7h7V4Zm-7 9v7h7v-7H4Zm9 7h7v-7h-7v7Z" fill="currentColor"/></svg>
       </button>
     </div>
+    <Teleport to="body">
+      <div
+        v-if="fontMenu.open"
+        class="fs-font-menu"
+        :style="{ left: `${fontMenu.left}px`, top: `${fontMenu.top}px` }"
+        @mousedown.stop
+      >
+        <div class="fs-font-search">
+          <icon-search class="fs-font-search-ico" />
+          <input
+            v-model="fontMenu.query"
+            type="text"
+            placeholder="所有字体"
+            @keydown.esc.stop="fontMenu.open = false"
+          >
+        </div>
+        <div class="fs-font-list" role="menu">
+          <button
+            v-for="item in filteredFonts"
+            :key="item.key"
+            type="button"
+            class="fs-font-item"
+            :class="{ on: isFontSelected(item) }"
+            :style="{ fontFamily: item.family }"
+            role="menuitem"
+            @click="applyFontName(item.id, item.key)"
+          >
+            <span>{{ item.label }}</span>
+            <icon-check v-if="isFontSelected(item)" class="fs-font-check" />
+          </button>
+          <div v-if="!filteredFonts.length" class="fs-font-empty">无匹配字体</div>
+        </div>
+      </div>
+    </Teleport>
+    <div
+      v-if="stylePop.show && folded"
+      class="fs-ht-menu"
+      :style="{ left: `${stylePop.left}px`, top: `${stylePop.top}px` }"
+      @mousedown.stop
+    >
+      <button
+        v-for="item in STYLE_OPTS"
+        :key="item.attr"
+        type="button"
+        class="fs-ht-item"
+        :class="{ on: !!fontBar[item.attr] }"
+        @click="toggleStyle(item.attr)"
+      >
+        <i class="fs-style-ico" :class="item.cls">{{ item.letter }}</i>
+        <span>{{ item.label }}</span>
+      </button>
+    </div>
+    <div
+      v-if="alignPop.show && folded"
+      class="fs-ht-menu"
+      :style="{ left: `${alignPop.left}px`, top: `${alignPop.top}px` }"
+      @mousedown.stop
+    >
+      <button
+        v-for="item in HT_OPTS"
+        :key="item.id"
+        type="button"
+        class="fs-ht-item"
+        :class="{ on: Number(alignBar.ht) === item.id }"
+        @click="applyAlign('ht', item.id)"
+      >
+        <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path :d="item.path" fill="currentColor" /></svg>
+        <span>{{ item.label }}</span>
+        <svg v-if="Number(alignBar.ht) === item.id" class="fs-ht-check" viewBox="0 0 24 24" width="16" height="16"><path d="M9.4 16.6 4.8 12l-1.4 1.4 6 6 12-12-1.4-1.4z" fill="currentColor" /></svg>
+      </button>
+    </div>
+    <div
+      v-if="wrapPop.show && folded"
+      class="fs-ht-menu"
+      :style="{ left: `${wrapPop.left}px`, top: `${wrapPop.top}px` }"
+      @mousedown.stop
+    >
+      <button
+        v-for="item in TB_OPTS"
+        :key="item.id"
+        type="button"
+        class="fs-ht-item"
+        :class="{ on: Number(alignBar.tb) === item.id }"
+        @click="applyAlign('tb', item.id)"
+      >
+        <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path :d="item.path" fill="currentColor" /></svg>
+        <span>{{ item.label }}</span>
+        <svg v-if="Number(alignBar.tb) === item.id" class="fs-ht-check" viewBox="0 0 24 24" width="16" height="16"><path d="M9.4 16.6 4.8 12l-1.4 1.4 6 6 12-12-1.4-1.4z" fill="currentColor" /></svg>
+      </button>
+    </div>
+    <div
+      v-if="vtPop.show && folded"
+      class="fs-ht-menu"
+      :style="{ left: `${vtPop.left}px`, top: `${vtPop.top}px` }"
+      @mousedown.stop
+    >
+      <button
+        v-for="item in VT_OPTS"
+        :key="item.id"
+        type="button"
+        class="fs-ht-item"
+        :class="{ on: Number(alignBar.vt) === item.id }"
+        @click="applyAlign('vt', item.id)"
+      >
+        <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path :d="item.path" fill="currentColor" /></svg>
+        <span>{{ item.label }}</span>
+        <svg v-if="Number(alignBar.vt) === item.id" class="fs-ht-check" viewBox="0 0 24 24" width="16" height="16"><path d="M9.4 16.6 4.8 12l-1.4 1.4 6 6 12-12-1.4-1.4z" fill="currentColor" /></svg>
+      </button>
+    </div>
     <div
       v-if="!folded"
       class="fs-align-cluster"
@@ -3457,11 +4853,11 @@ defineExpose({
       @mousedown.stop
     >
       <div class="fs-align-grid">
-        <button type="button" class="fs-align-btn" :class="{ on: alignBar.tb === 0 }" data-tip="溢出" @click="applyAlign('tb', 0)">
-          <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M2 3.2h8.2v1.4H2V3.2Zm0 4.1h6.2v1.4H2V7.3Zm0 4.1h12v1.4H2v-1.4Z" fill="currentColor"/><path d="M11.1 3.1 15 5.5l-3.9 2.4V3.1Z" fill="currentColor"/></svg>
+        <button type="button" class="fs-align-btn" :class="{ on: Number(alignBar.tb) === 1 }" data-tip="溢出" @click="applyAlign('tb', 1)">
+          <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M2 3.2h7v1.4H2V3.2Zm0 4.1h6v1.4H2V7.3Zm0 4.1h12v1.4H2v-1.4ZM9.2 2.5h1.2v6.2H9.2V2.5Zm1.6 1.5 3.6 1.6-3.6 1.6V4Z" fill="currentColor"/></svg>
         </button>
-        <button type="button" class="fs-align-btn" :class="{ on: alignBar.tb === 2 }" data-tip="自动换行" @click="applyAlign('tb', 2)">
-          <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M4.2 4.2h7.6v7.6H4.2V4.2Zm1.2 1.2v5.2h5.2V5.4H5.4Z" fill="currentColor"/><path d="M2.2 2.2h2.2v1.3H3.5v1.1H2.2V2.2Zm9.4 0h2.2v2.4h-1.3V3.5h-1.1V2.2ZM2.2 11.4h1.3v1.1h1.1v1.3H2.2v-2.4Zm10.3 1.1h1.1v-1.1h1.3v2.4h-2.4v-1.3Z" fill="currentColor"/></svg>
+        <button type="button" class="fs-align-btn" :class="{ on: Number(alignBar.tb) === 2 }" data-tip="自动换行" @click="applyAlign('tb', 2)">
+          <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M2 3.2h7.5v1.4H2V3.2Zm0 4.1h5v1.4H2V7.3ZM8.8 2.5h1.3v7.2c0 1.2.9 2.1 2.1 2.1H14v1.3h-1.8a3.4 3.4 0 0 1-3.4-3.4V2.5Zm3.6 7.6 2.2 2.2-2.2 2.2V10.1Z" fill="currentColor"/></svg>
         </button>
         <button type="button" class="fs-align-btn" :class="{ on: alignBar.vt === 2 }" data-tip="底部对齐" @click="applyAlign('vt', 2)">
           <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M3 12.4h10v1.4H3v-1.4ZM8 2.2v8.2" stroke="currentColor" stroke-width="1.4" fill="none" stroke-linecap="round"/><path d="M5.3 8.2 8 11l2.7-2.8" stroke="currentColor" stroke-width="1.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
@@ -3539,13 +4935,6 @@ defineExpose({
     </div>
     <button v-if="folded" type="button" class="fs-fold-sort" data-tip="排序" @mousedown.stop @click="openPop('sort', $event.currentTarget)">
       <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M4.2 2.2h1.6l2.6 6.4H7.1l-.5-1.3H3.8l-.5 1.3H2Zm1.4 1.6L4.4 6.4h2.4L5.6 3.8Zm5.4-.2h1.3v7.3h2.1L11.3 14 8.2 10.9h2.8V3.6Z" fill="currentColor"/></svg>
-    </button>
-    <button v-if="folded" type="button" class="fs-fold-sort fs-fold-end fs-fold-comment" data-tip="评论" data-split="1" @mousedown.stop @click="openCtxDlg('comment', '添加批注', '')">
-      <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M4 4.5A2.5 2.5 0 0 1 6.5 2h11A2.5 2.5 0 0 1 20 4.5v9A2.5 2.5 0 0 1 17.5 16H9.2L5 19.4V4.5Zm2.5-.5a.5.5 0 0 0-.5.5v11.2L9.8 14h7.7a.5.5 0 0 0 .5-.5v-9a.5.5 0 0 0-.5-.5h-11Z" fill="currentColor"/></svg>
-      <i class="fs-split"></i>
-    </button>
-    <button v-if="folded" type="button" class="fs-fold-sort fs-fold-end fs-fold-find" data-tip="查找和替换" @mousedown.stop @click="openFindPop($event.currentTarget)">
-      <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M10.5 3a7.5 7.5 0 0 1 5.96 12.05l4.24 4.25-1.4 1.4-4.25-4.24A7.5 7.5 0 1 1 10.5 3Zm0 2a5.5 5.5 0 1 0 0 11 5.5 5.5 0 0 0 0-11Z" fill="currentColor"/></svg>
     </button>
     </Teleport>
     <button
@@ -3780,23 +5169,35 @@ defineExpose({
       @mouseleave="hideCfFly()"
     >
       <template v-if="cfState.fly === 'color'">
+        <div class="fs-cf-scale-sec">双色色阶</div>
         <div class="fs-cf-scales">
           <button
-            v-for="sub in CF_FLIES.color"
+            v-for="sub in CF_FLIES.color.filter((x) => x.group === 'two')"
             :key="sub.id"
             type="button"
             :title="sub.label"
             @click="applyPreset(sub)"
           >
-            <span
-              class="fs-cf-scale-preview"
-              :style="{ background: `linear-gradient(180deg, ${[...sub.format].reverse().join(',')})` }"
-            >
+            <span class="fs-cf-scale-preview" :style="{ background: scalePreviewCss(sub.format) }">
               <i /><i /><i /><i /><i />
             </span>
           </button>
         </div>
-        <button type="button" class="fs-cf-bar-more" @click="openCfDialog('greaterThan', true)">其他规则(M)...</button>
+        <div class="fs-cf-scale-sec">三色色阶</div>
+        <div class="fs-cf-scales">
+          <button
+            v-for="sub in CF_FLIES.color.filter((x) => x.group === 'three')"
+            :key="sub.id"
+            type="button"
+            :title="sub.label"
+            @click="applyPreset(sub)"
+          >
+            <span class="fs-cf-scale-preview" :style="{ background: scalePreviewCss(sub.format) }">
+              <i /><i /><i /><i /><i />
+            </span>
+          </button>
+        </div>
+        <button type="button" class="fs-cf-bar-more" @click="openCfDialog('color', true)">其他规则(M)...</button>
       </template>
       <template v-else-if="cfState.fly === 'bar'">
         <div class="fs-cf-bar-sec">渐变填充</div>
@@ -3827,7 +5228,7 @@ defineExpose({
             </span>
           </button>
         </div>
-        <button type="button" class="fs-cf-bar-more" @click="openCfDialog('greaterThan', true)">其他规则(M)...</button>
+        <button type="button" class="fs-cf-bar-more" @click="openCfDialog('bar', true)">其他规则(M)...</button>
       </template>
       <template v-else-if="cfState.fly === 'icons'">
         <template v-for="(group, gi) in CF_ICON_GROUPS" :key="group">
@@ -3848,7 +5249,7 @@ defineExpose({
           <div v-if="gi < CF_ICON_GROUPS.length - 1" class="fs-cf-icon-sep" />
         </template>
         <div class="fs-cf-icon-sep last" />
-        <button type="button" class="fs-cf-icon-more" @click="openCfDialog('greaterThan', true)">自定义规则</button>
+        <button type="button" class="fs-cf-icon-more" @click="openCfDialog('icons', true)">自定义规则</button>
       </template>
       <button
         v-for="sub in (cfState.fly === 'color' || cfState.fly === 'bar' || cfState.fly === 'icons' ? [] : CF_FLIES[cfState.fly])"
@@ -3864,49 +5265,123 @@ defineExpose({
         {{ sub.label }}
       </button>
     </div>
-    <aside v-if="cfState.side && cfState.dlg" class="fs-cf-side" @mousedown.stop>
+    <aside v-if="cfState.side && cfState.dlg" class="fs-cf-side" @mousedown.stop="onCfSideDown">
         <div class="fs-cf-side-head">
           <button v-if="cfState.panel === 'edit'" type="button" title="返回" @click="backCf">
             <svg viewBox="0 0 24 24" width="16" height="16"><path d="M14.5 5.5 8 12l6.5 6.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" /></svg>
           </button>
           <span>{{ cfState.panel === 'rules' ? '条件格式' : '条件格式设置' }}</span>
           <svg class="fs-cf-help" viewBox="0 0 24 24" width="16" height="16"><path :d="CF_HELP" fill="currentColor" /></svg>
-          <button type="button" title="关闭" @click="cfState.dlg = ''; cfState.side = false">
+          <button type="button" title="关闭" @click="closeCfSide">
             <svg viewBox="0 0 24 24" width="16" height="16"><path :d="FIND_CLOSE" fill="currentColor" /></svg>
           </button>
         </div>
         <div v-if="cfState.panel === 'rules'" class="fs-cf-side-body">
-          <div class="fs-cf-manage">管理
-            <span class="fs-cf-select">整张工作表</span>
+          <div class="fs-cf-manage">
+            管理
+            <button type="button" class="fs-cf-scope" :class="{ open: cfState.scopeOpen }" @click.stop="toggleCfScopeMenu">
+              {{ CF_RULE_SCOPES.find((s) => s.id === cfState.ruleScope)?.label || '整张工作表' }}
+              <svg viewBox="0 0 24 24" width="12" height="12"><path d="m3.414 7.086-.707.707a1 1 0 0 0 0 1.414l7.778 7.778a2 2 0 0 0 2.829 0l7.778-7.778a1 1 0 0 0 0-1.414l-.707-.707a1 1 0 0 0-1.415 0l-7.07 7.07-7.072-7.07a1 1 0 0 0-1.414 0Z" fill="currentColor" /></svg>
+            </button>
             的规则
           </div>
-          <button
+          <Teleport to="body">
+            <div
+              v-if="cfState.scopeOpen"
+              class="fs-cf-scope-menu"
+              :style="{ top: `${cfState.scopeY}px`, left: `${cfState.scopeX}px`, width: `${cfState.scopeW}px` }"
+              @mousedown.stop
+            >
+              <button
+                v-for="item in CF_RULE_SCOPES"
+                :key="item.id"
+                type="button"
+                :class="{ on: cfState.ruleScope === item.id }"
+                @click="pickCfScope(item.id)"
+              >
+                <span>{{ item.label }}</span>
+                <svg v-if="cfState.ruleScope === item.id" viewBox="0 0 24 24" width="16" height="16"><path d="M9.4 16.6 4.8 12l-1.4 1.4 6 6 12-12-1.4-1.4z" fill="currentColor" /></svg>
+              </button>
+            </div>
+          </Teleport>
+          <div v-if="!cfState.list.length" class="fs-cf-empty">{{ cfState.ruleScope === 'sel' ? '所选单元格没有条件格式规则' : '当前工作表没有条件格式规则' }}</div>
+          <div
             v-for="(rule, ri) in cfState.list"
-            :key="ri"
-            type="button"
-            class="fs-cf-rule"
+            :key="`${rule._src}-${rule._idx}-${ri}`"
+            class="fs-cf-rule-card"
+            @click="focusCfRule(rule)"
           >
-            <span>
-              <b>{{ cfRuleText(rule) }}</b>
-              <em>{{ cfRuleRange(rule) }}</em>
-            </span>
-            <i :style="{ color: rule.format?.textColor || '#1f2329', background: rule.format?.cellColor || '#ffc7ce' }">123</i>
-          </button>
+            <div class="fs-cf-rule-main">
+              <span>
+                <b>{{ cfRuleText(rule) }}</b>
+                <em>{{ cfRuleRange(rule) }}</em>
+              </span>
+              <div class="fs-cf-rule-right">
+                <button type="button" class="fs-cf-rule-del" title="删除规则" @click.stop="removeCfRule(rule)">
+                  <svg viewBox="0 0 24 24" width="16" height="16"><path d="M6 7h12v13a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V7Zm3-4h6l1 2h4v2H4V5h4l1-2Zm1 6v9h2v-9H10Zm4 0v9h2v-9h-2Z" fill="currentColor" /></svg>
+                </button>
+                <i class="fs-cf-rule-preview" :style="cfRulePreviewStyle(rule)">{{ cfRulePreviewText(rule) }}</i>
+              </div>
+            </div>
+          </div>
           <button type="button" class="fs-cf-add" @click="openCfDialog('greaterThan', true)">+ 添加新的规则</button>
         </div>
         <div v-else class="fs-cf-side-body">
-          <label class="fs-cf-field">应用范围
-            <a-input v-model="cfForm.range" class="fs-cf-range">
+          <div class="fs-cf-field">应用范围
+            <a-input
+              v-model="cfForm.range"
+              class="fs-cf-range"
+              :class="{ picking: cfState.pickingRange }"
+              placeholder="例如 A1:B10"
+              @focus="onCfRangeFocus"
+            >
               <template #suffix>
-                <svg viewBox="0 0 24 24" width="16" height="16"><path d="M4 4h6v6H4V4Zm10 0h6v6h-6V4ZM4 14h6v6H4v-6Zm10 0h6v6h-6v-6Z" fill="currentColor" /></svg>
+                <button
+                  type="button"
+                  class="fs-cf-range-pick"
+                  :class="{ on: cfState.pickingRange }"
+                  title="在表格中选择范围"
+                  @mousedown.stop
+                  @click.stop="toggleCfRangePick"
+                >
+                  <svg viewBox="0 0 24 24" width="16" height="16"><path d="M4 4h6v6H4V4Zm10 0h6v6h-6V4ZM4 14h6v6H4v-6Zm10 0h6v6h-6v-6Z" fill="currentColor" /></svg>
+                </button>
               </template>
             </a-input>
-          </label>
-          <label class="fs-cf-field">样式类型
-            <a-select :model-value="cfForm.kind" popup-container="body" :trigger-props="cfPopup" @change="onCfKind">
-              <a-option v-for="item in CF_TYPES" :key="item.id" :value="item.id">{{ item.label }}</a-option>
-            </a-select>
-          </label>
+            <div v-if="cfState.pickingRange" class="fs-cf-range-tip">在表格中拖选单元格，范围会自动填入</div>
+          </div>
+          <div class="fs-cf-field">样式类型
+            <div class="fs-cf-kind-wrap">
+              <button
+                type="button"
+                class="fs-cf-kind-select"
+                :class="{ open: cfState.kindOpen }"
+                @click.stop="toggleKindMenu"
+              >
+                <span>{{ CF_TYPES.find((x) => x.id === cfForm.kind)?.label || '突出显示单元格' }}</span>
+                <svg viewBox="0 0 24 24" width="12" height="12"><path d="m3.414 7.086-.707.707a1 1 0 0 0 0 1.414l7.778 7.778a2 2 0 0 0 2.829 0l7.778-7.778a1 1 0 0 0 0-1.414l-.707-.707a1 1 0 0 0-1.415 0l-7.07 7.07-7.072-7.07a1 1 0 0 0-1.414 0Z" fill="currentColor" /></svg>
+              </button>
+            </div>
+            <Teleport to="body">
+              <div
+                v-if="cfState.kindOpen"
+                class="fs-cf-kind-menu"
+                :style="{ top: `${cfState.kindY}px`, left: `${cfState.kindX}px`, width: `${cfState.kindW}px` }"
+                @mousedown.stop
+              >
+                <button
+                  v-for="item in CF_TYPES"
+                  :key="item.id"
+                  type="button"
+                  :class="{ on: cfForm.kind === item.id }"
+                  @click="pickCfKind(item.id)"
+                >
+                  <span>{{ item.label }}</span>
+                  <svg v-if="cfForm.kind === item.id" viewBox="0 0 24 24" width="16" height="16"><path d="M9.4 16.6 4.8 12l-1.4 1.4 6 6 12-12-1.4-1.4z" fill="currentColor" /></svg>
+                </button>
+              </div>
+            </Teleport>
+          </div>
           <div v-if="cfForm.kind === 'highlight'" class="fs-cf-field">符合以下条件时
             <a-select :model-value="cfForm.group" popup-container="body" :trigger-props="cfPopup" @change="onCfGroup">
               <a-option v-for="group in CF_GROUPS" :key="group.id" :value="group.id">{{ group.label }}</a-option>
@@ -3923,7 +5398,7 @@ defineExpose({
             <a-input v-if="cfForm.group === 'text'" v-model="cfForm.value" placeholder="请输入文本" />
             <a-date-picker v-if="cfForm.group === 'date'" v-model="cfForm.date" popup-container="body" :trigger-props="cfPopup" />
           </div>
-          <div v-else class="fs-cf-field">样式规则
+          <div v-else-if="cfForm.kind === 'item'" class="fs-cf-field">样式规则
             <a-select :model-value="cfForm.rank" popup-container="body" :trigger-props="cfPopup" @change="(id) => { cfForm.rank = id; syncRankType() }">
               <a-option v-for="item in CF_RANKS" :key="item.id" :value="item.id">{{ item.label }}</a-option>
             </a-select>
@@ -3932,7 +5407,127 @@ defineExpose({
               <a-checkbox v-model="cfForm.percent" @change="syncRankType">百分比</a-checkbox>
             </div>
           </div>
-          <div class="fs-cf-field">格式样式
+          <div v-else-if="cfForm.kind === 'formula'" class="fs-cf-field">公式
+            <a-input v-model="cfForm.formula" placeholder="=A1>10" />
+          </div>
+          <div v-else-if="cfForm.kind === 'color'" class="fs-cf-field">样式设置
+            <div class="fs-cf-scale-select-wrap">
+              <button type="button" class="fs-cf-scale-select" :class="{ open: cfState.scaleOpen }" @click.stop="toggleScaleGallery">
+                <span class="fs-cf-scale-thumb" :style="{ background: scalePreviewCss(currentColorPreset()?.format) }" />
+                <span class="fs-cf-scale-name">{{ currentColorPreset()?.label || '绿 - 黄 - 红' }}</span>
+                <svg viewBox="0 0 24 24" width="12" height="12"><path d="m3.414 7.086-.707.707a1 1 0 0 0 0 1.414l7.778 7.778a2 2 0 0 0 2.829 0l7.778-7.778a1 1 0 0 0 0-1.414l-.707-.707a1 1 0 0 0-1.415 0l-7.07 7.07-7.072-7.07a1 1 0 0 0-1.414 0Z" fill="currentColor" /></svg>
+              </button>
+            </div>
+            <Teleport to="body">
+              <div
+                v-if="cfState.scaleOpen"
+                class="fs-cf-scale-gallery"
+                :style="{ top: `${cfState.scaleY}px`, left: `${cfState.scaleX}px`, width: `${cfState.scaleW}px` }"
+                @mousedown.stop
+              >
+                <div class="fs-cf-scale-sec">双色色阶</div>
+                <div class="fs-cf-scale-grid">
+                  <button
+                    v-for="sub in CF_FLIES.color.filter((x) => x.group === 'two')"
+                    :key="sub.id"
+                    type="button"
+                    :class="{ on: cfForm.presetId === sub.id }"
+                    :title="sub.label"
+                    @click="pickScalePreset(sub)"
+                  >
+                    <span class="fs-cf-scale-preview" :style="{ background: scalePreviewCss(sub.format) }">
+                      <i /><i /><i /><i /><i />
+                    </span>
+                  </button>
+                </div>
+                <div class="fs-cf-scale-sec">三色色阶</div>
+                <div class="fs-cf-scale-grid three">
+                  <button
+                    v-for="sub in CF_FLIES.color.filter((x) => x.group === 'three')"
+                    :key="sub.id"
+                    type="button"
+                    :class="{ on: cfForm.presetId === sub.id }"
+                    :title="sub.label"
+                    @click="pickScalePreset(sub)"
+                  >
+                    <span class="fs-cf-scale-preview" :style="{ background: scalePreviewCss(sub.format) }">
+                      <i /><i /><i /><i /><i />
+                    </span>
+                  </button>
+                </div>
+              </div>
+            </Teleport>
+            <div v-for="stop in cfForm.scaleStops" :key="stop.key" class="fs-cf-scale-stop">
+              <div class="fs-cf-scale-stop-label">{{ stop.label }}</div>
+              <div class="fs-cf-scale-stop-row">
+                <a-select v-model="stop.type" popup-container="body" :trigger-props="cfPopup" class="fs-cf-scale-type">
+                  <a-option v-for="opt in CF_SCALE_STOP_TYPES" :key="opt.id" :value="opt.id">{{ opt.label }}</a-option>
+                </a-select>
+                <a-input
+                  v-model="stop.value"
+                  class="fs-cf-scale-value"
+                  :disabled="scaleStopDisabled(stop)"
+                  :placeholder="scaleStopDisabled(stop) ? '' : '请输入'"
+                />
+                <button type="button" class="fs-cf-scale-color" title="填充颜色" @click="openScaleStopColor(stop, $event.currentTarget)">
+                  <svg viewBox="0 0 24 24" width="16" height="16"><path d="M4 20h16v-2.2H4V20Zm2.2-4.6 5.3-9.2c.3-.5 1-.5 1.3 0l5.3 9.2c.3.6-.1 1.3-.8 1.3H7c-.7 0-1.1-.7-.8-1.3Z" fill="currentColor" /></svg>
+                  <i :style="{ background: stop.color }" />
+                </button>
+              </div>
+            </div>
+          </div>
+          <div v-else-if="cfForm.kind === 'bar'" class="fs-cf-field">数据条样式
+            <div class="fs-cf-bar-sec">渐变填充</div>
+            <div class="fs-cf-bar-grid fs-cf-side-presets">
+              <button
+                v-for="sub in CF_FLIES.bar.filter((x) => x.group === 'gradient')"
+                :key="sub.id"
+                type="button"
+                :class="{ on: cfForm.presetId === sub.id }"
+                :title="sub.label"
+                @click="pickCfPreset(sub)"
+              >
+                <span class="fs-cf-bar-preview gradient" :style="{ '--bar': sub.format[0] }">
+                  <i /><i /><i /><i /><i />
+                </span>
+              </button>
+            </div>
+            <div class="fs-cf-bar-sec">实心填充</div>
+            <div class="fs-cf-bar-grid fs-cf-side-presets">
+              <button
+                v-for="sub in CF_FLIES.bar.filter((x) => x.group === 'solid')"
+                :key="sub.id"
+                type="button"
+                :class="{ on: cfForm.presetId === sub.id }"
+                :title="sub.label"
+                @click="pickCfPreset(sub)"
+              >
+                <span class="fs-cf-bar-preview" :style="{ '--bar': sub.format[0] }">
+                  <i /><i /><i /><i /><i />
+                </span>
+              </button>
+            </div>
+          </div>
+          <div v-else-if="cfForm.kind === 'icons'" class="fs-cf-field">图标集样式
+            <template v-for="(group, gi) in CF_ICON_GROUPS" :key="group">
+              <div class="fs-cf-icon-sec">{{ group }}</div>
+              <div class="fs-cf-icon-wrap fs-cf-side-icons">
+                <button
+                  v-for="sub in CF_FLIES.icons.filter((x) => x.group === group)"
+                  :key="sub.id"
+                  type="button"
+                  class="fs-cf-icon-item"
+                  :class="{ alone: sub.alone, on: cfForm.presetId === sub.id }"
+                  :title="sub.label"
+                  @click="pickCfPreset(sub)"
+                >
+                  <span class="fs-cf-icon-preview" v-html="iconPreviewHtml(sub)" />
+                </button>
+              </div>
+              <div v-if="gi < CF_ICON_GROUPS.length - 1" class="fs-cf-icon-sep" />
+            </template>
+          </div>
+          <div v-if="cfForm.kind === 'highlight' || cfForm.kind === 'item' || cfForm.kind === 'formula'" class="fs-cf-field">格式样式
             <div
               class="fs-cf-preview"
               :style="{
@@ -3959,7 +5554,7 @@ defineExpose({
           </div>
         </div>
         <div v-if="cfState.panel !== 'rules'" class="fs-cf-side-foot">
-          <a-button @click="cfState.dlg = ''; cfState.side = false">取消</a-button>
+          <a-button @click="closeCfSide">取消</a-button>
           <a-button type="primary" @click="confirmCfDialog">完成</a-button>
         </div>
     </aside>
@@ -3972,9 +5567,9 @@ defineExpose({
           :key="ri"
           type="button"
           class="fs-cf-rule"
-          @click="patchCf(cfState.list.filter((_, i) => i !== ri))"
+          @click="removeCfRule({ ...rule, _src: 'cf', _idx: ri })"
         >
-          {{ rule.conditionName || rule.type || '规则' }}
+          {{ cfRuleText(rule) }}
           <span>删除</span>
         </button>
         <div class="fs-cf-dlg-foot">
@@ -4125,6 +5720,93 @@ defineExpose({
         </button>
       </template>
     </div>
+    <Teleport to="body">
+      <div
+        v-if="sheetListPop.open"
+        class="fs-sheet-list"
+        :style="{ left: `${sheetListPop.left}px`, top: `${sheetListPop.top}px` }"
+        @mousedown.stop
+      >
+        <div class="fs-sheet-list-search">
+          <icon-search class="fs-sheet-list-search-ico" />
+          <input
+            v-model="sheetListPop.query"
+            type="text"
+            placeholder="查找"
+            @keydown.esc.stop="closeSheetListPop"
+          >
+        </div>
+        <ul class="fs-sheet-list-ul" role="listbox">
+          <li
+            v-for="sheet in filteredSheetList"
+            :key="sheet.id"
+            class="fs-sheet-list-li"
+            :class="{
+              dragging: sheetDrag.id === sheet.id,
+              'drag-over': sheetDrag.overId === sheet.id && sheetDrag.id !== sheet.id,
+            }"
+            @dragover="onSheetListDragOver($event, sheet)"
+            @dragleave="onSheetListDragLeave(sheet)"
+            @drop="onSheetListDrop($event, sheet)"
+          >
+            <button
+              type="button"
+              class="fs-sheet-list-item"
+              :class="{ active: sheet.id === sheetListPop.activeId }"
+              @click="activateFromSheetList(sheet)"
+            >
+              <span
+                class="fs-sheet-list-drag"
+                :draggable="sheetListCanDrag"
+                aria-hidden="true"
+                @dragstart.stop="onSheetListDragStart($event, sheet)"
+                @dragend.stop="onSheetListDragEnd"
+                @click.stop
+              >
+                <svg width="6" height="10" viewBox="0 0 6 10" fill="none"><path d="M.4 0h1.2c.22 0 .4.18.4.4v1.2a.4.4 0 01-.4.4H.4a.4.4 0 01-.4-.4V.4C0 .18.18 0 .4 0zm4 0h1.2c.22 0 .4.18.4.4v1.2a.4.4 0 01-.4.4H4.4a.4.4 0 01-.4-.4V.4c0-.22.18-.4.4-.4zm-4 8h1.2c.22 0 .4.18.4.4v1.2a.4.4 0 01-.4.4H.4a.4.4 0 01-.4-.4V8.4c0-.22.18-.4.4-.4zm4 0h1.2c.22 0 .4.18.4.4v1.2a.4.4 0 01-.4.4H4.4a.4.4 0 01-.4-.4V8.4c0-.22.18-.4.4-.4zm-4-4h1.2c.22 0 .4.18.4.4v1.2a.4.4 0 01-.4.4H.4a.4.4 0 01-.4-.4V4.4c0-.22.18-.4.4-.4zm4 0h1.2c.22 0 .4.18.4.4v1.2a.4.4 0 01-.4.4H4.4a.4.4 0 01-.4-.4V4.4c0-.22.18-.4.4-.4z" fill="#8F959E" fill-rule="nonzero"/></svg>
+              </span>
+              <i v-if="sheet.color" class="fs-sheet-list-dot" :style="{ background: sheet.color }" />
+              <span class="fs-sheet-list-name">{{ sheet.name }}</span>
+              <span class="fs-sheet-list-trail">
+                <icon-eye-invisible v-if="sheet.hide === 1" />
+                <icon-check v-else-if="sheet.id === sheetListPop.activeId" />
+              </span>
+            </button>
+          </li>
+          <li v-if="!filteredSheetList.length" class="fs-sheet-list-empty">无匹配工作表</li>
+        </ul>
+      </div>
+    </Teleport>
+    <Teleport to="body">
+      <div
+        v-if="sheetTabMenu.show"
+        class="fs-sheet-ctx"
+        :style="{ left: `${sheetTabMenu.x}px`, top: `${sheetTabMenu.y}px` }"
+        @mousedown.stop
+        @contextmenu.prevent
+      >
+        <a-menu
+          class="fs-sheet-arco-menu"
+          :selected-keys="[]"
+          @menu-item-click="onSheetTabAction"
+        >
+          <a-menu-item key="delete">删除</a-menu-item>
+          <a-menu-item key="rename">重命名</a-menu-item>
+          <a-menu-item key="color" class="fs-sheet-color-item">
+            <span>工作表标签颜色</span>
+            <icon-right class="fs-sheet-caret" />
+          </a-menu-item>
+          <a-menu-item key="insert">插入工作表</a-menu-item>
+          <a-menu-item key="copy">复制工作表</a-menu-item>
+          <a-menu-item key="hide">隐藏工作表</a-menu-item>
+          <a-menu-item key="protect">
+            <span>保护工作表</span>
+            <a-tag class="fs-sheet-new" color="red" size="small">New</a-tag>
+          </a-menu-item>
+          <a-menu-item key="export">导出为图片</a-menu-item>
+        </a-menu>
+      </div>
+    </Teleport>
     <div v-if="fmtDlg.show" class="fs-fmt" @mousedown.stop>
       <div class="fs-dv-head">
         <span>设置单元格格式</span>
@@ -4172,7 +5854,14 @@ defineExpose({
       </div>
       <div v-else-if="fmtDlg.tab === 'font'" class="fs-fmt-pane">
         <label>字体
-          <select v-model="fmtDlg.font"><option>默认字体</option><option>宋体</option><option>微软雅黑</option><option>Arial</option></select>
+          <select v-model="fmtDlg.font">
+            <option
+              v-for="item in FONT_NAMES"
+              :key="`fmt-${item.key}`"
+              :value="item.key === 'default' ? '默认字体' : item.id"
+              :style="{ fontFamily: item.family }"
+            >{{ item.label }}</option>
+          </select>
         </label>
         <label>字号 <input v-model.number="fmtDlg.size" type="number" min="8" max="72"></label>
         <label class="fs-dv-check"><input v-model="fmtDlg.bold" type="checkbox">粗体</label>
@@ -4269,15 +5958,16 @@ defineExpose({
         </template>
       </div>
     </div>
-    <ColorPop
-      :show="colorPop.show"
-      :left="colorPop.left"
-      :top="colorPop.top"
-      :origin="colorPop.origin"
-      @update:show="colorPop.show = $event"
-      @pick="applyCellColor"
-    />
     <Teleport to="body">
+      <ColorPop
+        :show="colorPop.show"
+        :left="colorPop.left"
+        :top="colorPop.top"
+        :origin="colorPop.origin"
+        :clearable="colorPop.kind === 'sheet-tab'"
+        @update:show="colorPop.show = $event"
+        @pick="applyCellColor"
+      />
       <div
         v-if="fsTip.show"
         class="fs-tip"

@@ -570,7 +570,8 @@
 }
 .fortune-wrap.fs-open .fs-fold { top: 15px; }
 .fortune-wrap.fs-open .fs-fold svg { transform: rotate(180deg); }
-.fortune-wrap .fortune-toolbar-button.fs-hide {
+.fortune-wrap .fortune-toolbar-button.fs-hide,
+.fortune-wrap .fortune-toolbar-item.fs-hide {
   display: none !important;
 }
 .fortune-wrap:not(.fs-open) .fortune-toolbar-button[data-tips="斜体 (Ctrl+I)"],
@@ -609,8 +610,6 @@
 .fortune-wrap:not(.fs-open) [data-label="下拉列表"] { order: 26; }
 .fortune-wrap:not(.fs-open) [data-label="公式"],
 .fortune-wrap:not(.fs-open) .fortune-toolbar-button[data-label="公式"] { order: 27; }
-.fortune-wrap:not(.fs-open) .fs-fold-comment { order: 28; }
-.fortune-wrap:not(.fs-open) .fs-fold-find { order: 29; }
 .fortune-wrap:not(.fs-open) .fs-split { display: none; }
 .fortune-wrap:not(.fs-open) [data-split] { position: relative; }
 .fortune-wrap:not(.fs-open) [data-split] > .fs-split {
@@ -680,6 +679,7 @@
   min-width: 168px !important;
   height: 44px !important;
   visibility: hidden;
+  order: 13;
 }
 .fortune-wrap.fs-open .fortune-toobar-combo-container:has([data-tips="自动换行"]),
 .fortune-wrap.fs-open .fortune-toobar-combo-container:has([data-tips="换行"]),
@@ -695,6 +695,7 @@
   min-width: 108px !important;
   height: 44px !important;
   visibility: hidden;
+  order: 17;
 }
 .fortune-wrap.fs-open .fortune-toolbar-button:has(svg[data-paint="#currency-format"]),
 .fortune-wrap.fs-open .fortune-toolbar-button:has(svg[data-paint="#percentage-format"]),
@@ -705,7 +706,11 @@
 .fortune-wrap.fs-open .fortune-toolbar-button[data-tips="百分比"],
 .fortune-wrap.fs-open .fortune-toolbar-button[data-tips="百分比格式"],
 .fortune-wrap.fs-open .fortune-toolbar-button[data-tips="减少小数位数"],
-.fortune-wrap.fs-open .fortune-toolbar-button[data-tips="增加小数位数"] {
+.fortune-wrap.fs-open .fortune-toolbar-button[data-tips="增加小数位数"],
+.fortune-wrap.fs-open .fortune-toolbar-button:has(svg[data-paint="#image"]),
+.fortune-wrap.fs-open .fortune-toolbar-button:has(svg[data-paint="#link"]),
+.fortune-wrap.fs-open .fortune-toolbar-item:has(svg[data-paint="#image"]),
+.fortune-wrap.fs-open .fortune-toolbar-item:has(svg[data-paint="#link"]) {
   display: none !important;
 }
 .fortune-wrap.fs-open .fortune-toobar-combo-container[data-label="冻结"] {
@@ -713,6 +718,7 @@
   min-width: 292px !important;
   height: 44px !important;
   visibility: hidden;
+  order: 22;
 }
 .fortune-wrap.fs-open .fortune-toobar-combo-container[data-label="筛选"],
 .fortune-wrap.fs-open .fortune-toobar-combo-container[data-label="条件格式"],
@@ -814,6 +820,75 @@
 }
 .fs-fmt-btn:hover { background: rgba(31, 35, 41, 0.06); }
 .fs-fmt-btn.on {
+  background: #e0e9ff;
+  color: #1456f0;
+}
+.fs-ht-menu {
+  position: fixed;
+  z-index: 430;
+  min-width: 168px;
+  padding: 4px;
+  border: 1px solid #dee0e3;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow:
+    0 8px 24px 8px rgba(31, 35, 41, 0.04),
+    0 6px 12px rgba(31, 35, 41, 0.04),
+    0 4px 8px -8px rgba(31, 35, 41, 0.06);
+}
+.fs-ht-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: 36px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: #1f2329;
+  font-size: 14px;
+  line-height: 22px;
+  text-align: left;
+  cursor: pointer;
+}
+.fs-ht-item:hover {
+  background: rgba(31, 35, 41, 0.08);
+}
+.fs-ht-item.on {
+  background: #e8f3ff;
+  color: #1456f0;
+}
+.fs-ht-item span {
+  flex: 1;
+  min-width: 0;
+}
+.fs-ht-item > svg,
+.fs-ht-item > .fs-style-ico {
+  flex: 0 0 16px;
+  width: 16px;
+  height: 16px;
+}
+.fs-style-ico {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  font-weight: 700;
+  font-style: normal;
+  font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  line-height: 1;
+  text-decoration: none;
+}
+.fs-style-ico.i { font-style: italic; }
+.fs-style-ico.u { text-decoration: underline; }
+.fs-style-ico.s { text-decoration: line-through; }
+.fs-ht-check {
+  flex: 0 0 auto;
+  color: #1456f0;
+}
+.fortune-wrap:not(.fs-open) .fortune-toobar-combo-container[data-label="对齐"].fs-on,
+.fortune-wrap:not(.fs-open) .fortune-toolbar-button[data-tips="水平对齐"].fs-on {
   background: #e0e9ff;
   color: #1456f0;
 }
@@ -947,8 +1022,132 @@
   position: static;
   z-index: 32;
 }
-.fs-arco-font { width: 88px; }
+.fs-arco-font {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  width: 88px;
+  height: 24px;
+  margin: 0;
+  padding: 0 4px 0 8px;
+  border: 0;
+  border-radius: 4px;
+  background: #f5f6f7;
+  color: #1f2329;
+  font-size: 12px;
+  line-height: 22px;
+  cursor: pointer;
+  text-align: left;
+}
+.fs-arco-font.open,
+.fs-arco-font:hover {
+  background: rgba(31, 35, 41, 0.08);
+}
+.fs-arco-font .fs-font-value {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.fs-arco-font .fs-caret {
+  flex: none;
+  margin-left: 0;
+}
 .fs-arco-size { width: 52px; }
+.fs-font-menu {
+  position: fixed;
+  z-index: 5200;
+  display: flex;
+  flex-direction: column;
+  width: 212px;
+  max-height: min(420px, calc(100vh - 24px));
+  padding: 2px 0;
+  border: 1px solid #dee0e3;
+  border-radius: 6px;
+  background: #fff;
+  box-shadow:
+    0 8px 24px 8px rgba(31, 35, 41, 0.04),
+    0 6px 12px 0 rgba(31, 35, 41, 0.04),
+    0 4px 8px -8px rgba(31, 35, 41, 0.06);
+  color: #1f2329;
+}
+.fs-font-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  margin: 4px 8px 6px;
+  padding: 0 8px;
+  border: 1px solid #d0d3d6;
+  border-radius: 6px;
+  background: #fff;
+}
+.fs-font-search-ico {
+  flex: none;
+  color: #8f959e;
+  font-size: 14px;
+}
+.fs-font-search input {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: #1f2329;
+  font-size: 12px;
+  line-height: 20px;
+}
+.fs-font-search input::placeholder {
+  color: #8f959e;
+}
+.fs-font-list {
+  flex: 1;
+  overflow: auto;
+  padding: 0 0 2px;
+}
+.fs-font-item {
+  display: flex;
+  align-items: center;
+  width: calc(100% - 6px);
+  min-height: 32px;
+  margin: 1px 3px;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: #1f2329;
+  font-size: 14px;
+  line-height: 22px;
+  text-align: left;
+  cursor: pointer;
+}
+.fs-font-item span {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.fs-font-item:hover {
+  background: #f2f3f5;
+}
+.fs-font-item.on {
+  color: #1456f0;
+}
+.fs-font-check {
+  flex: none;
+  margin-left: 8px;
+  color: #1456f0;
+  font-size: 14px;
+}
+.fs-font-empty {
+  padding: 16px 12px;
+  color: #8f959e;
+  font-size: 12px;
+  text-align: center;
+}
 .fs-style-cluster .arco-select-view {
   height: 24px;
   min-height: 24px;
@@ -1067,14 +1266,18 @@
   margin: 0;
 }
 .fortune-wrap .fortune-toobar-combo-container[data-label="颜色"] .fortune-toolbar-combo,
-.fortune-wrap .fortune-toobar-combo-container[data-label="填充"] .fortune-toolbar-combo {
+.fortune-wrap .fortune-toobar-combo-container[data-label="填充"] .fortune-toolbar-combo,
+.fortune-wrap .fortune-toobar-combo-container:has([data-tips="文本颜色"]) .fortune-toolbar-combo,
+.fortune-wrap .fortune-toobar-combo-container:has([data-tips="背景色"]) .fortune-toolbar-combo {
   display: inline-flex;
   align-items: center;
   height: 24px;
   gap: 1px;
 }
 .fortune-wrap .fortune-toobar-combo-container[data-label="颜色"] .fortune-toolbar-combo-button,
-.fortune-wrap .fortune-toobar-combo-container[data-label="填充"] .fortune-toolbar-combo-button {
+.fortune-wrap .fortune-toobar-combo-container[data-label="填充"] .fortune-toolbar-combo-button,
+.fortune-wrap .fortune-toobar-combo-container:has([data-tips="文本颜色"]) .fortune-toolbar-combo-button,
+.fortune-wrap .fortune-toobar-combo-container:has([data-tips="背景色"]) .fortune-toolbar-combo-button {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1083,7 +1286,9 @@
   padding: 0;
 }
 .fortune-wrap .fortune-toobar-combo-container[data-label="颜色"] .fortune-toolbar-combo-arrow,
-.fortune-wrap .fortune-toobar-combo-container[data-label="填充"] .fortune-toolbar-combo-arrow {
+.fortune-wrap .fortune-toobar-combo-container[data-label="填充"] .fortune-toolbar-combo-arrow,
+.fortune-wrap .fortune-toobar-combo-container:has([data-tips="文本颜色"]) .fortune-toolbar-combo-arrow,
+.fortune-wrap .fortune-toobar-combo-container:has([data-tips="背景色"]) .fortune-toolbar-combo-arrow {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1093,11 +1298,15 @@
   padding: 0;
 }
 .fortune-wrap .fortune-toobar-combo-container[data-label="颜色"] .fortune-toolbar-combo-arrow svg,
-.fortune-wrap .fortune-toobar-combo-container[data-label="填充"] .fortune-toolbar-combo-arrow svg {
+.fortune-wrap .fortune-toobar-combo-container[data-label="填充"] .fortune-toolbar-combo-arrow svg,
+.fortune-wrap .fortune-toobar-combo-container:has([data-tips="文本颜色"]) .fortune-toolbar-combo-arrow svg,
+.fortune-wrap .fortune-toobar-combo-container:has([data-tips="背景色"]) .fortune-toolbar-combo-arrow svg {
   display: none;
 }
 .fortune-wrap .fortune-toobar-combo-container[data-label="颜色"] .fortune-toolbar-combo-arrow::after,
-.fortune-wrap .fortune-toobar-combo-container[data-label="填充"] .fortune-toolbar-combo-arrow::after {
+.fortune-wrap .fortune-toobar-combo-container[data-label="填充"] .fortune-toolbar-combo-arrow::after,
+.fortune-wrap .fortune-toobar-combo-container:has([data-tips="文本颜色"]) .fortune-toolbar-combo-arrow::after,
+.fortune-wrap .fortune-toobar-combo-container:has([data-tips="背景色"]) .fortune-toolbar-combo-arrow::after {
   content: "";
   width: 0;
   height: 0;
@@ -1413,6 +1622,14 @@
 .fortune-wrap:not(.fs-open) .fortune-toobar-combo-container:has([data-tips="背景色"]) { order: 10; }
 .fortune-wrap:not(.fs-open) .fortune-toobar-combo-container:has([data-tips="边框"]) { order: 11; }
 .fortune-wrap.fs-open .fortune-toobar-combo-container:has([data-tips="边框"]) { order: 9; }
+/* 评论 / 查找固定在末尾，避免展开后夹在颜色占位中间 */
+.fortune-wrap .fortune-toolbar-button[data-label="评论"],
+.fortune-wrap .fortune-toolbar-button[data-tips="批注"],
+.fortune-wrap .fortune-toolbar-button:has(svg[data-paint="#comment"]),
+.fortune-wrap .fortune-toobar-combo-container[data-label="评论"] { order: 28; }
+.fortune-wrap .fortune-toolbar-button[data-label="查找和替换"],
+.fortune-wrap .fortune-toolbar-button[data-tips="查找替换"],
+.fortune-wrap .fortune-toolbar-button:has(svg[data-paint="#search"]) { order: 29; }
 .fortune-wrap .fortune-toolbar > .fortune-toolbar-divider:first-of-type { display: none; }
 .fortune-wrap .fortune-toolbar-divider {
   width: 1px;
@@ -1669,23 +1886,44 @@
   position: static;
   margin: 0;
 }
+.fortune-wrap.fs-open .fortune-toolbar-button[data-label="评论"],
+.fortune-wrap.fs-open .fortune-toolbar-button[data-tips="批注"],
+.fortune-wrap.fs-open .fortune-toolbar-button:has(svg[data-paint="#comment"]),
 .fortune-wrap.fs-open .fortune-toobar-combo-container[data-label="评论"],
-.fortune-wrap.fs-open .fortune-toolbar-button[data-label="查找和替换"] {
+.fortune-wrap.fs-open .fortune-toolbar-button[data-label="查找和替换"],
+.fortune-wrap.fs-open .fortune-toolbar-button[data-tips="查找替换"],
+.fortune-wrap.fs-open .fortune-toolbar-button:has(svg[data-paint="#search"]) {
   flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  width: max-content;
+  min-width: max-content;
   height: 44px;
   min-height: 44px;
-  padding: 0 4px;
+  padding: 4px 6px 0;
+  gap: 2px;
 }
+.fortune-wrap.fs-open .fortune-toolbar-button[data-label="评论"]::after,
+.fortune-wrap.fs-open .fortune-toolbar-button[data-tips="批注"]::after,
+.fortune-wrap.fs-open .fortune-toolbar-button:has(svg[data-paint="#comment"])::after,
 .fortune-wrap.fs-open .fortune-toobar-combo-container[data-label="评论"]::after,
-.fortune-wrap.fs-open .fortune-toolbar-button[data-label="查找和替换"]::after {
+.fortune-wrap.fs-open .fortune-toolbar-button[data-label="查找和替换"]::after,
+.fortune-wrap.fs-open .fortune-toolbar-button[data-tips="查找替换"]::after,
+.fortune-wrap.fs-open .fortune-toolbar-button:has(svg[data-paint="#search"])::after {
   content: attr(data-label);
+  order: 2;
+  display: block;
+  width: max-content;
   font-family: "微软雅黑", "Microsoft YaHei", "PingFang SC", sans-serif;
   font-size: 12px;
   line-height: 16px;
   font-weight: 400;
   color: #1f2329;
+  text-align: center;
   white-space: nowrap;
 }
+.fortune-wrap.fs-open .fortune-toolbar-button[data-tips="批注"]::after { content: "评论"; }
+.fortune-wrap.fs-open .fortune-toolbar-button[data-tips="查找替换"]::after { content: "查找和替换"; }
 .fortune-wrap .fortune-toolbar-combo-popup {
   z-index: 80;
 }
@@ -2177,12 +2415,14 @@
 .xg-tab.on { background: #fff; border-color: #e5e6eb; color: #1f2329; font-weight: 600; }
 .xg-tab.add { min-width: 24px; padding: 0 6px; }
 .fortune-wrap .fortune-toobar-combo-container[data-label="颜色"] .fortune-toolbar-combo-popup,
-.fortune-wrap .fortune-toobar-combo-container[data-label="填充"] .fortune-toolbar-combo-popup {
+.fortune-wrap .fortune-toobar-combo-container[data-label="填充"] .fortune-toolbar-combo-popup,
+.fortune-wrap .fortune-toobar-combo-container:has([data-tips="文本颜色"]) .fortune-toolbar-combo-popup,
+.fortune-wrap .fortune-toobar-combo-container:has([data-tips="背景色"]) .fortune-toolbar-combo-popup {
   display: none !important;
 }
 .cp {
   position: fixed;
-  z-index: 400;
+  z-index: 5200;
   width: 284px;
   color: rgba(0, 0, 0, .65);
   font-size: 12px;
@@ -2202,6 +2442,32 @@
   border-bottom: 1px solid rgba(0, 0, 0, .06);
 }
 .cp-tabs .cp-reset { margin-left: auto; }
+.cp-none {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: 32px;
+  margin: 0 0 10px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 6px;
+  background: #f5f6f7;
+  color: #1f2329;
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  text-align: left;
+}
+.cp-none:hover { background: #eff0f1; }
+.cp-none.on { background: #e8f3ff; color: #1456f0; }
+.cp-none-ico {
+  display: inline-flex;
+  width: 16px;
+  height: 16px;
+  flex: none;
+}
+.cp-none-ico svg { display: block; }
 .cp-matrix {
   display: grid;
   grid-template-columns: repeat(12, minmax(0, 1fr));
@@ -2485,6 +2751,12 @@
   width: 248px;
   padding: 8px 8px 4px;
   z-index: 430;
+}
+.fs-cf-fly .fs-cf-scale-sec {
+  padding: 4px 8px 2px;
+  font-size: 12px;
+  line-height: 20px;
+  color: #8f959e;
 }
 .fs-cf-scales {
   display: grid;
@@ -2784,15 +3056,148 @@
 .fs-cf-manage {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin-bottom: 16px;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 20px;
   font-size: 14px;
+  line-height: 22px;
   color: #1f2329;
 }
-.fs-cf-manage .fs-cf-select {
-  width: auto;
-  min-width: 120px;
+.fs-cf-scope {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-bottom: 1px solid #1456f0;
+  background: none;
   color: #1456f0;
+  font-size: 14px;
+  line-height: 22px;
+  cursor: pointer;
+}
+.fs-cf-scope svg {
+  color: #1456f0;
+}
+.fs-cf-scope-menu {
+  position: fixed;
+  z-index: 5300;
+  padding: 4px;
+  border: 1px solid #dee0e3;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow:
+    0 8px 24px 8px rgba(31, 35, 41, 0.04),
+    0 6px 12px rgba(31, 35, 41, 0.04),
+    0 4px 8px -8px rgba(31, 35, 41, 0.06);
+}
+.fs-cf-scope-menu button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  height: 36px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: #1f2329;
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+}
+.fs-cf-scope-menu button:hover,
+.fs-cf-scope-menu button.on {
+  background: #e8f3ff;
+}
+.fs-cf-scope-menu button svg {
+  color: #1456f0;
+}
+.fs-cf-rule-card {
+  margin-bottom: 20px;
+  cursor: pointer;
+}
+.fs-cf-rule-card:hover .fs-cf-rule-main b {
+  color: #1456f0;
+}
+.fs-cf-rule-main {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+}
+.fs-cf-rule-main b {
+  display: block;
+  font-size: 14px;
+  font-weight: 500;
+  color: #1f2329;
+}
+.fs-cf-rule-main em {
+  display: block;
+  margin-top: 4px;
+  font-style: normal;
+  font-size: 12px;
+  color: #1f2329;
+}
+.fs-cf-rule-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+.fs-cf-rule-preview {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 28px;
+  border: 1px solid rgba(31, 35, 41, 0.12);
+  border-radius: 2px;
+  font-style: normal;
+  font-size: 14px;
+}
+.fs-cf-rule-del {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: #8f959e;
+  opacity: 0;
+  pointer-events: none;
+  cursor: pointer;
+}
+.fs-cf-rule-card:hover .fs-cf-rule-del {
+  opacity: 1;
+  pointer-events: auto;
+}
+.fs-cf-rule-del:hover {
+  background: #fff2f1;
+  color: #f54a45;
+}
+.fs-cf-add {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 36px;
+  margin-top: 8px;
+  border: 1px solid #1456f0;
+  border-radius: 6px;
+  background: #fff;
+  color: #1456f0;
+  font-size: 14px;
+  line-height: 22px;
+  cursor: pointer;
+}
+.fs-cf-add:hover {
+  background: #e8f3ff;
 }
 .fs-cf-rule {
   display: flex;
@@ -2829,15 +3234,6 @@
   font-style: normal;
   font-size: 14px;
 }
-.fs-cf-add {
-  margin-top: 8px;
-  padding: 0;
-  border: 0;
-  background: none;
-  color: #1456f0;
-  font-size: 14px;
-  cursor: pointer;
-}
 .fs-cf-field {
   display: flex;
   flex-direction: column;
@@ -2856,6 +3252,39 @@
   border: 1px solid #d0d3d6;
   border-radius: 6px;
   background: #fff;
+}
+.fs-cf-side .fs-cf-range.picking,
+.fs-cf-side .arco-input-wrapper.fs-cf-range.picking {
+  border-color: #1456f0;
+  box-shadow: 0 0 0 2px rgba(20, 86, 240, 0.12);
+}
+.fs-cf-range-pick {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: #646a73;
+  cursor: pointer;
+}
+.fs-cf-range-pick:hover,
+.fs-cf-range-pick.on {
+  background: #e8f3ff;
+  color: #1456f0;
+}
+.fs-cf-range-tip {
+  margin-top: -4px;
+  font-size: 12px;
+  line-height: 20px;
+  color: #1456f0;
+}
+.fortune-wrap.cf-picking {
+  cursor: crosshair;
 }
 .fs-cf-range input {
   flex: 1;
@@ -2995,6 +3424,266 @@
 .fs-cf-dlg .arco-picker {
   width: 100%;
   margin: 4px 0;
+}
+.fs-cf-side-presets {
+  padding: 0;
+}
+.fs-cf-side-presets button {
+  border: 1px solid transparent;
+  background: #fff;
+  cursor: pointer;
+}
+.fs-cf-side-presets button.on {
+  background: #e8f3ff;
+  outline: 1px solid #1456f0;
+}
+.fs-cf-side .fs-cf-bar-sec {
+  margin: 4px 0 2px;
+  font-size: 12px;
+  color: #646a73;
+}
+.fs-cf-side .fs-cf-bar-grid {
+  padding: 4px 0 8px;
+}
+.fs-cf-side-icons {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.fs-cf-side-icons .fs-cf-icon-item {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 36px;
+  padding: 6px;
+  border: 1px solid #dee0e3;
+  border-radius: 6px;
+  background: #fff;
+  cursor: pointer;
+}
+.fs-cf-side-icons .fs-cf-icon-item.on,
+.fs-cf-side-icons .fs-cf-icon-item:hover {
+  background: #e8f3ff;
+  border-color: #1456f0;
+}
+.fs-cf-side .fs-cf-icon-sec {
+  margin: 8px 0 4px;
+  font-size: 12px;
+  color: #646a73;
+}
+.fs-cf-side .fs-cf-icon-sep {
+  height: 1px;
+  margin: 8px 0;
+  background: #eff0f1;
+}
+.fs-cf-kind-wrap {
+  position: relative;
+  width: 100%;
+}
+.fs-cf-kind-select {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  height: 32px;
+  padding: 0 11px;
+  border: 1px solid #d0d3d6;
+  border-radius: 6px;
+  background: #fff;
+  color: #1f2329;
+  font-size: 14px;
+  line-height: 22px;
+  cursor: pointer;
+}
+.fs-cf-kind-select.open,
+.fs-cf-kind-select:hover {
+  border-color: #1456f0;
+}
+.fs-cf-kind-select span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.fs-cf-kind-select svg {
+  flex: 0 0 auto;
+  margin-left: 8px;
+  color: #646a73;
+}
+.fs-cf-kind-menu {
+  position: fixed;
+  z-index: 5300;
+  max-height: 280px;
+  overflow: auto;
+  padding: 4px;
+  border: 1px solid #dee0e3;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow:
+    0 8px 24px 8px rgba(31, 35, 41, 0.04),
+    0 6px 12px rgba(31, 35, 41, 0.04),
+    0 4px 8px -8px rgba(31, 35, 41, 0.06);
+}
+.fs-cf-kind-menu button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  height: 36px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: #1f2329;
+  font-size: 14px;
+  line-height: 22px;
+  text-align: left;
+  cursor: pointer;
+}
+.fs-cf-kind-menu button:hover,
+.fs-cf-kind-menu button.on {
+  background: #e8f3ff;
+}
+.fs-cf-kind-menu button svg {
+  color: #1456f0;
+}
+.fs-cf-scale-select-wrap {
+  position: relative;
+}
+.fs-cf-scale-select {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  height: 32px;
+  padding: 0 11px;
+  border: 1px solid #d0d3d6;
+  border-radius: 6px;
+  background: #fff;
+  color: #1f2329;
+  cursor: pointer;
+}
+.fs-cf-scale-select.open,
+.fs-cf-scale-select:hover {
+  border-color: #1456f0;
+}
+.fs-cf-scale-thumb {
+  flex: 0 0 24px;
+  width: 24px;
+  height: 22px;
+  margin-right: 8px;
+  border: 1px solid rgba(143, 149, 158, 0.55);
+  border-radius: 2px;
+  box-sizing: border-box;
+}
+.fs-cf-scale-name {
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+  font-size: 14px;
+  line-height: 22px;
+}
+.fs-cf-scale-select svg {
+  flex: 0 0 auto;
+  color: #646a73;
+}
+.fs-cf-scale-gallery {
+  position: fixed;
+  z-index: 5300;
+  padding: 8px 10px 10px;
+  border: 1px solid #dee0e3;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow:
+    0 8px 24px 8px rgba(31, 35, 41, 0.04),
+    0 6px 12px rgba(31, 35, 41, 0.04),
+    0 4px 8px -8px rgba(31, 35, 41, 0.06);
+}
+.fs-cf-scale-sec {
+  margin: 4px 0 6px;
+  font-size: 12px;
+  line-height: 20px;
+  color: #8f959e;
+}
+.fs-cf-scale-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.fs-cf-scale-grid.three {
+  grid-template-columns: repeat(4, 1fr);
+  margin-bottom: 0;
+}
+.fs-cf-scale-grid button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  padding: 4px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: #fff;
+  cursor: pointer;
+}
+.fs-cf-scale-grid button:hover,
+.fs-cf-scale-grid button.on {
+  background: #e8f3ff;
+  border-color: #1456f0;
+}
+.fs-cf-scale-stop {
+  margin-top: 16px;
+}
+.fs-cf-scale-stop-label {
+  margin-bottom: 8px;
+  font-size: 12px;
+  line-height: 20px;
+  font-weight: 500;
+  color: #646a73;
+}
+.fs-cf-scale-stop-row {
+  display: flex;
+  align-items: center;
+  gap: 0;
+}
+.fs-cf-side .fs-cf-scale-type {
+  flex: 0 0 118px;
+  width: 118px !important;
+  margin: 0 !important;
+}
+.fs-cf-side .fs-cf-scale-value {
+  flex: 1 1 auto;
+  width: auto !important;
+  min-width: 0;
+  margin: 0 8px !important;
+}
+.fs-cf-side .fs-cf-scale-value.arco-input-wrapper-disabled {
+  background: #eff0f1;
+  color: #8f959e;
+}
+.fs-cf-scale-color {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 32px;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid #d0d3d6;
+  border-radius: 6px;
+  background: #fff;
+  color: #1f2329;
+  cursor: pointer;
+}
+.fs-cf-scale-color:hover {
+  background: rgba(31, 35, 41, 0.06);
+}
+.fs-cf-scale-color i {
+  display: block;
+  width: 14px;
+  height: 3px;
+  margin-top: 1px;
+  border-radius: 1px;
 }
 .fs-cf-row {
   display: flex;
@@ -3303,86 +3992,253 @@
   color: #bbbfc4;
   cursor: not-allowed;
 }
+/* —— 底部工作表 Tab 栏（对齐飞书截图） —— */
 .fortune-wrap .luckysheet-sheet-area {
-  height: 36px;
-  padding: 0 8px;
-  background: #f5f6f7;
-  border-top: 1px solid #dee0e3;
+  height: 32px !important;
+  padding: 0 8px !important;
+  background: #fff !important;
+  border-top: 1px solid #dee0e3 !important;
+  border-bottom: 0 !important;
   color: #1f2329;
-  align-items: center;
+  align-items: center !important;
+  box-sizing: border-box !important;
 }
 .fortune-wrap #luckysheet-sheet-content {
-  align-items: center;
-  gap: 2px;
-  height: 36px;
+  display: flex !important;
+  align-items: center !important;
+  gap: 0 !important;
+  height: 32px !important;
+  width: 100% !important;
+  max-width: none !important;
 }
-.fortune-wrap .fortune-sheettab-button {
-  display: inline-flex;
+/* 空统计栏不占位，避免底部多余留白 */
+.fortune-wrap .fortune-stat-area {
+  height: 0 !important;
+  min-height: 0 !important;
+  overflow: hidden !important;
+  padding: 0 !important;
+  border: 0 !important;
+  margin: 0 !important;
+}
+.fortune-wrap .fortune-stat-area:has(.luckysheet-sheet-selection-calInfo:not(:empty)) {
+  height: 22px !important;
+  overflow: visible !important;
+}
+/* 全部工作表：最左 */
+.fortune-wrap .sheet-list-container {
+  order: 1;
+  display: inline-flex !important;
   align-items: center;
   justify-content: center;
-  width: 28px;
   height: 28px;
   margin: 0;
+  padding: 0 10px 0 2px;
+  flex: none;
+  position: relative;
+}
+.fortune-wrap .sheet-list-container::after {
+  content: '';
+  position: absolute;
+  right: 0;
+  top: 6px;
+  bottom: 6px;
+  width: 1px;
+  background: #dee0e3;
+}
+.fortune-wrap .sheet-list-container .fortune-sheettab-button {
+  width: 28px !important;
+  height: 28px !important;
+}
+/* 列表打开时，左侧按钮灰底（对齐截图） */
+.fortune-wrap.fs-sheet-list-open .sheet-list-container .fortune-sheettab-button {
+  background: rgba(31, 35, 41, 0.08) !important;
+}
+.fortune-wrap .fortune-sheettab-button {
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+  width: 28px !important;
+  height: 28px !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
   border-radius: 4px;
   color: #646a73;
+  background: transparent !important;
+  box-shadow: none !important;
+  cursor: pointer;
 }
-.fortune-wrap .fortune-sheettab-button:hover {
-  background: rgba(31, 35, 41, 0.08);
+.fortune-wrap .fortune-sheettab-button:hover,
+.fortune-wrap .sheet-list-container .fortune-sheettab-button:hover {
+  background: rgba(31, 35, 41, 0.08) !important;
 }
-.fortune-wrap .luckysheet-sheets-m { display: none; }
-.fortune-wrap .fortune-sheettab-container,
+.fortune-wrap .fortune-sheettab-button svg {
+  width: 16px !important;
+  height: 16px !important;
+  display: block;
+  color: #646a73;
+}
+.fortune-wrap .fortune-sheettab-button svg path,
+.fortune-wrap .fortune-sheettab-button svg use {
+  stroke: currentColor;
+}
+/* 「+」新增：跟在标签后，前有竖线，高度与 tab 对齐 */
+.fortune-wrap #luckysheet-sheet-content > .fortune-sheettab-button {
+  order: 3;
+  position: relative;
+  flex: none !important;
+  width: 28px !important;
+  height: 28px !important;
+  margin: 0 0 0 2px !important;
+  padding: 0 0 0 10px !important;
+  box-sizing: content-box !important;
+  color: #1f2329;
+}
+.fortune-wrap #luckysheet-sheet-content > .fortune-sheettab-button::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 6px;
+  bottom: 6px;
+  width: 1px;
+  background: #dee0e3;
+}
+.fortune-wrap #luckysheet-sheet-content > .fortune-sheettab-button svg {
+  color: #1f2329;
+  width: 14px !important;
+  height: 14px !important;
+}
+.fortune-wrap .luckysheet-sheets-m { display: none !important; }
+.fortune-wrap .fortune-sheettab-container {
+  order: 2;
+  display: flex !important;
+  align-items: center !important;
+  height: 32px !important;
+  /* 不撑满，让「+」紧跟最后一个 tab，中间不留白 */
+  flex: 0 1 auto !important;
+  min-width: 0 !important;
+  max-width: none !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  vertical-align: middle;
+}
 .fortune-wrap #fortune-sheettab-container-c {
   display: flex !important;
-  align-items: center;
-  height: 36px;
+  align-items: center !important;
+  height: 32px !important;
+  gap: 0 !important;
+  width: auto !important;
+  max-width: 100% !important;
 }
+.fortune-wrap .fortune-sheettab-container .boundary {
+  display: none !important;
+}
+
+/* 未选中：无底色，仅文字 + 竖分割线
+   display 不加 !important，否则会盖住 Fortune 隐藏工作表时的 inline display:none */
 .fortune-wrap .luckysheet-sheet-area div.luckysheet-sheets-item {
   display: inline-flex;
-  align-items: center;
-  height: 28px;
-  margin: 0 2px;
-  padding: 0 8px;
-  border: 0;
-  border-radius: 4px;
-  background: transparent;
-  color: #1f2329;
-  font-size: 12px;
-  line-height: 28px;
-}
-.fortune-wrap .luckysheet-sheet-area div.luckysheet-sheets-item,
-.fortune-wrap .luckysheet-sheet-area div.luckysheet-sheets-item-active {
-  position: relative;
+  align-items: center !important;
+  box-sizing: border-box !important;
+  height: 28px !important;
+  min-width: 0 !important;
+  margin: 0 2px !important;
+  padding: 0 12px !important;
+  border: 0 !important;
+  border-radius: 4px !important;
+  background: transparent !important;
+  color: #1f2329 !important;
+  font-size: 14px !important;
+  font-weight: 400 !important;
+  line-height: 22px !important;
+  position: relative !important;
   top: 0 !important;
-  margin-top: 0 !important;
-  align-self: center;
+  vertical-align: middle !important;
+  align-self: center !important;
+  cursor: pointer;
+  transition: background 0.1s, color 0.1s;
+  box-shadow: none !important;
 }
-.fortune-wrap .luckysheet-sheet-area div.luckysheet-sheets-item-active {
-  height: 28px;
-  line-height: 28px;
-  background: #fff;
-  box-shadow: inset 0 2px 0 #3370ff;
-  color: #1f2329;
+/* 显式兜底：隐藏工作表必须不可见 */
+.fortune-wrap .luckysheet-sheet-area div.luckysheet-sheets-item[style*="display: none"],
+.fortune-wrap .luckysheet-sheet-area div.luckysheet-sheets-item[style*="display:none"] {
+  display: none !important;
+}
+
+/* Tab 竖分割线（贴在选中项旁时隐藏） */
+.fortune-wrap .luckysheet-sheet-area div.luckysheet-sheets-item + div.luckysheet-sheets-item::before {
+  content: '';
+  position: absolute;
+  left: -2px;
+  top: 6px;
+  bottom: 6px;
+  width: 1px;
+  background: #dee0e3;
+  pointer-events: none;
+  z-index: 1;
+}
+.fortune-wrap .luckysheet-sheet-area div.luckysheet-sheets-item-active + div.luckysheet-sheets-item::before,
+.fortune-wrap .luckysheet-sheet-area div.luckysheet-sheets-item + div.luckysheet-sheets-item-active::before {
+  display: none;
+}
+.fortune-wrap .luckysheet-sheet-area div.luckysheet-sheets-item:hover {
+  background: rgba(31, 35, 41, 0.04) !important;
+  color: #1f2329 !important;
+}
+
+/* 选中：圆角灰底 + 细边框 + 蓝字（胶囊 Tab） */
+.fortune-wrap .luckysheet-sheet-area div.luckysheet-sheets-item-active,
+.fortune-wrap .luckysheet-sheet-area div.luckysheet-sheets-item-active:hover {
+  height: 28px !important;
+  line-height: 22px !important;
+  padding: 0 12px !important;
+  margin: 0 2px !important;
+  background: #f5f6f7 !important;
+  border: 1px solid #dee0e3 !important;
+  border-radius: 4px !important;
+  box-shadow: none !important;
+  color: #336df4 !important;
+  cursor: default;
+  z-index: 2;
+}
+.fortune-wrap .luckysheet-sheet-area div.luckysheet-sheets-item-active .luckysheet-sheets-item-name {
+  color: #336df4 !important;
+  font-size: 14px !important;
+  font-weight: 400 !important;
 }
 .fortune-wrap .luckysheet-sheets-item-name {
-  font-size: 12px;
+  padding: 0 !important;
+  font-size: 14px !important;
+  line-height: 22px !important;
+  color: inherit !important;
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
+/* 截图无下拉箭头，隐藏 tab 上的 ▾ */
 .fortune-wrap .luckysheet-sheets-item-function {
-  display: inline-flex;
-  align-items: center;
-  margin-left: 2px;
+  display: none !important;
 }
-.fortune-wrap .luckysheet-sheets-item-function svg {
-  fill: #8f959e !important;
-  width: 12px;
-  height: 12px;
+.fortune-wrap .luckysheet-sheets-item-color {
+  position: absolute !important;
+  left: 8px !important;
+  right: 8px !important;
+  bottom: 2px !important;
+  width: auto !important;
+  height: 3px !important;
+  border-radius: 1.5px;
+  pointer-events: none;
 }
 .fortune-wrap .fortune-sheet-area-right,
 .fortune-wrap .fortune-zoom-container {
+  order: 4;
   display: flex;
   align-items: center;
   height: 28px;
   gap: 2px;
-  margin: 0;
+  margin: 0 0 0 auto !important;
+  flex: none;
 }
 .fortune-wrap .fortune-zoom-button,
 .fortune-wrap .fortune-zoom-ratio-current {
@@ -3405,6 +4261,154 @@
 }
 .fortune-wrap .fortune-zoom-button:hover {
   background: rgba(31, 35, 41, 0.08);
+}
+
+/* 隐藏 Fortune 原生全部工作表列表，改用飞书样式弹层 */
+.fortune-wrap .fortune-sheet-list {
+  display: none !important;
+}
+
+.fs-sheet-list {
+  position: fixed;
+  z-index: 5200;
+  display: flex;
+  flex-direction: column;
+  width: 190px;
+  max-height: 360px;
+  border: 1px solid #dee0e3;
+  border-radius: 6px;
+  background: #fff;
+  box-shadow: 0 6px 24px rgba(31, 35, 41, 0.12);
+  color: #1f2329;
+  overflow: hidden;
+}
+.fs-sheet-list-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  margin: 12px 15px 6px;
+  padding: 0 8px;
+  border: 1px solid #d0d3d6;
+  border-radius: 6px;
+  background: #fff;
+}
+.fs-sheet-list-search:focus-within {
+  border-color: #1456f0;
+}
+.fs-sheet-list-search-ico {
+  flex: none;
+  color: #8f959e;
+  font-size: 14px;
+}
+.fs-sheet-list-search input {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: #1f2329;
+  font-size: 12px;
+  line-height: 20px;
+}
+.fs-sheet-list-search input::placeholder {
+  color: #8f959e;
+}
+.fs-sheet-list-ul {
+  flex: 1;
+  max-height: 280px;
+  margin: 0;
+  padding: 3px 0;
+  overflow: auto;
+  list-style: none;
+}
+.fs-sheet-list-li {
+  position: relative;
+}
+.fs-sheet-list-li.dragging {
+  opacity: 0.45;
+}
+.fs-sheet-list-li.drag-over::before {
+  content: '';
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  top: 0;
+  height: 2px;
+  border-radius: 1px;
+  background: #336df4;
+  z-index: 1;
+  pointer-events: none;
+}
+.fs-sheet-list-item {
+  display: flex;
+  align-items: center;
+  height: 34px;
+  margin: 1px 3px;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 4px;
+  background: #fff;
+  color: #1f2329;
+  font-size: 14px;
+  line-height: 16px;
+  text-align: left;
+  cursor: pointer;
+  width: calc(100% - 6px);
+}
+.fs-sheet-list-item:hover {
+  background: rgba(31, 35, 41, 0.06);
+}
+.fs-sheet-list-item.active {
+  color: #336df4;
+}
+.fs-sheet-list-drag {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 24px;
+  margin-right: 0;
+  color: #8f959e;
+  cursor: grab;
+}
+.fs-sheet-list-li.dragging .fs-sheet-list-drag {
+  cursor: grabbing;
+}
+.fs-sheet-list-name {
+  flex: 1;
+  min-width: 0;
+  margin: 0 8px 0 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 224px;
+}
+.fs-sheet-list-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  margin-right: 6px;
+  border-radius: 50%;
+}
+.fs-sheet-list-trail {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  margin-left: auto;
+  color: #8f959e;
+  font-size: 14px;
+}
+.fs-sheet-list-item.active .fs-sheet-list-trail {
+  color: #336df4;
+}
+.fs-sheet-list-empty {
+  padding: 16px 12px;
+  color: #8f959e;
+  font-size: 12px;
+  text-align: center;
 }
 
 .xlsx-export-loading {
@@ -3438,3 +4442,75 @@
   animation: xlsxExportSpin .7s linear infinite;
 }
 @keyframes xlsxExportSpin { to { transform: rotate(360deg); } }
+
+/* 隐藏 Fortune 原生工作表/单元格右键菜单（已用自定义 / Arco 替代） */
+.fortune-wrap .fortune-context-menu.luckysheet-cols-menu:not(.fortune-filter-menu):not(.fortune-sheet-list) {
+  display: none !important;
+}
+
+.fs-sheet-ctx {
+  position: fixed;
+  z-index: 5200;
+  min-width: 200px;
+  padding: 4px;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 6px 16px rgba(31, 35, 41, 0.12);
+  overflow: visible;
+}
+.fs-sheet-arco-menu.arco-menu-vertical,
+.fs-sheet-arco-menu.arco-menu {
+  width: 200px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  overflow: visible;
+}
+.fs-sheet-arco-menu .arco-menu-inner {
+  padding: 0;
+  overflow: visible;
+}
+.fs-sheet-arco-menu .arco-menu-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  height: 32px;
+  margin: 1px 0;
+  padding: 0 12px;
+  border-radius: 4px;
+  color: #1f2329;
+  font-size: 14px;
+  line-height: 32px;
+  overflow: visible;
+}
+.fs-sheet-arco-menu .arco-menu-item:hover,
+.fs-sheet-arco-menu .arco-menu-item.arco-menu-selected {
+  background: rgba(31, 35, 41, 0.08);
+  color: #1f2329;
+}
+.fs-sheet-arco-menu .arco-menu-item .arco-menu-item-inner {
+  display: flex;
+  align-items: center;
+  width: 100%;
+}
+.fs-sheet-color-item .arco-menu-item-inner {
+  justify-content: space-between;
+}
+.fs-sheet-caret {
+  margin-left: auto;
+  color: #8f959e;
+  font-size: 12px;
+}
+.fs-sheet-new.arco-tag {
+  margin-left: 6px;
+  padding: 0 4px;
+  border: 0;
+  border-radius: 4px;
+  background: #f54a45 !important;
+  color: #fff !important;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 16px;
+  height: 16px;
+}

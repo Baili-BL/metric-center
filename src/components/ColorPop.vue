@@ -18,6 +18,8 @@ const props = defineProps({
   left: { type: Number, default: 0 },
   top: { type: Number, default: 0 },
   origin: { type: String, default: '#1f2329' },
+  /** 为 true 时「重置」清空颜色（工作表标签等场景） */
+  clearable: { type: Boolean, default: false },
 })
 const emit = defineEmits(['update:show', 'pick'])
 
@@ -127,8 +129,19 @@ function pick(color, record) {
   apply(currentColor(), record)
 }
 function resetColor() {
+  if (props.clearable) {
+    clearNone()
+    return
+  }
   pick(cp.origin, false)
 }
+
+function clearNone() {
+  cp.alpha = 0
+  apply('', false)
+}
+
+const isNone = computed(() => cp.alpha <= 0.005)
 
 function loadRecent() {
   try { return JSON.parse(localStorage.getItem(STORE_KEY) || '[]') } catch { return [] }
@@ -203,6 +216,15 @@ watch(() => props.show, (on) => {
         重置
       </button>
     </div>
+    <button type="button" class="cp-none" :class="{ on: isNone }" @click="clearNone">
+      <span class="cp-none-ico" aria-hidden="true">
+        <svg viewBox="0 0 16 16" width="16" height="16">
+          <rect x="1.5" y="1.5" width="13" height="13" rx="1.5" fill="none" stroke="#1f2329" stroke-width="1.2" />
+          <path d="M3.2 12.8 12.8 3.2" stroke="#f54a45" stroke-width="1.6" stroke-linecap="round" />
+        </svg>
+      </span>
+      <span>无填充颜色</span>
+    </button>
     <div class="cp-matrix">
       <button
         v-for="(c, i) in matrix"

@@ -1,0 +1,174 @@
+/* 华为鸿蒙字体 HarmonyOS Sans SC */
+@font-face {
+  font-family: "HarmonyOS Sans SC";
+  src: url("@fontpkg/harmony-os-sans-sc/HarmonyOS_Sans_SC_Thin.ttf") format("truetype");
+  font-weight: 100;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "HarmonyOS Sans SC";
+  src: url("@fontpkg/harmony-os-sans-sc/HarmonyOS_Sans_SC_Light.ttf") format("truetype");
+  font-weight: 300;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "HarmonyOS Sans SC";
+  src: url("@fontpkg/harmony-os-sans-sc/HarmonyOS_Sans_SC_Regular.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "HarmonyOS Sans SC";
+  src: url("@fontpkg/harmony-os-sans-sc/HarmonyOS_Sans_SC_Medium.ttf") format("truetype");
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "HarmonyOS Sans SC";
+  src: url("@fontpkg/harmony-os-sans-sc/HarmonyOS_Sans_SC_Bold.ttf") format("truetype");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "HarmonyOS Sans SC";
+  src: url("@fontpkg/harmony-os-sans-sc/HarmonyOS_Sans_SC_Black.ttf") format("truetype");
+  font-weight: 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* 阿里巴巴普惠体 3.0 */
+@font-face {
+  font-family: "阿里巴巴普惠体";
+  src: url("@fontpkg/alibaba-pu-hui-ti-3-0/AlibabaPuHuiTi-3-35-Thin.ttf") format("truetype");
+  font-weight: 100;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "阿里巴巴普惠体";
+  src: url("@fontpkg/alibaba-pu-hui-ti-3-0/AlibabaPuHuiTi-3-45-Light.ttf") format("truetype");
+  font-weight: 300;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "阿里巴巴普惠体";
+  src: url("@fontpkg/alibaba-pu-hui-ti-3-0/AlibabaPuHuiTi-3-55-Regular.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "阿里巴巴普惠体";
+  src: url("@fontpkg/alibaba-pu-hui-ti-3-0/AlibabaPuHuiTi-3-65-Medium.ttf") format("truetype");
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "阿里巴巴普惠体";
+  src: url("@fontpkg/alibaba-pu-hui-ti-3-0/AlibabaPuHuiTi-3-75-SemiBold.ttf") format("truetype");
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "阿里巴巴普惠体";
+  src: url("@fontpkg/alibaba-pu-hui-ti-3-0/AlibabaPuHuiTi-3-85-Bold.ttf") format("truetype");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "阿里巴巴普惠体";
+  src: url("@fontpkg/alibaba-pu-hui-ti-3-0/AlibabaPuHuiTi-3-95-ExtraBold.ttf") format("truetype");
+  font-weight: 800;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "阿里巴巴普惠体";
+  src: url("@fontpkg/alibaba-pu-hui-ti-3-0/AlibabaPuHuiTi-3-105-Heavy.ttf") format("truetype");
+  font-weight: 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+/*
+ * 苹果苹方简体（系统字体，不可再分发字库文件）
+ * macOS / iOS 本机可用；Windows 会回退到下方 stack
+ */
+@font-face {
+  font-family: "PingFang SC";
+  src:
+    local("PingFang SC"),
+    local("PingFangSC-Regular"),
+    local("PingFang SC Regular"),
+    local("苹方-简"),
+    local("苹方-简 常规体");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "PingFang SC";
+  src:
+    local("PingFang SC Medium"),
+    local("PingFangSC-Medium"),
+    local("苹方-简 中黑体");
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "PingFang SC";
+  src:
+    local("PingFang SC Semibold"),
+    local("PingFangSC-Semibold"),
+    local("苹方-简 中粗体");
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "PingFang SC";
+  src:
+    local("PingFang SC Light"),
+    local("PingFangSC-Light"),
+    local("苹方-简 细体");
+  font-weight: 300;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* 中文别名，方便单元格 ff 直接写中文名 */
+@font-face {
+  font-family: "华为鸿蒙字体";
+  src: url("@fontpkg/harmony-os-sans-sc/HarmonyOS_Sans_SC_Regular.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "华为鸿蒙字体";
+  src: url("@fontpkg/harmony-os-sans-sc/HarmonyOS_Sans_SC_Bold.ttf") format("truetype");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "苹方";
+  src:
+    local("PingFang SC"),
+    local("PingFangSC-Regular"),
+    local("苹方-简");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
