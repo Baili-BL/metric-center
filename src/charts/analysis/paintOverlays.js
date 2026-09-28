@@ -156,12 +156,21 @@ function buildGuideChildren(guides, seriesList, labels) {
       tooltip: false,
     }
     if (lab) {
+      const pos = guideLabelPosition(g.textPos)
       child.labels = [{
         text: lab,
-        position: guideLabelPosition(g.textPos),
+        position: pos,
+        // 白色背景芯片：文字叠在标识线上时把线"垫"住，既不压线也不会因上移被绘图区裁剪
+        background: {
+          fill: '#ffffff',
+          opacity: 0.9,
+          padding: [1, 4],
+          radius: 2,
+        },
         style: {
           fill: g.textColor || '#1f2329',
           fontSize: g.textSize || 12,
+          lineHeight: 1,
         },
       }]
     }
@@ -191,7 +200,6 @@ function buildTrendChildren(trends, seriesList, labels) {
           strokeOpacity: 0.9,
           ...(dash ? { lineDash: dash } : {}),
         },
-        axis: false,
         legend: false,
         tooltip: false,
       })
@@ -240,8 +248,8 @@ function buildMeasureAnnoChildren(a, seriesList, labels) {
   } else {
     out.push({
       type: 'rangeY',
-      data: [{ yRange: [y0, y1] }],
-      encode: { y: 'yRange' },
+      data: [{ value: [y0, y1] }],
+      encode: { y: 'value' },
       style: {
         fill,
         fillOpacity: 0.18,
@@ -265,43 +273,54 @@ function buildMeasureAnnoChildren(a, seriesList, labels) {
       },
       legend: false,
       tooltip: false,
-      axis: false,
     })
   }
   if (cfg.showLabel !== false) {
     const lab = cfg.labelText || a.text || a.name || '区间'
+    // 同手工标注：独立 text 标记不渲染，改用不可见 point 锚点 + labels 管道
     out.push({
-      type: 'text',
+      type: 'point',
       data: [{
         x: labels[labels.length - 1],
         value: y1,
         annoText: lab,
       }],
-      encode: { x: 'x', y: 'value', text: 'annoText' },
+      encode: { x: 'x', y: 'value' },
       style: {
-        fill: '#1f2329',
-        fontSize: 11,
-        textAlign: 'right',
-        textBaseline: 'top',
-        dx: -8,
-        dy: 6,
+        r: 2,
+        fill: '#ffffff',
+        fillOpacity: 0,
+        stroke: '#ffffff',
+        strokeOpacity: 0,
+        lineWidth: 0,
         pointerEvents: 'none',
       },
+      labels: [{
+        text: (d) => d.annoText,
+        position: 'top',
+        dx: -8,
+        dy: 4,
+        style: {
+          fill: '#1f2329',
+          fontSize: 11,
+          lineHeight: 1,
+          textAlign: 'right',
+          pointerEvents: 'none',
+        },
+      }],
       legend: false,
       tooltip: false,
-      axis: false,
     })
   }
   return out
 }
 
-function buildManualAnnoChildren(a, seriesList, labels) {
+function buildManualAnnoChildren(a, seriesList, labels, opts = {}) {
   const cfg = { ...defaultAnnoCfg(), ...(a.cfg || {}) }
   const dims = annoDimsOf(a)
   if (!dims.length) return []
   const sr = findSeries(seriesList, a.series)
   const out = []
-  const yMax = yExtent(seriesList)[1]
   const pointRows = []
   dims.forEach((d) => {
     const idx = labels.indexOf(d)
@@ -316,44 +335,77 @@ function buildManualAnnoChildren(a, seriesList, labels) {
   })
 
   if (!isUnsetColor(cfg.dimBg)) {
-    dims.forEach((d) => {
-      if (labels.indexOf(d) < 0) return
+    // 维度背景带：主图 x 轴是类目(band)轴，rangeX 在本项目的视图配置下不渲染
+    // （即使 spec 正确、数据正确，x1/x2 会被 G2 建成独立 scale 后静默失败），
+    // 改用 interval：band 轴上天然占满整列宽度，且与 x 轴逐列对齐。
+    // y 用独立 scale 锁死在 [0,1] + 值区间 [0,1] → 纵向铺满绘图区；
+    // independent 保证不污染主图 y 轴值域；axis:{y:false} 只关它自己的轴，
+    // 不会像 axis:false 那样把共享的 x/y 轴一起关掉。
+    // size 给「整格宽」像素（paint.js 的 bandStepPxOf）：band 轴的列间隙（柱图尤其宽）会把
+    // 连续维度切成一缕缕的带子，占满整格后相邻列自然连成一片。
+    // 宽度按容器估算（实测误差 ±0.3px）：恰好相接时 canvas 在边界处自然融合，看不到缝。
+    const bandStep = Number(opts.bandStepPx) || 0
+    const bgRows = dims.filter((d) => labels.indexOf(d) >= 0).map((d) => ({ x: d, y: [0, 1] }))
+    if (bgRows.length) {
       out.push({
-        type: 'rangeX',
-        data: [{ xRange: [d, d] }],
-        encode: { x: 'xRange' },
+        type: 'interval',
+        data: bgRows,
+        // __bg：给 paint.js 用来把背景带插到 children 最前面（画在柱体/折线之下，
+        // 否则半透明色带会罩在柱子上把柱色洗淡）
+        __bg: true,
+        encode: { x: 'x', y: 'y', ...(bandStep > 0 ? { size: bandStep } : {}) },
+        scale: { y: { type: 'linear', domain: [0, 1], independent: true } },
         style: {
           fill: cfg.dimBg,
           fillOpacity: 0.18,
           pointerEvents: 'none',
         },
+        axis: { y: false },
         legend: false,
         tooltip: false,
       })
-    })
+    }
   }
 
   if (cfg.showNote !== false && pointRows.length) {
+    // 说明：G2 5 独立 text 标记在本项目视图配置下不渲染（坐标退化到画布左上角后被裁剪），
+    // 改用不可见 point 锚点 + labels 管道挂文字（与标识线标签同管道，已验证可用）
     out.push({
-      type: 'text',
-      data: pointRows.map((r) => ({ ...r, value: yMax })),
-      encode: { x: 'x', y: 'value', text: 'annoText' },
+      type: 'point',
+      data: pointRows,
+      encode: { x: 'x', y: 'value' },
       style: {
-        fill: '#1f2329',
-        fontSize: 11,
-        fontWeight: 500,
-        textAlign: 'center',
-        textBaseline: 'bottom',
-        dy: -8,
-        background: true,
-        backgroundFill: '#ffffff',
-        backgroundRadius: 2,
-        backgroundPadding: [2, 6],
+        r: 2,
+        fill: '#ffffff',
+        fillOpacity: 0,
+        stroke: '#ffffff',
+        strokeOpacity: 0,
+        lineWidth: 0,
         pointerEvents: 'none',
       },
+      labels: [{
+        text: (d) => d.annoText,
+        position: 'top',
+        // 上移到位：既要避开数据点标记（r=3），又要让白底芯片不压住点
+        dy: -11,
+        // 白色背景芯片：文字压在序列/柱上仍可读
+        background: {
+          fill: '#ffffff',
+          opacity: 0.9,
+          padding: [1, 4],
+          radius: 2,
+        },
+        style: {
+          fill: '#1f2329',
+          fontSize: 11,
+          fontWeight: 500,
+          lineHeight: 1,
+          textAlign: 'center',
+          pointerEvents: 'none',
+        },
+      }],
       legend: false,
       tooltip: false,
-      axis: false,
     })
   }
 
@@ -371,20 +423,19 @@ function buildManualAnnoChildren(a, seriesList, labels) {
       },
       legend: false,
       tooltip: false,
-      axis: false,
     })
   }
   return out
 }
 
-function buildAnnoChildren(annos, seriesList, labels) {
+function buildAnnoChildren(annos, seriesList, labels, opts = {}) {
   const out = []
   ;(annos || []).forEach((raw) => {
     const a = normalizeAnno(raw)
     if (a.visible === false) return
     const mode = a.cfg?.mode || (a.dim != null ? 'manual' : 'measure')
     if (mode === 'measure') out.push(...buildMeasureAnnoChildren(a, seriesList, labels))
-    else out.push(...buildManualAnnoChildren(a, seriesList, labels))
+    else out.push(...buildManualAnnoChildren(a, seriesList, labels, opts))
   })
   return out
 }
@@ -393,7 +444,7 @@ function buildAnnoChildren(annos, seriesList, labels) {
  * Build G2 overlay children for analysis guides / trends / annos.
  * Falls back to legacy markLine when guides is empty.
  */
-export function buildAnalysisOverlays(spec, labels) {
+export function buildAnalysisOverlays(spec, labels, opts = {}) {
   if (!spec || spec.type === 'pie') return []
   const seriesList = spec.series || []
   const labs = labels || spec.labels || []
@@ -422,6 +473,6 @@ export function buildAnalysisOverlays(spec, labels) {
   }
 
   out.push(...buildTrendChildren(trends, seriesList, labs))
-  out.push(...buildAnnoChildren(annos, seriesList, labs))
+  out.push(...buildAnnoChildren(annos, seriesList, labs, opts))
   return out
 }

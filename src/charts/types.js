@@ -45,8 +45,10 @@ export const DASH_STYLES = [
 ]
 
 export const MARKER_SHAPES = [
-  { id: 'circle', g2: 'point', hollow: false },
-  { id: 'circleHollow', g2: 'point', hollow: true },
+  // 注意：g2 必须是 G2 point 标记真实注册的形状名（circle/…/hollow 等）。
+  // 'point' 虽然也存在，但它是「小实心点」，尺寸语义与 r 不一致，统一用 'circle'。
+  { id: 'circle', g2: 'circle', hollow: false },
+  { id: 'circleHollow', g2: 'circle', hollow: true },
   { id: 'diamond', g2: 'diamond', hollow: false },
   { id: 'diamondHollow', g2: 'diamond', hollow: true },
   { id: 'triangle', g2: 'triangle', hollow: false },
@@ -432,7 +434,7 @@ export function defaultBuilderState(partial = {}) {
     footnote: '',
     footnoteOn: false,
     tableShow: true,
-    viewCtrlShow: true,
+    viewCtrlShow: false,
     viewCtrlType: 'scrollbar',
     viewCtrlMinWidth: 32,
     dimTimeFormat: 'auto',

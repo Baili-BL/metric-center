@@ -17,6 +17,7 @@ import {
   resolveCrossBarRange,
   resolveCrossTimeIdx,
   sectionValue,
+  usesViewCtrl,
 } from './types'
 import { applyViewControls } from './viewCtrl'
 import {
@@ -367,6 +368,48 @@ function markerOf(s, spec) {
   return markerSpec(s?.markerShape || spec.markerShape || 'circle')
 }
 
+/**
+ * 标记点样式：实心 = 填充走 color 通道；空心 = 白底 + 描边（描边色默认跟随 color 通道）。
+ * 空心用白底而不是 fillOpacity:0，避免被线/柱穿过看起来像实心。
+ */
+function markerStyleOf(mk, r) {
+  return mk.hollow
+    ? { r, fill: '#ffffff', lineWidth: 1.4 }
+    : { r, fillOpacity: 1, lineWidth: 0 }
+}
+
+/**
+ * 数据点标记（marker）子标记。
+ * 为什么按「形状+空心」分组：G2 的 encode.shape **不支持回调**——传函数会被忽略并回退成
+ * 默认的 hollow（空心圆）形状，而 style 里按 hollow:false 算出的 lineWidth 又是 0，
+ * 结果标记点整体不可见（线图「显示标记点」勾了但图上什么都没有）。
+ * 因此这里只传常量形状，同一形状/空心态合并成一个标记。
+ */
+function markerPointChildren(srcRows, srcSeries, spec, encodeY, scale, axis, mini) {
+  const groups = new Map()
+  ;(srcSeries || []).forEach((s) => {
+    if (!showMarker(s, spec)) return
+    const mk = markerOf(s, spec)
+    const key = `${mk.g2}|${mk.hollow ? 1 : 0}`
+    if (!groups.has(key)) groups.set(key, { mk, names: new Set() })
+    groups.get(key).names.add(seriesName(s))
+  })
+  const out = []
+  groups.forEach(({ mk, names }) => {
+    const data = (srcRows || []).filter((r) => r.value != null && names.has(r.name))
+    if (!data.length) return
+    out.push({
+      type: 'point',
+      data,
+      encode: { x: 'x', ...encodeY, color: 'name', shape: mk.g2 },
+      scale,
+      axis,
+      style: markerStyleOf(mk, mini ? 2.5 : 3.5),
+    })
+  })
+  return out
+}
+
 function extremaRows(series, labels, spec) {
   const out = []
   series.forEach((s) => {
@@ -418,6 +461,23 @@ export function decideMiniLayout(el, type, labels, unit) {
   })
 }
 
+/* 维度背景色带需要「整格宽」（像素）。
+   x 是 band 轴，列与列之间留了 padding（柱图尤其宽），逐列色带会被切成一缕一缕的缝，
+   连续维度看着还是分开的。给色带一个像素 size 让它占满整格（含缝），连续区间自然连成一片。
+   宽度按容器宽度估算，实测与真实步长误差 <0.3px（见 g2-mark-probe）。
+   开启视图控件（缩略轴/滚动条）时可见列数会变、格宽随之变化，固定像素不再成立 → 返回 0，
+   调用方退回「带宽」方案（与改前一致）。 */
+const AXIS_RESERVE_PX = 74
+function bandStepPxOf(chart, spec, extra, labels, mini) {
+  const n = (labels || []).length
+  if (n < 2) return 0
+  if (!mini && spec?.viewCtrlShow !== false && usesViewCtrl(spec?.type)) return 0
+  const host = extra?.host || (chart.getContainer ? chart.getContainer() : null)
+  const hostW = Number(host?.clientWidth) || 0
+  const plotW = Number(extra?.layout?.plotWidth) || Math.max(120, (hostW || 640) - AXIS_RESERVE_PX)
+  return Math.max(2, plotW / n)
+}
+
 function applyCartesianView(chart, spec, rows, children, names, colors, extra = {}) {
   const {
     type, unit, axisShow, ax, dual, dualSync, tooltipShow, customLegend,
@@ -462,7 +522,12 @@ function applyCartesianView(chart, spec, rows, children, names, colors, extra = 
   }
 
   const isSeason = isSeasonal(type)
-  children.push(...(isSeason ? [] : buildAnalysisOverlays(spec, extra.labels || spec.labels || [])))
+  const overlayLabels = extra.labels || spec.labels || []
+  // 注意：叠加标记必须 push 在 children 末尾。若把维度背景带插到最前面（unshift），
+  // G2 会按"排在最前的 mark"重新归属 x scale，band 轴 domain 变化 → 色带整体跑到最左侧。
+  children.push(...(isSeason ? [] : buildAnalysisOverlays(spec, overlayLabels, {
+    bandStepPx: bandStepPxOf(chart, spec, extra, overlayLabels, mini),
+  })))
 
   const view = {
     type: 'view',
@@ -620,7 +685,7 @@ export function paintChart(el, spec) {
       children.push({
         type: 'point',
         encode: { x: 'x', y: 'value', color: 'name', shape: mk.g2 },
-        style: { r: mini ? 2.5 : 3.5, fillOpacity: mk.hollow ? 0 : 1, lineWidth: mk.hollow ? 1.4 : 0 },
+        style: markerStyleOf(mk, mini ? 2.5 : 3.5),
       })
     }
     const seasonSpec = {
@@ -776,7 +841,7 @@ export function paintChart(el, spec) {
       type: 'point',
       data,
       encode: { x: 'x', y: 'y', color: 'name', shape: mk.g2 },
-      style: { r: mini ? 3 : 5, fillOpacity: mk.hollow ? 0 : 1, lineWidth: mk.hollow ? 1.4 : 0 },
+      style: markerStyleOf(mk, mini ? 3 : 5),
       labels: spec.labelShow ? [{
         text: (d) => Number(d.y).toLocaleString('en-US'),
         position: spec.labelPos === 'belowLine' || spec.labelPos === 'bottom' ? 'bottom' : 'top',
@@ -850,19 +915,8 @@ export function paintChart(el, spec) {
           labels: labelCfg(spec, false, lines),
           tooltip: seriesTooltipOf(spec),
         })
-        if (marker || lines.some((s) => showMarker(s, spec))) {
-          children.push({
-            type: 'point',
-            data: lineRows.filter((r) => r.value != null),
-            encode: { x: 'x', ...encodeY, color: 'name', shape: (d) => markerOf(smap[d.name], spec).g2 },
-            scale,
-            axis,
-            style: {
-              r: mini ? 2.5 : 3.5,
-              fillOpacity: (d) => (markerOf(smap[d.name], spec).hollow ? 0 : 1),
-              lineWidth: (d) => (markerOf(smap[d.name], spec).hollow ? 1.4 : 0),
-            },
-          })
+        if (lines.some((s) => showMarker(s, spec))) {
+          children.push(...markerPointChildren(lineRows, lines, spec, encodeY, scale, axis, mini))
         }
       }
       if (areas.length) {
@@ -962,21 +1016,7 @@ export function paintChart(el, spec) {
       })
     }
 
-    const marked = srcSeries.filter((s) => showMarker(s, spec))
-    if (marked.length) {
-      children.push({
-        type: 'point',
-        data: srcRows.filter((r) => r.value != null && marked.some((s) => seriesName(s) === r.name)),
-        encode: { x: 'x', ...encodeY, color: 'name', shape: (d) => markerOf(smap[d.name], spec).g2 },
-        scale,
-        axis,
-        style: {
-          r: mini ? 2.5 : 3.5,
-          fillOpacity: (d) => (markerOf(smap[d.name], spec).hollow ? 0 : 1),
-          lineWidth: (d) => (markerOf(smap[d.name], spec).hollow ? 1.4 : 0),
-        },
-      })
-    }
+    children.push(...markerPointChildren(srcRows, srcSeries, spec, encodeY, scale, axis, mini))
     return children
   }
 

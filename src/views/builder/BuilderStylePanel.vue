@@ -178,6 +178,23 @@ function setMarker(id, seriesLocal) {
   mkOpen.value = false
   srMkOpen.value = false
 }
+/** 标记点形状图标：对齐 ai-lab main 的 markerIconSvg（真实形状 SVG，非 ●/○ 字符） */
+function markerIconSvg(id, color = '#646a73', size = 14) {
+  const found = MARKER_SHAPES.find((m) => m.id === id)
+  const g2 = found?.g2 || 'point'
+  const hollow = !!found?.hollow
+  const fill = hollow ? '#fff' : color
+  const stroke = hollow ? color : 'none'
+  const sw = hollow ? 1.6 : 0
+  const vb = `width="${size}" height="${size}" viewBox="0 0 14 14"`
+  if (g2 === 'diamond') return `<svg ${vb}><path d="M7 1.6L12.4 7 7 12.4 1.6 7z" fill="${fill}" stroke="${stroke}" stroke-width="${sw}"/></svg>`
+  if (g2 === 'triangle') return `<svg ${vb}><path d="M7 2.2L12.4 12.2H1.6z" fill="${fill}" stroke="${stroke}" stroke-width="${sw}" stroke-linejoin="round"/></svg>`
+  if (g2 === 'square') return `<svg ${vb}><rect x="2.4" y="2.4" width="9.2" height="9.2" rx="1" fill="${fill}" stroke="${stroke}" stroke-width="${sw}"/></svg>`
+  return `<svg ${vb}><circle cx="7" cy="7" r="4.6" fill="${fill}" stroke="${stroke}" stroke-width="${sw}"/></svg>`
+}
+function curSeriesMarkerShape() {
+  return (curSeries.value && curSeries.value.markerShape) || props.state.markerShape || 'circle'
+}
 function pickSeries(i) {
   srIdx.value = i
   srFieldOpen.value = false
@@ -460,11 +477,11 @@ onBeforeUnmount(() => document.removeEventListener('click', onDoc))
             <label class="check-line"><input type="checkbox" v-model="state.marker">显示标记点</label>
             <div class="mk-select" :class="{ open: mkOpen }">
               <button type="button" class="mk-trigger" title="选择标记点形状" @click.stop="mkOpen = !mkOpen">
-                <span class="mk-preview">{{ MARKER_SHAPES.find(m => m.id === state.markerShape)?.id === 'circleHollow' ? '○' : '●' }}</span>
+                <span class="mk-preview" v-html="markerIconSvg(state.markerShape || 'circle')"></span>
                 <span class="mk-caret"><Icon name="caret-fill" :size="12" /></span>
               </button>
               <div class="mk-panel">
-                <button v-for="m in MARKER_SHAPES" :key="m.id" type="button" class="mk-opt" :class="{ active: state.markerShape === m.id }" @click="setMarker(m.id)">{{ m.hollow ? '○' : '●' }} {{ m.g2 }}</button>
+                <button v-for="m in MARKER_SHAPES" :key="m.id" type="button" class="mk-opt" :class="{ active: state.markerShape === m.id }" :title="m.id" @click="setMarker(m.id)" v-html="markerIconSvg(m.id)"></button>
               </div>
             </div>
           </div>
@@ -889,11 +906,11 @@ onBeforeUnmount(() => document.removeEventListener('click', onDoc))
               <label class="check-line"><input type="checkbox" :checked="curSeries.marker ?? state.marker" @change="curSeries.marker = $event.target.checked">显示标记点</label>
               <div class="mk-select" :class="{ open: srMkOpen }">
                 <button type="button" class="mk-trigger" @click.stop="srMkOpen = !srMkOpen">
-                  <span class="mk-preview">●</span>
+                  <span class="mk-preview" v-html="markerIconSvg(curSeriesMarkerShape())"></span>
                   <span class="mk-caret"><Icon name="caret-fill" :size="12" /></span>
                 </button>
                 <div class="mk-panel">
-                  <button v-for="m in MARKER_SHAPES" :key="m.id" type="button" class="mk-opt" @click="setMarker(m.id, true)">{{ m.hollow ? '○' : '●' }} {{ m.g2 }}</button>
+                  <button v-for="m in MARKER_SHAPES" :key="m.id" type="button" class="mk-opt" :class="{ active: curSeriesMarkerShape() === m.id }" :title="m.id" @click="setMarker(m.id, true)" v-html="markerIconSvg(m.id)"></button>
                 </div>
               </div>
             </div>

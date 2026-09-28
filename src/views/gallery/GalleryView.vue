@@ -252,7 +252,7 @@ function downloadPng(c) {
     series: (bs.series || []).length ? bs.series : (c.series || []),
     lineMarker: !isPie(bs.type) && !isScatter(bs.type),
   }).then(() => {
-    Message.success('已导出 PNG（含标题与图例）')
+    Message.success('已导出 PNG（含标题、图例与来源标注）')
   }).catch((e) => {
     Message.error(e?.message || '导出失败')
   })

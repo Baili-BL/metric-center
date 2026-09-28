@@ -505,8 +505,8 @@ function onFmtOk(fmt) {
 function setType(id) {
   state.type = id
   typeOpen.value = false
-  // 视图控件跟随图类型取默认值（线/面/混合/柱图默认开，占比等默认关）
-  state.viewCtrlShow = usesViewCtrl(id)
+  // 视图控件默认关闭；仅当图类型不支持时强制关闭，支持时尊重用户当前选择
+  if (!usesViewCtrl(id)) state.viewCtrlShow = false
   if (isSeasonal(id)) {
     if (!state.season) state.season = normalizeSeason()
     else state.season = normalizeSeason(state.season)
@@ -606,9 +606,10 @@ function downloadPng() {
   exportChartPng(canvas, {
     ...state,
     series: legendSeries.value.length ? legendSeries.value : state.series,
+    sourceNoteSeries: state.series,
     lineMarker: !isPie(state.type) && !isCrossScatter(state.type),
   }).then(() => {
-    Message.success('已导出 PNG（含标题与图例）')
+    Message.success('已导出 PNG（含标题、图例与来源标注）')
   }).catch((e) => {
     Message.error(e?.message || '导出失败')
   })

@@ -90,7 +90,7 @@ async function render() {
     if (el.value.clientWidth > 0) break
     await new Promise((r) => requestAnimationFrame(r))
   }
-  chart = paintChart(el.value, {
+  const spec = {
     ...props.spec,
     height: props.height || undefined,
     mini: props.mini,
@@ -98,7 +98,10 @@ async function render() {
     ...(props.mini || props.disableTooltip
       ? { tooltipShow: false, disableTooltip: true, listPreview: true }
       : {}),
-  })
+  }
+  if (typeof window !== 'undefined') window.__mcSpec = spec
+  chart = paintChart(el.value, spec)
+  if (typeof window !== 'undefined') window.__mcChart = chart
   const showSlider = !props.mini
     && props.spec.viewCtrlShow
     && props.spec.viewCtrlType === 'slider'

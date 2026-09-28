@@ -16,7 +16,8 @@ function ellipsisText(ctx, text, maxW) {
 function layoutLegendRows(ctx, series, maxW, opts = {}) {
   const gapX = 18
   const fontSize = opts.legendSize || 12
-  const markerPad = opts.lineMarker ? 22 : 14
+  /* 与页面自绘图例一致：18px 线段 + 6px 间距 + 文字 */
+  const markerPad = 24
   ctx.font = `${opts.legendItalic ? 'italic ' : ''}${opts.legendBold ? '700 ' : '400 '}${fontSize}px sans-serif`
   const rows = []
   let row = []
@@ -40,33 +41,17 @@ function layoutLegendRows(ctx, series, maxW, opts = {}) {
 function drawLegendItem(ctx, x, y, sr, name, maxNameW, opts = {}) {
   const cy = y + 6
   const color = sr.color || '#2f6bff'
-  if (opts.lineMarker) {
-    ctx.strokeStyle = color
-    ctx.lineWidth = 2.5
-    ctx.lineCap = 'round'
-    const dash = sr.dash || opts.dash || 'solid'
-    if (dash === 'dash') ctx.setLineDash([4, 3])
-    else if (dash === 'dot') ctx.setLineDash([1.5, 2.5])
-    else ctx.setLineDash([])
-    ctx.beginPath()
-    ctx.moveTo(x, cy)
-    ctx.lineTo(x + 16, cy)
-    ctx.stroke()
-    ctx.setLineDash([])
-    ctx.beginPath()
-    ctx.arc(x + 8, cy, 3, 0, Math.PI * 2)
-    ctx.fillStyle = color
-    ctx.fill()
-    ctx.fillStyle = opts.legendColor || '#333'
-    ctx.textBaseline = 'middle'
-    ctx.fillText(ellipsisText(ctx, name, maxNameW), x + 22, cy)
-  } else {
-    ctx.fillStyle = color
-    ctx.fillRect(x + 1, cy - 4, 8, 8)
-    ctx.fillStyle = opts.legendColor || '#333'
-    ctx.textBaseline = 'middle'
-    ctx.fillText(ellipsisText(ctx, name, maxNameW), x + 14, cy)
-  }
+  /* 页面图例样式：18px × 2.5px 实色线段，无圆点 */
+  ctx.strokeStyle = color
+  ctx.lineWidth = 2.5
+  ctx.lineCap = 'butt'
+  ctx.beginPath()
+  ctx.moveTo(x, cy)
+  ctx.lineTo(x + 18, cy)
+  ctx.stroke()
+  ctx.fillStyle = opts.legendColor || '#333'
+  ctx.textBaseline = 'middle'
+  ctx.fillText(ellipsisText(ctx, name, maxNameW), x + 24, cy)
 }
 
 function downloadBlob(blob, filename) {
@@ -108,7 +93,6 @@ export function exportChartPng(srcCanvas, meta = {}) {
   const titleBold = !!meta.titleBold
   const titleItalic = !!meta.titleItalic
   const align = meta.legendAlign || 'flex-start'
-  const lineMarker = !!(meta.lineMarker ?? /line|area|combo|seasonal/i.test(String(meta.type || '')))
 
   const measure = document.createElement('canvas').getContext('2d')
   const legendOpts = {
@@ -116,8 +100,6 @@ export function exportChartPng(srcCanvas, meta = {}) {
     legendBold: !!meta.legendBold,
     legendItalic: !!meta.legendItalic,
     legendColor: meta.legendColor || '#333',
-    lineMarker,
-    dash: meta.dash,
   }
 
   let contentW = chartW
@@ -145,6 +127,11 @@ export function exportChartPng(srcCanvas, meta = {}) {
   const remarkH = remarkText ? 18 : 0
   const footnoteText = meta.footnoteOn && meta.footnote ? String(meta.footnote).replace(/<[^>]+>/g, '') : ''
   const footnoteH = footnoteText ? 18 : 0
+  /* 左下角来源标注：与 G2Chart 内 .chart-src-note 同逻辑，导出时补进画面 */
+  const srcPool = Array.isArray(meta.sourceNoteSeries) && meta.sourceNoteSeries.length ? meta.sourceNoteSeries : (Array.isArray(meta.series) ? meta.series : [])
+  const srcs = [...new Set(srcPool.map((s) => String(s?.source || '').trim()).filter(Boolean))]
+  const sourceNoteText = `来源:${srcs.length ? srcs.join('、') : '同花顺'},中辉期货有限公司`
+  const sourceNoteH = 16
 
   let bodyH = chartH
   if ((pos === 'left' || pos === 'right') && sideLegendH > bodyH) bodyH = sideLegendH
@@ -153,7 +140,8 @@ export function exportChartPng(srcCanvas, meta = {}) {
   let totalH = padTop + padBottom + titleH + (titleH ? titleGap : 0) + bodyH
   if (legendH) totalH += legendH + legendGap
   if (remarkH) totalH += remarkH + 6
-  if (footnoteH) totalH += footnoteH + 8
+  if (sourceNoteText) totalH += sourceNoteH + 6
+  if (footnoteH) totalH += footnoteH + 4
   // remark afterTitle consumes space before body; chartTop also before chart
   // Already counted remarkH once — if both positions somehow set, still one block.
 
@@ -205,8 +193,7 @@ export function exportChartPng(srcCanvas, meta = {}) {
       let xx = x0
       row.items.forEach((it, idx) => {
         if (idx) xx += 18
-        const namePad = lineMarker ? 22 : 14
-        drawLegendItem(ctx, xx, yy, it.sr, it.name, it.w - namePad, legendOpts)
+        drawLegendItem(ctx, xx, yy, it.sr, it.name, it.w - 24, legendOpts)
         xx += it.w
       })
       yy += itemH + 6
@@ -255,8 +242,17 @@ export function exportChartPng(srcCanvas, meta = {}) {
     y += legendH
   }
 
+  if (sourceNoteText) {
+    y += 6
+    ctx.font = '11px sans-serif'
+    ctx.fillStyle = '#86909c'
+    ctx.textBaseline = 'top'
+    ctx.fillText(ellipsisText(ctx, sourceNoteText, contentW), padX, y)
+    y += sourceNoteH
+  }
+
   if (footnoteText) {
-    y += 8
+    y += 4
     ctx.font = '12px sans-serif'
     ctx.fillStyle = '#9aa0ad'
     ctx.textBaseline = 'top'

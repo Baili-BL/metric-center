@@ -48,7 +48,10 @@ function onTrendsOk(list) {
 function annoSubText(a) {
   const mode = a.cfg?.mode || (a.dim != null ? 'manual' : 'measure')
   if (mode === 'measure') return `${a.cfg?.labelText || a.text || '区间'}（条件标注）`
-  return `${a.text || '拐点'}：${a.dim ?? '未点选'}`
+  const dims = Array.isArray(a.dims) && a.dims.length
+    ? a.dims
+    : (a.dim != null && a.dim !== '' ? [a.dim] : [])
+  return `${a.text || '拐点'}：${dims.length ? dims.join('、') : '未选择'}`
 }
 
 function addAnno() {
@@ -58,8 +61,6 @@ function addAnno() {
   item.cfg.mode = 'manual'
   list.push(item)
   editingId.value = item.id
-  emit('update:picking', true)
-  emit('pick-start', item.id)
 }
 
 function toggleVisible(a) {

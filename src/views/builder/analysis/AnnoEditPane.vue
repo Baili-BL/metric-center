@@ -18,6 +18,17 @@ const colorLeft = ref(0)
 const colorTop = ref(0)
 const colorOrigin = ref('#2e74ff')
 
+/* 手工标注 · 维度弹窗多选（对齐 ai-lab main「选择内容」）
+   弹窗只由「选择内容」按钮触发：新建标注/切换模式都不再自动弹出，避免打断编辑流程 */
+const dimOpen = ref(false)
+const dimKw = ref('')
+const dimDraft = ref([])
+const dimsArr = computed(() => {
+  if (Array.isArray(draft.dims) && draft.dims.length) return draft.dims.map(String)
+  if (draft.dim != null && draft.dim !== '') return [String(draft.dim)]
+  return []
+})
+
 watch(() => props.anno, (a) => {
   if (!a) return
   Object.assign(draft, normalizeAnno(JSON.parse(JSON.stringify(a))))
@@ -27,6 +38,43 @@ const mode = computed(() => draft.cfg?.mode || 'measure')
 const isMeasure = computed(() => mode.value === 'measure')
 const isFixedRange = computed(() => draft.cfg.rangeType === 'fixed')
 const isBetween = computed(() => draft.cfg.thresholdOp === 'between')
+
+const filteredDims = computed(() => {
+  const kw = dimKw.value.trim().toLowerCase()
+  const all = (props.labels || []).map(String)
+  if (!kw) return all
+  return all.filter((d) => d.toLowerCase().includes(kw))
+})
+const allChecked = computed(() =>
+  filteredDims.value.length > 0 && filteredDims.value.every((d) => dimDraft.value.includes(d))
+)
+
+function openDimDlg() {
+  dimDraft.value = dimsArr.value.slice()
+  dimKw.value = ''
+  dimOpen.value = true
+}
+function toggleDim(d, on) {
+  const i = dimDraft.value.indexOf(d)
+  if (on && i < 0) dimDraft.value.push(d)
+  if (!on && i >= 0) dimDraft.value.splice(i, 1)
+}
+function toggleAll(on) {
+  filteredDims.value.forEach((d) => {
+    const i = dimDraft.value.indexOf(d)
+    if (on && i < 0) dimDraft.value.push(d)
+    if (!on && i >= 0) dimDraft.value.splice(i, 1)
+  })
+}
+function confirmDims() {
+  /* 按时间轴顺序落盘，兼容旧字段 dim */
+  const picked = (props.labels || []).map(String).filter((d) => dimDraft.value.includes(d))
+  draft.dims = picked
+  draft.dim = picked.length ? picked[0] : null
+  if (!picked.length) draft.series = ''
+  commit()
+  dimOpen.value = false
+}
 
 function seriesLabel(s) {
   return s.alias || s.name
@@ -38,8 +86,7 @@ function commit() {
 
 function onMode(v) {
   draft.cfg.mode = v
-  if (v === 'manual' && draft.dim == null) emit('pick')
-  else if (v === 'measure') emit('cancel-pick')
+  if (v === 'measure') emit('cancel-pick')
   commit()
 }
 
@@ -243,13 +290,21 @@ function wellClass(color, off) {
 
     <template v-else>
       <div class="anno-f-row">
-        <span class="anno-f-label">维值</span>
-        <div class="anno-f-static" :title="draft.dim ?? ''">{{ draft.dim ?? '点击图表点选' }}</div>
-        <button type="button" class="anno-relink" @click="emit('pick')">重新点选</button>
+        <span class="anno-f-label">选择内容</span>
+        <button
+          type="button"
+          class="anno-dim-btn"
+          :class="{ empty: !dimsArr.length }"
+          :title="dimsArr.join('、')"
+          @click="openDimDlg"
+        >
+          <span class="anno-dim-txt">{{ dimsArr.length ? dimsArr.join('、') : '请选择' }}</span>
+          <Icon name="caret-fill" :size="10" />
+        </button>
       </div>
       <div class="anno-f-row">
         <span class="anno-f-label">系列</span>
-        <div class="anno-f-static">{{ draft.series || '—' }}</div>
+        <div class="anno-f-static">{{ draft.series || '全部' }}</div>
       </div>
       <div class="anno-f-row">
         <label class="anno-f-check">
@@ -311,5 +366,101 @@ function wellClass(color, off) {
         @pick="onColorPick"
       />
     </Teleport>
+
+    <!-- 手工标注 · 维度勾选弹窗 -->
+    <Teleport to="body">
+      <div v-if="dimOpen" class="adim-mask" @click.self="dimOpen = false">
+        <div class="adim-dlg">
+          <div class="adim-search">
+            <Icon name="search" :size="13" />
+            <input v-model="dimKw" placeholder="关键词搜索" autocomplete="off">
+          </div>
+          <div class="adim-list">
+            <label v-for="d in filteredDims" :key="d" class="adim-item">
+              <input
+                type="checkbox"
+                :checked="dimDraft.includes(d)"
+                @change="toggleDim(d, $event.target.checked)"
+              >
+              <span class="dim-t">{{ d }}</span>
+            </label>
+            <div v-if="!filteredDims.length" class="adim-empty">未找到匹配的维值</div>
+          </div>
+          <div class="adim-foot">
+            <label class="adim-all">
+              <input type="checkbox" :checked="allChecked" @change="toggleAll($event.target.checked)">
+              <span>全选</span>
+            </label>
+            <div class="adim-btns">
+              <button type="button" class="adim-btn" @click="dimOpen = false">取消</button>
+              <button type="button" class="adim-btn primary" @click="confirmDims">确定</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </Teleport>
   </div>
 </template>
+
+<style scoped>
+/* 手工标注 · 选择内容触发器 */
+.anno-dim-btn {
+  flex: 1; min-width: 0; height: 24px; padding: 0 8px;
+  display: flex; align-items: center; justify-content: space-between; gap: 4px;
+  border: 1px solid rgba(0, 0, 0, 0.15); border-radius: 2px; background: #fff;
+  font-size: 12px; color: rgba(0, 0, 0, 0.87); cursor: pointer;
+}
+.anno-dim-btn:hover { border-color: var(--primary, #2e74ff); }
+.anno-dim-btn .anno-dim-txt {
+  flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left;
+}
+.anno-dim-btn.empty .anno-dim-txt { color: rgba(0, 0, 0, 0.35); }
+.anno-dim-btn svg { color: rgba(0, 0, 0, 0.45); flex-shrink: 0; }
+
+/* 维度勾选弹窗 */
+.adim-mask {
+  position: fixed; inset: 0; z-index: 1060;
+  background: rgba(0, 0, 0, 0.28);
+  display: flex; align-items: center; justify-content: center;
+}
+.adim-dlg {
+  width: 300px; max-width: 92vw; background: #fff; border-radius: 8px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.16); padding: 12px;
+}
+.adim-search {
+  height: 32px; padding: 0 10px; border: 1px solid var(--border-input, #e5e6eb); border-radius: 6px;
+  display: flex; align-items: center; gap: 6px; color: #86909c;
+}
+.adim-search:focus-within { border-color: var(--primary, #1664ff); }
+.adim-search input {
+  flex: 1; min-width: 0; border: none; outline: none; font-size: 12px; background: transparent; color: #1d2129;
+}
+.adim-search input::placeholder { color: #c9cdd4; }
+.adim-list {
+  max-height: 320px; overflow-y: auto; margin: 8px 0;
+}
+.adim-item {
+  display: flex; align-items: center; gap: 8px; height: 28px; padding: 0 6px;
+  font-size: 12px; color: #1d2129; cursor: pointer; border-radius: 4px;
+}
+.adim-item:hover { background: rgba(22, 100, 255, 0.06); }
+.adim-item input { accent-color: var(--primary, #1664ff); margin: 0; flex-shrink: 0; }
+.adim-item .dim-t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.adim-empty { padding: 24px 0; text-align: center; font-size: 12px; color: #86909c; }
+.adim-foot {
+  display: flex; align-items: center; justify-content: space-between; padding-top: 4px;
+  border-top: 1px solid #f0f1f3;
+}
+.adim-all { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: #4e5969; cursor: pointer; }
+.adim-all input { accent-color: var(--primary, #1664ff); margin: 0; }
+.adim-btns { display: flex; gap: 8px; }
+.adim-btn {
+  height: 28px; padding: 0 14px; font-size: 12px; border-radius: 4px; cursor: pointer;
+  border: 1px solid var(--border-input, #e5e6eb); background: #fff; color: #4e5969;
+}
+.adim-btn:hover { border-color: var(--primary, #1664ff); color: var(--primary, #1664ff); }
+.adim-btn.primary {
+  background: var(--primary, #1664ff); border-color: var(--primary, #1664ff); color: #fff;
+}
+.adim-btn.primary:hover { color: #fff; filter: brightness(1.05); }
+</style>
