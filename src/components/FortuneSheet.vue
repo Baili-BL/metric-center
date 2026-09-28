@@ -26,6 +26,19 @@ import {
   FEISHU_INSERT_PATHS,
   FEISHU_MENU_PATHS,
 } from '../utils/feishu-icons'
+import {
+  CF_ICON_DARK,
+  CF_ICON_GRAY,
+  CF_ICON_GREEN,
+  CF_ICON_RED,
+  CF_ICON_STAR,
+  CF_ICON_YELLOW,
+  cfIconGlyphHtml,
+  cfIconGlyphs,
+  cfIconSvg,
+  cfPieSvg,
+  cfSignalSvg,
+} from '../utils/cf-icons'
 import ColorPop from './ColorPop.vue'
 import '@fortune-sheet/react/dist/index.css'
 
@@ -331,32 +344,222 @@ const CF_FLIES = {
     { id: 'belowAverage', label: '低于平均值' },
   ],
   color: [
-    { id: 'cg1', type: 'colorGradation', format: ['rgb(99, 190, 123)', 'rgb(255, 235, 132)', 'rgb(248, 105, 107)'], label: '绿-黄-红' },
-    { id: 'cg2', type: 'colorGradation', format: ['rgb(248, 105, 107)', 'rgb(255, 235, 132)', 'rgb(99, 190, 123)'], label: '红-黄-绿' },
-    { id: 'cg3', type: 'colorGradation', format: ['rgb(99, 190, 123)', 'rgb(255, 255, 255)', 'rgb(248, 105, 107)'], label: '绿-白-红' },
-    { id: 'cg4', type: 'colorGradation', format: ['rgb(248, 105, 107)', 'rgb(255, 255, 255)', 'rgb(99, 190, 123)'], label: '红-白-绿' },
-    { id: 'cg5', type: 'colorGradation', format: ['rgb(90, 138, 198)', 'rgb(255, 255, 255)', 'rgb(248, 105, 107)'], label: '蓝-白-红' },
-    { id: 'cg6', type: 'colorGradation', format: ['rgb(248, 105, 107)', 'rgb(255, 255, 255)', 'rgb(90, 138, 198)'], label: '红-白-蓝' },
-    { id: 'cg7', type: 'colorGradation', format: ['rgb(90, 138, 198)', 'rgb(255, 255, 255)', 'rgb(99, 190, 123)'], label: '蓝-白-绿' },
-    { id: 'cg8', type: 'colorGradation', format: ['rgb(99, 190, 123)', 'rgb(255, 255, 255)', 'rgb(90, 138, 198)'], label: '绿-白-蓝' },
-    { id: 'cg9', type: 'colorGradation', format: ['rgb(248, 105, 107)', 'rgb(255, 255, 255)'], label: '红-白' },
-    { id: 'cg10', type: 'colorGradation', format: ['rgb(255, 255, 255)', 'rgb(248, 105, 107)'], label: '白-红' },
-    { id: 'cg11', type: 'colorGradation', format: ['rgb(99, 190, 123)', 'rgb(255, 255, 255)'], label: '绿-白' },
-    { id: 'cg12', type: 'colorGradation', format: ['rgb(255, 255, 255)', 'rgb(99, 190, 123)'], label: '白-绿' },
+    { id: 'cg1', type: 'colorGradation', format: ['rgb(248, 105, 107)', 'rgb(255, 235, 132)', 'rgb(99, 190, 123)'], label: '绿-黄-红' },
+    { id: 'cg2', type: 'colorGradation', format: ['rgb(99, 190, 123)', 'rgb(255, 235, 132)', 'rgb(248, 105, 107)'], label: '红-黄-绿' },
+    { id: 'cg3', type: 'colorGradation', format: ['rgb(248, 105, 107)', 'rgb(255, 255, 255)', 'rgb(99, 190, 123)'], label: '绿-白-红' },
+    { id: 'cg4', type: 'colorGradation', format: ['rgb(99, 190, 123)', 'rgb(255, 255, 255)', 'rgb(248, 105, 107)'], label: '红-白-绿' },
+    { id: 'cg5', type: 'colorGradation', format: ['rgb(248, 105, 107)', 'rgb(255, 255, 255)', 'rgb(90, 138, 198)'], label: '蓝-白-红' },
+    { id: 'cg6', type: 'colorGradation', format: ['rgb(90, 138, 198)', 'rgb(255, 255, 255)', 'rgb(248, 105, 107)'], label: '红-白-蓝' },
+    { id: 'cg7', type: 'colorGradation', format: ['rgb(255, 255, 255)', 'rgb(248, 105, 107)'], label: '红-白' },
+    { id: 'cg8', type: 'colorGradation', format: ['rgb(248, 105, 107)', 'rgb(255, 255, 255)'], label: '白-红' },
+    { id: 'cg9', type: 'colorGradation', format: ['rgb(255, 255, 255)', 'rgb(99, 190, 123)'], label: '绿-白' },
+    { id: 'cg10', type: 'colorGradation', format: ['rgb(99, 190, 123)', 'rgb(255, 255, 255)'], label: '白-绿' },
+    { id: 'cg11', type: 'colorGradation', format: ['rgb(255, 235, 132)', 'rgb(99, 190, 123)'], label: '绿-黄' },
+    { id: 'cg12', type: 'colorGradation', format: ['rgb(99, 190, 123)', 'rgb(255, 235, 132)'], label: '黄-绿' },
   ],
   bar: [
-    { id: 'db1', type: 'dataBar', format: ['#638ec6', '#ffffff'], label: '蓝-白渐变' },
-    { id: 'db2', type: 'dataBar', format: ['#63c623', '#ffffff'], label: '绿-白渐变' },
-    { id: 'db3', type: 'dataBar', format: ['#ff555a', '#ffffff'], label: '红-白渐变' },
-    { id: 'db4', type: 'dataBar', format: ['#638ec6'], label: '蓝色' },
-    { id: 'db5', type: 'dataBar', format: ['#63c623'], label: '绿色' },
-    { id: 'db6', type: 'dataBar', format: ['#ff555a'], label: '红色' },
+    { id: 'dbg1', type: 'dataBar', format: ['#638ec6', '#ffffff'], label: '蓝色数据条', group: 'gradient' },
+    { id: 'dbg2', type: 'dataBar', format: ['#63c384', '#ffffff'], label: '绿色数据条', group: 'gradient' },
+    { id: 'dbg3', type: 'dataBar', format: ['#ff555a', '#ffffff'], label: '红色数据条', group: 'gradient' },
+    { id: 'dbg4', type: 'dataBar', format: ['#ffb628', '#ffffff'], label: '橙色数据条', group: 'gradient' },
+    { id: 'dbg5', type: 'dataBar', format: ['#00b0f0', '#ffffff'], label: '浅蓝色数据条', group: 'gradient' },
+    { id: 'dbg6', type: 'dataBar', format: ['#d60093', '#ffffff'], label: '紫色数据条', group: 'gradient' },
+    { id: 'dbs1', type: 'dataBar', format: ['#638ec6'], label: '蓝色数据条', group: 'solid' },
+    { id: 'dbs2', type: 'dataBar', format: ['#63c384'], label: '绿色数据条', group: 'solid' },
+    { id: 'dbs3', type: 'dataBar', format: ['#ff555a'], label: '红色数据条', group: 'solid' },
+    { id: 'dbs4', type: 'dataBar', format: ['#ffb628'], label: '橙色数据条', group: 'solid' },
+    { id: 'dbs5', type: 'dataBar', format: ['#00b0f0'], label: '浅蓝色数据条', group: 'solid' },
+    { id: 'dbs6', type: 'dataBar', format: ['#d60093'], label: '紫色数据条', group: 'solid' },
   ],
   icons: [
-    { id: 'ic1', type: 'icons', label: '三色箭头', marks: ['↑', '→', '↓'], format: ['#63c623', '#f5c542', '#ff555a'] },
-    { id: 'ic2', type: 'icons', label: '三色旗', marks: ['⚑', '⚑', '⚑'], format: ['#63c623', '#f5c542', '#ff555a'] },
-    { id: 'ic3', type: 'icons', label: '三色信号灯', marks: ['●', '●', '●'], format: ['#63c623', '#f5c542', '#ff555a'] },
+    // 预览顺序对齐飞书（低→高从左到右）；marks/format 仍按高→低供单元格着色
+    {
+      id: 'ic-a3', type: 'icons', group: '方向', label: '三向箭头（彩色）',
+      marks: ['↑', '→', '↓'], format: [CF_ICON_GREEN, CF_ICON_YELLOW, CF_ICON_RED],
+      preview: [
+        { kind: 'arrowDown', color: CF_ICON_RED },
+        { kind: 'arrowRight', color: CF_ICON_YELLOW },
+        { kind: 'arrowUp', color: CF_ICON_GREEN },
+      ],
+    },
+    {
+      id: 'ic-a3g', type: 'icons', group: '方向', label: '三向箭头（灰色）',
+      marks: ['↑', '→', '↓'], format: [CF_ICON_GRAY, CF_ICON_GRAY, CF_ICON_GRAY],
+      preview: [
+        { kind: 'arrowUp', color: CF_ICON_GRAY },
+        { kind: 'arrowRight', color: CF_ICON_GRAY },
+        { kind: 'arrowDown', color: CF_ICON_GRAY },
+      ],
+    },
+    {
+      id: 'ic-t3', type: 'icons', group: '方向', label: '三角旗',
+      marks: ['▲', '▬', '▼'], format: [CF_ICON_GREEN, CF_ICON_YELLOW, CF_ICON_RED],
+      preview: [
+        { kind: 'triDown', color: CF_ICON_RED },
+        { kind: 'bar', color: CF_ICON_YELLOW },
+        { kind: 'triUp', color: CF_ICON_GREEN },
+      ],
+    },
+    {
+      id: 'ic-a4g', type: 'icons', group: '方向', label: '四向箭头（灰色）',
+      marks: ['↑', '↗', '↘', '↓'], format: [CF_ICON_GRAY, CF_ICON_GRAY, CF_ICON_GRAY, CF_ICON_GRAY],
+      preview: [
+        { kind: 'arrowUp', color: CF_ICON_GRAY },
+        { kind: 'arrowUpRight', color: CF_ICON_GRAY },
+        { kind: 'arrowDownRight', color: CF_ICON_GRAY },
+        { kind: 'arrowDown', color: CF_ICON_GRAY },
+      ],
+    },
+    {
+      id: 'ic-a4', type: 'icons', group: '方向', label: '四向箭头（彩色）',
+      marks: ['↑', '↗', '↘', '↓'], format: [CF_ICON_GREEN, CF_ICON_YELLOW, CF_ICON_YELLOW, CF_ICON_RED],
+      preview: [
+        { kind: 'arrowDown', color: CF_ICON_RED },
+        { kind: 'arrowDownRight', color: CF_ICON_YELLOW },
+        { kind: 'arrowUpRight', color: CF_ICON_YELLOW },
+        { kind: 'arrowUp', color: CF_ICON_GREEN },
+      ],
+    },
+    {
+      id: 'ic-a5g', type: 'icons', group: '方向', label: '五向箭头（灰色）',
+      marks: ['↑', '↗', '→', '↘', '↓'], format: [CF_ICON_GRAY, CF_ICON_GRAY, CF_ICON_GRAY, CF_ICON_GRAY, CF_ICON_GRAY],
+      preview: [
+        { kind: 'arrowUp', color: CF_ICON_GRAY },
+        { kind: 'arrowUpRight', color: CF_ICON_GRAY },
+        { kind: 'arrowRight', color: CF_ICON_GRAY },
+        { kind: 'arrowDownRight', color: CF_ICON_GRAY },
+        { kind: 'arrowDown', color: CF_ICON_GRAY },
+      ],
+    },
+    {
+      id: 'ic-a5', type: 'icons', group: '方向', label: '五向箭头（彩色）', alone: true,
+      marks: ['↑', '↗', '→', '↘', '↓'], format: [CF_ICON_GREEN, CF_ICON_YELLOW, CF_ICON_YELLOW, CF_ICON_YELLOW, CF_ICON_RED],
+      preview: [
+        { kind: 'arrowDown', color: CF_ICON_RED },
+        { kind: 'arrowDownRight', color: CF_ICON_YELLOW },
+        { kind: 'arrowRight', color: CF_ICON_YELLOW },
+        { kind: 'arrowUpRight', color: CF_ICON_YELLOW },
+        { kind: 'arrowUp', color: CF_ICON_GREEN },
+      ],
+    },
+    {
+      id: 'ic-c3', type: 'icons', group: '形状', label: '三色交通灯（无框）',
+      marks: ['●', '●', '●'], format: [CF_ICON_GREEN, CF_ICON_YELLOW, CF_ICON_RED],
+      preview: [
+        { kind: 'circle', color: CF_ICON_RED },
+        { kind: 'circle', color: CF_ICON_YELLOW },
+        { kind: 'circle', color: CF_ICON_GREEN },
+      ],
+    },
+    {
+      id: 'ic-c3b', type: 'icons', group: '形状', label: '三色交通灯（有框）',
+      marks: ['⬤', '⬤', '⬤'], format: [CF_ICON_GREEN, CF_ICON_YELLOW, CF_ICON_RED],
+      preview: [
+        { kind: 'circleRim', color: CF_ICON_RED },
+        { kind: 'circleRim', color: CF_ICON_YELLOW },
+        { kind: 'circleRim', color: CF_ICON_GREEN },
+      ],
+    },
+    {
+      id: 'ic-c4', type: 'icons', group: '形状', label: '四色交通灯',
+      marks: ['●', '●', '●', '●'], format: [CF_ICON_GREEN, CF_ICON_YELLOW, CF_ICON_RED, CF_ICON_GRAY],
+      preview: [
+        { kind: 'circle', color: CF_ICON_GRAY },
+        { kind: 'circle', color: CF_ICON_RED },
+        { kind: 'circle', color: CF_ICON_YELLOW },
+        { kind: 'circle', color: CF_ICON_GREEN },
+      ],
+    },
+    {
+      id: 'ic-c5', type: 'icons', group: '形状', label: '五色交通灯',
+      marks: ['●', '●', '●', '●', '●'], format: [CF_ICON_GREEN, CF_ICON_YELLOW, CF_ICON_RED, CF_ICON_GRAY, CF_ICON_DARK],
+      preview: [
+        { kind: 'circle', color: CF_ICON_DARK },
+        { kind: 'circle', color: CF_ICON_GRAY },
+        { kind: 'circle', color: CF_ICON_RED },
+        { kind: 'circle', color: CF_ICON_YELLOW },
+        { kind: 'circle', color: CF_ICON_GREEN },
+      ],
+    },
+    {
+      id: 'ic-x2', type: 'icons', group: '标记', label: '对错',
+      marks: ['✓', '✕'], format: [CF_ICON_GREEN, CF_ICON_RED],
+      preview: [
+        { kind: 'cross', color: CF_ICON_RED },
+        { kind: 'check', color: CF_ICON_GREEN },
+      ],
+    },
+    {
+      id: 'ic-m3c', type: 'icons', group: '标记', label: '三符号（有圆圈）',
+      marks: ['✓', '!', '✕'], format: [CF_ICON_GREEN, CF_ICON_YELLOW, CF_ICON_RED],
+      preview: [
+        { kind: 'cross', color: CF_ICON_RED },
+        { kind: 'bang', color: CF_ICON_YELLOW },
+        { kind: 'check', color: CF_ICON_GREEN },
+      ],
+    },
+    {
+      id: 'ic-f2', type: 'icons', group: '标记', label: '双色旗',
+      marks: ['⚑', '⚑'], format: [CF_ICON_GREEN, CF_ICON_RED],
+      preview: [
+        { kind: 'flag', color: CF_ICON_RED },
+        { kind: 'flag', color: CF_ICON_GREEN },
+      ],
+    },
+    {
+      id: 'ic-f3', type: 'icons', group: '标记', label: '三色旗',
+      marks: ['⚑', '⚑', '⚑'], format: [CF_ICON_GREEN, CF_ICON_YELLOW, CF_ICON_RED],
+      preview: [
+        { kind: 'flag', color: CF_ICON_RED },
+        { kind: 'flag', color: CF_ICON_YELLOW },
+        { kind: 'flag', color: CF_ICON_GREEN },
+      ],
+    },
+    {
+      id: 'ic-st3', type: 'icons', group: '等级', label: '三星',
+      marks: ['★', '★', '☆'], format: [CF_ICON_STAR, CF_ICON_STAR, '#d9d9d9'],
+      preview: [
+        { kind: 'starEmpty', color: CF_ICON_GRAY },
+        { kind: 'starEmpty', color: CF_ICON_GRAY },
+        { kind: 'star', color: CF_ICON_STAR },
+      ],
+    },
+    {
+      id: 'ic-b3', type: 'icons', group: '等级', label: '三格信号',
+      marks: ['▂', '▃', '█'], format: ['#3370ff', '#3370ff', CF_ICON_RED],
+      preview: 'signal3',
+    },
+    {
+      id: 'ic-h3', type: 'icons', group: '等级', label: '三象限图',
+      marks: ['●', '◑', '○'], format: [CF_ICON_DARK, CF_ICON_DARK, CF_ICON_DARK],
+      preview: 'pie3',
+    },
+    {
+      id: 'ic-h5', type: 'icons', group: '等级', label: '五象限图',
+      marks: ['●', '◕', '◑', '◔', '○'], format: [CF_ICON_DARK, CF_ICON_DARK, CF_ICON_DARK, CF_ICON_DARK, CF_ICON_DARK],
+      preview: 'pie5',
+    },
   ],
+}
+const CF_ICON_GROUPS = ['方向', '形状', '标记', '等级']
+
+function iconPreviewHtml(sub) {
+  if (sub.preview === 'signal3') {
+    return [1, 2, 3].map((n) => cfSignalSvg(n, 3)).join('')
+  }
+  if (sub.preview === 'pie3') {
+    return [0, 2, 4].map((n) => cfPieSvg(n)).join('')
+  }
+  if (sub.preview === 'pie5') {
+    return [0, 1, 2, 3, 4].map((n) => cfPieSvg(n)).join('')
+  }
+  if (Array.isArray(sub.preview)) {
+    return sub.preview.map((item) => cfIconSvg(item.kind, item.color)).join('')
+  }
+  return (sub.marks || []).map((mark, i) => {
+    const color = sub.format?.[i] || sub.format?.[0] || '#1f2329'
+    return `<i style="color:${color}">${mark}</i>`
+  }).join('')
 }
 const CF_RULES = {
   greaterThan: { title: '条件格式——大于', hint: '为大于以下值的单元格设置格式', kind: 'value' },
@@ -378,6 +581,37 @@ let root = null
 let latest = []
 let labelObs = null
 let freezeClickBound = false
+const dataBarStore = new Map()
+let barDrawTimer = 0
+let barHideBusy = false
+
+function sheetBarKey(sheet) {
+  return String(sheet?.id || sheet?.name || 'sheet-1')
+}
+function barRulesOf(sheet) {
+  const key = sheetBarKey(sheet)
+  if (dataBarStore.has(key)) return dataBarStore.get(key) || []
+  return sheet?.config?.fs_data_bars || sheet?.fs_data_bars || []
+}
+function saveBarRules(sheet, next) {
+  const key = sheetBarKey(sheet)
+  dataBarStore.set(key, next)
+  const api = instRef.current
+  if (!api?.applyOp || !sheet?.id) return
+  try {
+    api.applyOp([
+      { op: 'replace', id: sheet.id, path: ['config', 'fs_data_bars'], value: next },
+      { op: 'replace', id: sheet.id, path: ['fs_data_bars'], value: next },
+    ])
+  } catch { /* Fortune 可能丢掉自定义字段，本地 Map 仍保留 */ }
+}
+function scheduleDataBars() {
+  clearTimeout(barDrawTimer)
+  barDrawTimer = window.setTimeout(() => {
+    drawDataBars()
+    drawIconSets()
+  }, 16)
+}
 
 function shortLabel(tip) {
   if (!tip) return ''
@@ -1085,6 +1319,7 @@ function applyCellColor(color) {
   if (!api?.setCellFormatByRange || !sel) return
   const value = color || (colorPop.kind === 'fc' ? '#000000' : null)
   api.setCellFormatByRange(colorPop.kind, value, { row: sel.row, column: sel.column })
+  scheduleDataBars()
 }
 
 function applyNumFmt(item) {
@@ -1259,11 +1494,17 @@ function cfRules() {
 
 function cfSelection() {
   const api = instRef.current
-  const sel = (api?.getSelection?.() || []).map((s) => ({
+  const fromApi = (api?.getSelection?.() || []).map((s) => ({
     row: [s.row?.[0] ?? 0, s.row?.[1] ?? s.row?.[0] ?? 0],
     column: [s.column?.[0] ?? 0, s.column?.[1] ?? s.column?.[0] ?? 0],
   }))
-  return sel.length ? sel : [{ row: [0, 0], column: [0, 0] }]
+  if (fromApi.length) return fromApi
+  const sheet = cfSheet()
+  const fromSheet = (sheet?.luckysheet_select_save || []).map((s) => ({
+    row: [s.row?.[0] ?? 0, s.row?.[1] ?? s.row?.[0] ?? 0],
+    column: [s.column?.[0] ?? 0, s.column?.[1] ?? s.column?.[0] ?? 0],
+  }))
+  return fromSheet.length ? fromSheet : [{ row: [0, 0], column: [0, 0] }]
 }
 
 function rangesOverlap(a, b) {
@@ -1302,8 +1543,11 @@ function showCfFly(id, e) {
   clearTimeout(cfFlyTimer)
   cfState.fly = id
   cfState.flyTop = e?.currentTarget?.offsetTop || cfState.flyTop || 0
-  cfState.flyY = pop.top + cfState.flyTop
-  const flyW = id === 'color' ? 240 : 180
+  const flyW = id === 'color' ? 248 : id === 'bar' ? 220 : id === 'icons' ? 274 : 180
+  const flyH = id === 'bar' ? 330 : id === 'icons' ? 460 : id === 'color' ? 260 : 220
+  let top = pop.top + cfState.flyTop
+  if (top + flyH > window.innerHeight - 8) top = Math.max(8, window.innerHeight - flyH - 8)
+  cfState.flyY = top
   cfState.flyX = pop.left + 176 + flyW > window.innerWidth - 8
     ? Math.max(8, pop.left - flyW)
     : pop.left + 176
@@ -1342,12 +1586,22 @@ function onCfItem(item, e) {
     pop.show = false
     const sel = cfSelection()
     patchCf(cfRules().filter((rule) => !(rule.cellrange || []).some((range) => sel.some((s) => rangesOverlap(range, s)))))
+    const sheet = cfSheet()
+    if (sheet) {
+      saveBarRules(sheet, barRulesOf(sheet).filter((rule) => !(rule.cellrange || []).some((range) => sel.some((s) => rangesOverlap(range, s)))))
+      scheduleDataBars()
+    }
     markActiveTools()
     return
   }
   if (item.id === 'clearSheet') {
     pop.show = false
     patchCf([])
+    const sheet = cfSheet()
+    if (sheet) {
+      saveBarRules(sheet, [])
+      scheduleDataBars()
+    }
     markActiveTools()
     return
   }
@@ -1503,25 +1757,57 @@ function cfNumericCells() {
   if (!cells.length) return null
   return { api, sheet, cells }
 }
+function cfPlainText(prev, n) {
+  return String(prev?.m ?? n)
+    .replace(/[↑→↓↗↘▲▼▬●⬤◆✓✕!⚑★☆▂▃▄█▁◕◑◔○▣□\s]/g, '')
+    .replace(/,/g, '')
+    || String(n)
+}
+function clearCfVisual(api, sheet, cells) {
+  cells.forEach(({ r, c, n, cell }) => {
+    const prev = cell && typeof cell === 'object' ? cell : { v: n }
+    const text = cfPlainText(prev, n)
+    const num = Number(text)
+    const value = Number.isFinite(num) ? num : n
+    api.setCellValue(r, c, {
+      ...prev,
+      v: value,
+      m: String(value),
+      bg: null,
+      fsBarColor: undefined,
+      fc: prev.fsBarColor || (isWhiteFont(prev.fc) ? '#1f2329' : prev.fc),
+      ht: prev.ht === 2 ? 1 : prev.ht,
+      ct: { fa: prev.ct?.fa && prev.ct.fa !== 'General' ? prev.ct.fa : 'General', t: 'n' },
+    }, { id: sheet.id })
+  })
+}
 function paintColorScale(format) {
   const pack = cfNumericCells()
   if (!pack || !format?.length) return
   const { api, sheet, cells } = pack
-  const min = Math.min(...cells.map((x) => x.n))
-  const max = Math.max(...cells.map((x) => x.n))
-  cells.forEach(({ r, c, n, cell }) => {
+  const sel = cfSelection()
+  saveBarRules(sheet, barRulesOf(sheet).filter((rule) => !(rule.cellrange || []).some((range) => sel.some((s) => rangesOverlap(range, s)))))
+  scheduleDataBars()
+  clearCfVisual(api, sheet, cells)
+  const live = cells.map(({ r, c }) => {
+    const cell = api.getSheet()?.data?.[r]?.[c]
+    const raw = cell && typeof cell === 'object' ? (cell.v ?? cell.m) : cell
+    const n = typeof raw === 'number' ? raw : Number(String(raw ?? '').replace(/,/g, ''))
+    return { r, c, n: Number.isFinite(n) ? n : 0, cell }
+  })
+  const min = Math.min(...live.map((x) => x.n))
+  const max = Math.max(...live.map((x) => x.n))
+  live.forEach(({ r, c, n, cell }) => {
     const t = max === min ? 0.5 : (n - min) / (max - min)
     const prev = cell && typeof cell === 'object' ? cell : { v: n, m: String(n) }
     api.setCellValue(r, c, {
       ...prev,
       v: n,
+      m: String(n),
       bg: scaleColor(format, t),
-      ct: { ...(prev.ct || {}), fa: prev.ct?.fa || 'General', t: 'n' },
+      ct: { fa: prev.ct?.fa || 'General', t: 'n' },
     }, { id: sheet.id })
   })
-}
-function cfPlainText(prev, n) {
-  return String(prev?.m ?? n).replace(/[↑→↓⚑●█░\s]/g, '') || String(n)
 }
 function barColor(color, alpha) {
   const hex = String(color || '#638ec6').trim()
@@ -1532,16 +1818,27 @@ function barColor(color, alpha) {
 }
 function sizeList(api, sheet, count, kind) {
   const idx = Array.from({ length: count }, (_, i) => i)
+  const conf = kind === 'c' ? sheet.config?.columnlen : sheet.config?.rowlen
   try {
     const got = kind === 'c'
       ? api.getColumnWidth?.(idx, { id: sheet.id })
       : api.getRowHeight?.(idx, { id: sheet.id })
-    if (got && typeof got === 'object') return idx.map((i) => Number(got[i]) || (kind === 'c' ? 73 : 24))
-  } catch { /* 用默认尺寸 */ }
-  return idx.map(() => (kind === 'c' ? 73 : 24))
+    if (got && typeof got === 'object') {
+      return idx.map((i) => {
+        const n = Number(got[i] ?? got[String(i)])
+        if (Number.isFinite(n) && n > 0) return n
+        const fallback = Number(conf?.[i] ?? conf?.[String(i)])
+        return Number.isFinite(fallback) && fallback > 0 ? fallback : (kind === 'c' ? 73 : 24)
+      })
+    }
+  } catch { /* 用配置或默认尺寸 */ }
+  return idx.map((i) => {
+    const fallback = Number(conf?.[i] ?? conf?.[String(i)])
+    return Number.isFinite(fallback) && fallback > 0 ? fallback : (kind === 'c' ? 73 : 24)
+  })
 }
 function restoreBarText(api, sheet) {
-  const rules = sheet.config?.fs_data_bars || sheet.fs_data_bars || []
+  const rules = barRulesOf(sheet)
   rules.forEach((rule) => {
     ;(rule.cellrange || []).forEach((range) => {
       for (let r = range.row[0]; r <= range.row[1]; r += 1) {
@@ -1566,6 +1863,40 @@ function barTextColor(cell) {
   if (cell?.fc && !isWhiteFont(cell.fc)) return cell.fc
   return '#1f2329'
 }
+function cellBgColor(cell) {
+  const bg = cell?.bg
+  if (!bg || bg === 'null' || bg === 'undefined') return '#ffffff'
+  const hex = String(bg).trim()
+  if (!hex || hex === 'transparent') return '#ffffff'
+  return hex
+}
+function barDisplayText(cell, n) {
+  if (cell && typeof cell === 'object') {
+    if (cell.m != null && String(cell.m).trim() !== '') return String(cell.m)
+    if (cell.ct?.s?.length) {
+      return cell.ct.s.map((p) => p?.v ?? '').join('')
+    }
+  }
+  return Number.isFinite(n) ? String(n) : ''
+}
+function hideBarCanvasText(api, sheet, cells) {
+  if (!api?.setCellFormatByRange || !sheet || !cells?.length) return
+  cells.forEach(({ r, c, cell }) => {
+    if (!cell || typeof cell !== 'object') return
+    const real = barTextColor(cell)
+    const hide = cellBgColor(cell)
+    if (isWhiteFont(cell.fc) && cell.fsBarColor) return
+    if (String(cell.fc).toLowerCase() === String(hide).toLowerCase() && cell.fsBarColor) return
+    api.setCellValue(r, c, {
+      ...cell,
+      v: cell.v,
+      m: cell.m,
+      ct: cell.ct,
+      fsBarColor: real,
+      fc: hide,
+    }, { id: sheet.id })
+  })
+}
 function drawDataBars() {
   const api = instRef.current
   const sheet = api?.getSheet?.()
@@ -1575,24 +1906,54 @@ function drawDataBars() {
   if (!layer) {
     layer = document.createElement('div')
     layer.className = 'fs-databar-layer'
-    area.insertBefore(layer, area.firstChild)
+    area.appendChild(layer)
+  } else if (layer.parentElement === area && area.lastElementChild !== layer) {
+    area.appendChild(layer)
   }
   layer.innerHTML = ''
-  const rules = sheet.config?.fs_data_bars || sheet.fs_data_bars || []
-  if (!rules.length) return
+  const rules = barRulesOf(sheet)
+  if (!rules.length) {
+    // 无数据条时把藏起来的画布字还原
+    if (!barHideBusy) {
+      const tagged = []
+      const data = sheet.data || []
+      for (let r = 0; r < data.length; r += 1) {
+        const row = data[r] || []
+        for (let c = 0; c < row.length; c += 1) {
+          const cell = row[c]
+          if (cell?.fsBarColor) tagged.push({ r, c, cell })
+        }
+      }
+      if (tagged.length) {
+        barHideBusy = true
+        tagged.forEach(({ r, c, cell }) => {
+          api.setCellValue(r, c, {
+            ...cell,
+            v: cell.v,
+            m: cell.m,
+            ct: cell.ct,
+            fc: cell.fsBarColor,
+            fsBarColor: undefined,
+          }, { id: sheet.id })
+        })
+        requestAnimationFrame(() => { barHideBusy = false })
+      }
+    }
+    return
+  }
   const rows = sheet.data?.length || sheet.row || 0
   const cols = sheet.data?.[0]?.length || sheet.column || 0
   const widths = sizeList(api, sheet, cols, 'c')
   const heights = sizeList(api, sheet, rows, 'r')
-  const hideBarText = []
-  const scrollX = sheet.scrollLeft || 0
-  const scrollY = sheet.scrollTop || 0
+  const scrollX = Number(sheet.scrollLeft) || 0
+  const scrollY = Number(sheet.scrollTop) || 0
   const colPitch = widths.map((w) => w + 1)
   const rowPitch = heights.map((h) => h + 1)
   const colPos = [0]
   const rowPos = [0]
   colPitch.forEach((w) => colPos.push(colPos[colPos.length - 1] + w))
   rowPitch.forEach((h) => rowPos.push(rowPos[rowPos.length - 1] + h))
+  const hideCells = []
   rules.forEach((rule) => {
     const cells = []
     ;(rule.cellrange || []).forEach((range) => {
@@ -1600,7 +1961,7 @@ function drawDataBars() {
         for (let c = range.column[0]; c <= range.column[1]; c += 1) {
           const cell = sheet.data?.[r]?.[c]
           const raw = cell && typeof cell === 'object' ? (cell.v ?? cell.m) : cell
-          const n = typeof raw === 'number' ? raw : Number(String(raw ?? '').replace(/[↑→↓⚑●█░,\s]/g, ''))
+          const n = typeof raw === 'number' ? raw : Number(String(raw ?? '').replace(/[↑→↓⚑●█░,%\s]/g, ''))
           if (Number.isFinite(n)) cells.push({ r, c, n, cell })
         }
       }
@@ -1611,14 +1972,15 @@ function drawDataBars() {
     const color = rule.format?.[0] || '#638ec6'
     const gradient = (rule.format || []).length > 1
     cells.forEach(({ r, c, n, cell }) => {
+      hideCells.push({ r, c, cell })
       const left = (colPos[c] || 0) - scrollX
       const top = (rowPos[r] || 0) - scrollY
-      const width = colPitch[c] || 74
-      const height = rowPitch[r] || 25
+      const cellW = widths[c] || 73
+      const cellH = heights[r] || 24
       const padX = 2
-      const padY = Math.max(4, Math.round(height * 0.22))
-      const innerW = Math.max(width - padX * 2, 1)
-      const barH = Math.max(height - padY * 2, 1)
+      const padY = Math.max(3, Math.round(cellH * 0.18))
+      const innerW = Math.max(cellW - padX * 2, 1)
+      const barH = Math.max(cellH - padY * 2, 1)
       let origin = 0
       let t = 1
       if (min >= 0) {
@@ -1636,89 +1998,169 @@ function drawDataBars() {
           origin = axis - t
         }
       }
-      const barW = Math.max(innerW * t, n === 0 ? 0 : 2)
+      const barW = Math.min(innerW, Math.max(n === 0 ? 0 : 2, Math.round(innerW * t)))
       const el = document.createElement('i')
       el.className = 'fs-databar'
-      el.style.left = `${left + padX + innerW * origin}px`
+      el.style.left = `${left + padX + Math.round(innerW * origin)}px`
       el.style.top = `${top + padY}px`
       el.style.width = `${barW}px`
       el.style.height = `${barH}px`
+      el.style.maxWidth = `${innerW}px`
       el.style.background = gradient ? `linear-gradient(90deg, ${color}, #ffffff)` : color
       layer.appendChild(el)
-      const shown = barTextColor(cell)
+      // 数字盖在数据条上方，避免被条遮住
       const label = document.createElement('span')
       label.className = 'fs-databar-num'
-      label.textContent = String(n)
+      label.textContent = barDisplayText(cell, n)
       label.style.left = `${left}px`
       label.style.top = `${top}px`
-      label.style.width = `${width - 4}px`
-      label.style.height = `${height}px`
-      label.style.lineHeight = `${height}px`
-      label.style.color = shown
+      label.style.width = `${cellW}px`
+      label.style.height = `${cellH}px`
+      label.style.lineHeight = `${cellH}px`
+      label.style.color = barTextColor(cell)
+      label.style.textAlign = cell?.ht === 0 ? 'center' : cell?.ht === 1 ? 'left' : 'right'
       if (cell?.bl) label.style.fontWeight = '700'
       if (cell?.it) label.style.fontStyle = 'italic'
       if (cell?.fs) label.style.fontSize = `${cell.fs}px`
       layer.appendChild(label)
-      if (cell?.fc && !isWhiteFont(cell.fc)) {
-        hideBarText.push({ r, c, cell, color: cell.fc })
-      }
     })
   })
-  hideBarText.forEach(({ r, c, cell, color }) => {
-    api.setCellValue(r, c, { ...cell, fsBarColor: color, fc: '#ffffff' }, { id: sheet.id })
-  })
+  // 藏掉画布字，只留上层 label，保证每个格子只有一个可见值
+  if (!barHideBusy && hideCells.length) {
+    barHideBusy = true
+    hideBarCanvasText(api, sheet, hideCells)
+    requestAnimationFrame(() => { barHideBusy = false })
+  }
 }
 function paintDataBar(format) {
   const pack = cfNumericCells()
   if (!pack) return
   const { api, sheet } = pack
-  const native = cfRules().filter((rule) => rule.type !== 'dataBar')
+  const native = cfRules().filter((rule) => rule.type !== 'dataBar' && rule.type !== 'colorGradation' && rule.type !== 'icons')
   if (native.length !== cfRules().length) patchCf(native)
-  restoreBarText(api, sheet)
-  pack.cells.forEach(({ r, c, n, cell }) => {
+  clearCfVisual(api, sheet, pack.cells)
+  const refreshed = cfNumericCells()
+  if (!refreshed) return
+  refreshed.cells.forEach(({ r, c, n, cell }) => {
     const prev = cell && typeof cell === 'object' ? cell : { v: n, m: String(n) }
-    api.setCellValue(r, c, {
+    const color = barTextColor(prev)
+    const hide = cellBgColor(prev)
+    const next = {
       ...prev,
       v: n,
-      m: String(n),
-      ht: 2,
-      fc: '#ffffff',
-      ct: { fa: prev.ct?.fa && prev.ct.fa !== 'General' ? prev.ct.fa : 'General', t: 'n' },
-    }, { id: sheet.id })
+      m: prev.m != null && prev.m !== '' ? prev.m : String(n),
+      bg: prev.bg ?? null,
+      ht: prev.ht ?? 2,
+      fsBarColor: color,
+      fc: hide,
+      ct: prev.ct ? { ...prev.ct } : { fa: 'General', t: 'n' },
+    }
+    api.setCellValue(r, c, next, { id: sheet.id })
   })
   const sel = cfSelection()
-  const prev = (sheet.config?.fs_data_bars || sheet.fs_data_bars || []).filter((rule) => !(rule.cellrange || []).some((range) => sel.some((s) => rangesOverlap(range, s))))
-  const next = [...prev, { format, cellrange: sel }]
-  api.applyOp([
-    { op: 'replace', id: sheet.id, path: ['config', 'fs_data_bars'], value: next },
-    { op: 'replace', id: sheet.id, path: ['fs_data_bars'], value: next },
-  ])
-  requestAnimationFrame(drawDataBars)
+  const prev = barRulesOf(sheet).filter((rule) => !(rule.cellrange || []).some((range) => sel.some((s) => rangesOverlap(range, s))))
+  saveBarRules(sheet, [...prev, { format, cellrange: sel }])
+  scheduleDataBars()
 }
 function paintIcons(item) {
   const pack = cfNumericCells()
   if (!pack) return
   const { api, sheet, cells } = pack
-  const marks = item.marks || ['↑', '→', '↓']
-  const colors = item.format || ['#63c623', '#f5c542', '#ff555a']
-  const sorted = cells.map((x) => x.n).sort((a, b) => a - b)
-  const lo = sorted[Math.floor((sorted.length - 1) / 3)] ?? sorted[0]
-  const hi = sorted[Math.ceil((sorted.length - 1) * 2 / 3)] ?? sorted[sorted.length - 1]
+  const sel = cfSelection()
+  // 图标集与数据条互斥
+  saveBarRules(sheet, barRulesOf(sheet).filter((rule) => !(rule.cellrange || []).some((range) => sel.some((s) => rangesOverlap(range, s)))))
+  // 清掉以前写进单元格的 unicode 图标，保留数值与数字格式；数值右对齐给左侧图标让位
   cells.forEach(({ r, c, n, cell }) => {
-    const bucket = lo === hi ? 1 : n <= lo ? 2 : n >= hi ? 0 : 1
-    const mark = `${marks[bucket]} `
-    const prev = cell && typeof cell === 'object' ? cell : { v: n }
-    const text = cfPlainText(prev, n)
-    api.setCellValue(r, c, {
-      ...prev,
-      v: n,
-      m: mark + text,
-      ct: {
-        fa: 'General',
-        t: 'inlineStr',
-        s: [{ v: mark, fc: colors[bucket] }, { v: text, fc: '#1f2329' }],
-      },
-    }, { id: sheet.id })
+    if (!cell || typeof cell !== 'object') {
+      if (Number.isFinite(n)) {
+        api.setCellValue(r, c, { v: n, m: String(n), ht: 2, ct: { fa: 'General', t: 'n' } }, { id: sheet.id })
+      }
+      return
+    }
+    const m = String(cell.m ?? '')
+    const hasGlyph = cell.ct?.t === 'inlineStr' || /[↑→↓↗↘▲▼▬●⬤◆✓✕!⚑★☆▂▃▄█▁◕◑◔○▣□]/.test(m)
+    const fa = (!hasGlyph && cell.ct?.fa) ? cell.ct.fa : (cell.ct?.fa && cell.ct.t !== 'inlineStr' ? cell.ct.fa : 'General')
+    const next = {
+      ...cell,
+      v: cell.v ?? n,
+      m: hasGlyph
+        ? (fa.includes('%') && Number.isFinite(n) ? `${Math.round(n * 1000) / 10}%`.replace(/\.0%/, '%') : String(n))
+        : (cell.m ?? String(n)),
+      ht: 2,
+      bg: cell.bg ?? null,
+      ct: cell.ct && cell.ct.t !== 'inlineStr' ? { ...cell.ct } : { fa, t: 'n' },
+    }
+    api.setCellValue(r, c, next, { id: sheet.id })
+  })
+  scheduleDataBars()
+}
+function iconRules() {
+  return cfRules().filter((rule) => rule.type === 'icons')
+}
+function drawIconSets() {
+  const api = instRef.current
+  const sheet = api?.getSheet?.()
+  const area = hostRef.value?.querySelector('.fortune-cell-area')
+  if (!api || !sheet || !area) return
+  let layer = area.querySelector('.fs-iconset-layer')
+  if (!layer) {
+    layer = document.createElement('div')
+    layer.className = 'fs-iconset-layer'
+    area.appendChild(layer)
+  } else if (area.lastElementChild !== layer && area.querySelector('.fs-databar-layer')) {
+    // 保持在数据条层之上或并列
+    area.appendChild(layer)
+  }
+  layer.innerHTML = ''
+  const rules = iconRules()
+  if (!rules.length) return
+  const rows = sheet.data?.length || sheet.row || 0
+  const cols = sheet.data?.[0]?.length || sheet.column || 0
+  const widths = sizeList(api, sheet, cols, 'c')
+  const heights = sizeList(api, sheet, rows, 'r')
+  const scrollX = Number(sheet.scrollLeft) || 0
+  const scrollY = Number(sheet.scrollTop) || 0
+  const colPitch = widths.map((w) => w + 1)
+  const rowPitch = heights.map((h) => h + 1)
+  const colPos = [0]
+  const rowPos = [0]
+  colPitch.forEach((w) => colPos.push(colPos[colPos.length - 1] + w))
+  rowPitch.forEach((h) => rowPos.push(rowPos[rowPos.length - 1] + h))
+  rules.forEach((rule) => {
+    const glyphs = rule.glyphs || cfIconGlyphs(rule)
+    const count = Math.max(1, glyphs.length || rule.marks?.length || 3)
+    const cells = []
+    ;(rule.cellrange || []).forEach((range) => {
+      for (let r = range.row[0]; r <= range.row[1]; r += 1) {
+        for (let c = range.column[0]; c <= range.column[1]; c += 1) {
+          const cell = sheet.data?.[r]?.[c]
+          const raw = cell && typeof cell === 'object' ? (cell.v ?? cell.m) : cell
+          const n = typeof raw === 'number' ? raw : Number(String(raw ?? '').replace(/[↑→↓↗↘▲▼▬●⬤◆✓✕!⚑★☆▂▃▄█▁◕◑◔○▣□,%\s]/g, ''))
+          if (Number.isFinite(n)) cells.push({ r, c, n, cell })
+        }
+      }
+    })
+    if (!cells.length) return
+    const min = Math.min(...cells.map((x) => x.n))
+    const max = Math.max(...cells.map((x) => x.n))
+    cells.forEach(({ r, c, n }) => {
+      const t = max === min ? 1 : (n - min) / (max - min)
+      // 高值 → glyphs[0]
+      const bucket = Math.min(count - 1, Math.max(0, Math.floor((1 - t) * count)))
+      const glyph = glyphs[bucket] || glyphs[0]
+      const left = (colPos[c] || 0) - scrollX
+      const top = (rowPos[r] || 0) - scrollY
+      const cellW = widths[c] || 73
+      const cellH = heights[r] || 24
+      const icon = document.createElement('span')
+      icon.className = 'fs-iconset-mark'
+      icon.style.left = `${left + 4}px`
+      icon.style.top = `${top + Math.max(0, (cellH - 16) / 2)}px`
+      icon.style.width = '16px'
+      icon.style.height = '16px'
+      icon.innerHTML = cfIconGlyphHtml(glyph, 16)
+      layer.appendChild(icon)
+    })
   })
 }
 function applyPreset(item) {
@@ -1729,12 +2171,33 @@ function applyPreset(item) {
     paintDataBar(item.format)
     markActiveTools()
     return
-  } else if (item.type === 'icons') paintIcons(item)
-  patchCf([...cfRules().filter((rule) => rule.type !== 'dataBar'), {
-    type: item.type,
-    cellrange: cfSelection(),
-    format: item.format,
-  }])
+  } else if (item.type === 'icons') {
+    paintIcons(item)
+    patchCf([
+      ...cfRules().filter((rule) => rule.type !== 'dataBar' && rule.type !== 'colorGradation' && rule.type !== 'icons'),
+      {
+        type: 'icons',
+        cellrange: cfSelection(),
+        format: item.format,
+        marks: item.marks,
+        preview: item.preview,
+        glyphs: cfIconGlyphs(item),
+        iconId: item.id,
+      },
+    ])
+    scheduleDataBars()
+    markActiveTools()
+    return
+  }
+  patchCf([
+    ...cfRules().filter((rule) => rule.type !== 'dataBar' && rule.type !== 'colorGradation' && rule.type !== 'icons'),
+    {
+      type: item.type,
+      cellrange: cfSelection(),
+      format: item.format,
+      ...(item.marks ? { marks: item.marks } : {}),
+    },
+  ])
   markActiveTools()
 }
 
@@ -1760,16 +2223,137 @@ function confirmCfDialog() {
   else if (type === 'formula') conditionValue = [cfForm.formula]
   else if (type === 'aboveAverage' || type === 'belowAverage') conditionValue = [type]
   else conditionValue = [cfForm.value]
-  patchCf([...cfRules(), {
+  const rule = {
     type: 'default',
     cellrange: cfSelection(),
     format,
     conditionName: type === 'formula' ? 'formula' : type,
     conditionRange: [],
-    conditionValue,
-  }])
+    conditionValue: normalizeCfConditionValue(type, conditionValue),
+  }
+  patchCf([...cfRules(), rule])
+  paintHighlightRule(rule)
   cfState.dlg = ''
   cfState.side = false
+}
+
+function normalizeCfConditionValue(type, values) {
+  if (!['greaterThan', 'lessThan', 'equal', 'between'].includes(type)) return values
+  const api = instRef.current
+  const sheet = api?.getSheet?.()
+  const sel = cfSelection()?.[0]
+  const sample = sheet?.data?.[sel?.row?.[0]]?.[sel?.column?.[0]]
+  const fa = sample?.ct?.fa || ''
+  if (!fa.includes('%')) return values
+  return values.map((raw) => {
+    if (raw == null || raw === '') return raw
+    const text = String(raw).trim()
+    if (text.endsWith('%')) return String(Number(text.slice(0, -1)) / 100)
+    const n = Number(text.replace(/,/g, ''))
+    if (!Number.isFinite(n)) return raw
+    // 百分比单元格里用户常输入 50 表示 50%，Fortune 比较用的是内部小数
+    if (Math.abs(n) >= 1) return String(n / 100)
+    return String(n)
+  })
+}
+
+function cfCellNumber(cell) {
+  if (cell == null || cell === '') return NaN
+  if (typeof cell === 'number') return cell
+  if (typeof cell !== 'object') return Number(String(cell).replace(/,/g, ''))
+  const raw = cell.v ?? cell.m
+  if (typeof raw === 'number') return raw
+  const text = String(raw ?? '').replace(/,/g, '').trim()
+  if (!text) return NaN
+  if (text.endsWith('%')) {
+    const n = Number(text.slice(0, -1))
+    return Number.isFinite(n) ? n / 100 : NaN
+  }
+  return Number(text)
+}
+function cfCompareValue(raw, sampleCell) {
+  if (raw == null || raw === '') return NaN
+  const text = String(raw).trim()
+  if (!text) return NaN
+  if (text.endsWith('%')) {
+    const n = Number(text.slice(0, -1))
+    return Number.isFinite(n) ? n / 100 : NaN
+  }
+  const n = Number(text.replace(/,/g, ''))
+  if (!Number.isFinite(n)) return NaN
+  const fa = sampleCell?.ct?.fa || ''
+  if (fa.includes('%') && Math.abs(n) >= 1) return n / 100
+  return n
+}
+function paintHighlightRule(rule) {
+  const api = instRef.current
+  const sheet = api?.getSheet?.()
+  if (!api?.setCellFormatByRange || !sheet || !rule) return
+  const format = rule.format || {}
+  // 颜色由 Fortune 条件格式 overlay 绘制；这里只补加粗/斜体等，绝不改 ct/v/m
+  const styleAttrs = []
+  if (format.bl) styleAttrs.push(['bl', 1])
+  if (format.it) styleAttrs.push(['it', 1])
+  if (format.un) styleAttrs.push(['un', format.un === 1 ? 1 : format.un])
+  if (format.cl) styleAttrs.push(['cl', 1])
+  if (!styleAttrs.length) return
+  const name = rule.conditionName || ''
+  const values = rule.conditionValue || []
+  const cells = []
+  ;(rule.cellrange || []).forEach((range) => {
+    for (let r = range.row[0]; r <= range.row[1]; r += 1) {
+      for (let c = range.column[0]; c <= range.column[1]; c += 1) {
+        const cell = sheet.data?.[r]?.[c]
+        cells.push({ r, c, cell, n: cfCellNumber(cell) })
+      }
+    }
+  })
+  if (!cells.length) return
+  const nums = cells.map((x) => x.n).filter((n) => Number.isFinite(n))
+  const avg = nums.length ? nums.reduce((a, b) => a + b, 0) / nums.length : 0
+  const sortedAsc = [...nums].sort((a, b) => a - b)
+  const sortedDesc = [...nums].sort((a, b) => b - a)
+  const rankN = Math.max(1, Number(values[0]) || 10)
+  const sample = cells.find((x) => Number.isFinite(x.n))?.cell
+  const threshold = cfCompareValue(values[0], sample)
+  const threshold2 = cfCompareValue(values[1], sample)
+  const dupMode = String(values[0] ?? '0')
+  const textNeedle = String(values[0] ?? '')
+  const counts = {}
+  cells.forEach(({ cell }) => {
+    const key = cellText(cell)
+    counts[key] = (counts[key] || 0) + 1
+  })
+  cells.forEach(({ r, c, cell, n }) => {
+    let hit = false
+    if (name === 'greaterThan') hit = Number.isFinite(n) && Number.isFinite(threshold) && n > threshold
+    else if (name === 'lessThan') hit = Number.isFinite(n) && Number.isFinite(threshold) && n < threshold
+    else if (name === 'equal') hit = Number.isFinite(n) && Number.isFinite(threshold) ? n === threshold : cellText(cell) === String(values[0] ?? '')
+    else if (name === 'between') {
+      const lo = Math.min(threshold, threshold2)
+      const hi = Math.max(threshold, threshold2)
+      hit = Number.isFinite(n) && Number.isFinite(lo) && Number.isFinite(hi) && n >= lo && n <= hi
+    } else if (name === 'textContains') hit = cellText(cell).includes(textNeedle)
+    else if (name === 'duplicateValue') {
+      const key = cellText(cell)
+      hit = dupMode === '1' ? counts[key] === 1 : counts[key] > 1
+    } else if (name === 'aboveAverage') hit = Number.isFinite(n) && n > avg
+    else if (name === 'belowAverage') hit = Number.isFinite(n) && n < avg
+    else if (name === 'top10') hit = Number.isFinite(n) && sortedDesc.indexOf(n) < rankN
+    else if (name === 'last10') hit = Number.isFinite(n) && sortedAsc.indexOf(n) < rankN
+    else if (name === 'top10_percent') {
+      const cut = sortedDesc[Math.max(0, Math.ceil(sortedDesc.length * rankN / 100) - 1)]
+      hit = Number.isFinite(n) && Number.isFinite(cut) && n >= cut
+    } else if (name === 'last10_percent') {
+      const cut = sortedAsc[Math.max(0, Math.ceil(sortedAsc.length * rankN / 100) - 1)]
+      hit = Number.isFinite(n) && Number.isFinite(cut) && n <= cut
+    }
+    if (!hit) return
+    const range = { row: [r, r], column: [c, c] }
+    styleAttrs.forEach(([attr, value]) => {
+      api.setCellFormatByRange(attr, value, range, { id: sheet.id })
+    })
+  })
 }
 
 function cellText(cell, formula) {
@@ -2636,26 +3220,53 @@ function renderBook(data) {
         onClick: (e) => openPop('insert', e?.currentTarget || hostRef.value?.querySelector('[data-tips="插入"]')),
       },
     ],
-    onChange: (next) => { latest = next || latest; markActiveTools(); requestAnimationFrame(drawDataBars) },
+    onChange: (next) => { latest = next || latest; markActiveTools(); scheduleDataBars() },
   }))
   requestAnimationFrame(() => {
     watchToolbarLabels()
     bindFreezeClick()
     const native = cfRules().filter((rule) => rule.type !== 'dataBar')
     if (native.length !== cfRules().length) patchCf(native)
+    const sheet = instRef.current?.getSheet?.()
+    if (sheet) {
+      const fromSheet = sheet.config?.fs_data_bars || sheet.fs_data_bars
+      if (fromSheet?.length && !dataBarStore.has(sheetBarKey(sheet))) dataBarStore.set(sheetBarKey(sheet), fromSheet)
+    }
     drawDataBars()
+    drawIconSets()
   })
-  box.addEventListener('wheel', () => { requestAnimationFrame(drawDataBars) }, { passive: true })
+  const redrawBars = () => scheduleDataBars()
+  box.addEventListener('wheel', redrawBars, { passive: true })
+  box.addEventListener('scroll', redrawBars, { passive: true, capture: true })
+  box.addEventListener('mouseup', redrawBars)
+  box.addEventListener('pointerup', redrawBars)
+  box.addEventListener('touchend', redrawBars, { passive: true })
 }
 
 function load(wb) {
+  dataBarStore.clear()
+  ;(wb?.sheetOrder || Object.keys(wb?.sheets || {})).forEach((id) => {
+    const sh = wb?.sheets?.[id]
+    const bars = sh?.fortune?.dataBars || sh?.config?.fs_data_bars
+    if (bars?.length) dataBarStore.set(String(sh.id || id), bars)
+  })
   renderBook(univerToFortune(wb))
 }
 
 function liveSheets() {
   try {
     const all = instRef.current?.getAllSheets?.()
-    if (all?.length) latest = all
+    if (all?.length) {
+      latest = all.map((sh) => {
+        const bars = barRulesOf(sh)
+        if (!bars.length) return sh
+        return {
+          ...sh,
+          fs_data_bars: bars,
+          config: { ...(sh.config || {}), fs_data_bars: bars },
+        }
+      })
+    }
   } catch { /* */ }
   return latest
 }
@@ -3162,25 +3773,85 @@ defineExpose({
     <div
       v-if="pop.show && pop.kind === 'cf' && cfState.fly && CF_FLIES[cfState.fly]"
       class="fs-cf-fly"
-      :class="{ scale: cfState.fly === 'color' }"
+      :class="{ scale: cfState.fly === 'color', bars: cfState.fly === 'bar', icons: cfState.fly === 'icons' }"
       :style="{ top: `${cfState.flyY}px`, left: `${cfState.flyX}px` }"
       @mousedown.stop
       @mouseenter="showCfFly(cfState.fly)"
       @mouseleave="hideCfFly()"
     >
-      <div v-if="cfState.fly === 'color'" class="fs-cf-scales">
-        <button
-          v-for="sub in CF_FLIES.color"
-          :key="sub.id"
-          type="button"
-          :title="sub.label"
-          @click="applyPreset(sub)"
-        >
-          <span class="fs-cf-scale" :style="{ background: `linear-gradient(90deg, ${sub.format.join(',')})` }" />
-        </button>
-      </div>
+      <template v-if="cfState.fly === 'color'">
+        <div class="fs-cf-scales">
+          <button
+            v-for="sub in CF_FLIES.color"
+            :key="sub.id"
+            type="button"
+            :title="sub.label"
+            @click="applyPreset(sub)"
+          >
+            <span
+              class="fs-cf-scale-preview"
+              :style="{ background: `linear-gradient(180deg, ${[...sub.format].reverse().join(',')})` }"
+            >
+              <i /><i /><i /><i /><i />
+            </span>
+          </button>
+        </div>
+        <button type="button" class="fs-cf-bar-more" @click="openCfDialog('greaterThan', true)">其他规则(M)...</button>
+      </template>
+      <template v-else-if="cfState.fly === 'bar'">
+        <div class="fs-cf-bar-sec">渐变填充</div>
+        <div class="fs-cf-bar-grid">
+          <button
+            v-for="sub in CF_FLIES.bar.filter((x) => x.group === 'gradient')"
+            :key="sub.id"
+            type="button"
+            :title="sub.label"
+            @click="applyPreset(sub)"
+          >
+            <span class="fs-cf-bar-preview gradient" :style="{ '--bar': sub.format[0] }">
+              <i /><i /><i /><i /><i />
+            </span>
+          </button>
+        </div>
+        <div class="fs-cf-bar-sec">实心填充</div>
+        <div class="fs-cf-bar-grid">
+          <button
+            v-for="sub in CF_FLIES.bar.filter((x) => x.group === 'solid')"
+            :key="sub.id"
+            type="button"
+            :title="sub.label"
+            @click="applyPreset(sub)"
+          >
+            <span class="fs-cf-bar-preview" :style="{ '--bar': sub.format[0] }">
+              <i /><i /><i /><i /><i />
+            </span>
+          </button>
+        </div>
+        <button type="button" class="fs-cf-bar-more" @click="openCfDialog('greaterThan', true)">其他规则(M)...</button>
+      </template>
+      <template v-else-if="cfState.fly === 'icons'">
+        <template v-for="(group, gi) in CF_ICON_GROUPS" :key="group">
+          <div class="fs-cf-icon-sec">{{ group }}</div>
+          <div class="fs-cf-icon-wrap">
+            <button
+              v-for="sub in CF_FLIES.icons.filter((x) => x.group === group)"
+              :key="sub.id"
+              type="button"
+              class="fs-cf-icon-item"
+              :class="{ alone: sub.alone }"
+              :title="sub.label"
+              @click="applyPreset(sub)"
+            >
+              <span class="fs-cf-icon-preview" v-html="iconPreviewHtml(sub)" />
+            </button>
+          </div>
+          <div v-if="gi < CF_ICON_GROUPS.length - 1" class="fs-cf-icon-sep" />
+        </template>
+        <div class="fs-cf-icon-sep last" />
+        <button type="button" class="fs-cf-icon-more" @click="openCfDialog('greaterThan', true)">自定义规则</button>
+      </template>
       <button
-        v-for="sub in (cfState.fly === 'color' ? [] : CF_FLIES[cfState.fly])"
+        v-for="sub in (cfState.fly === 'color' || cfState.fly === 'bar' || cfState.fly === 'icons' ? [] : CF_FLIES[cfState.fly])"
         :key="sub.id"
         type="button"
         @click="sub.id === 'other' ? openCfDialog('textContains', true) : sub.type ? applyPreset(sub) : openCfDialog(sub.id, cfState.fly === 'highlight' || cfState.fly === 'item')"

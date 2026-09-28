@@ -4,6 +4,7 @@ import { Message } from '@arco-design/web-vue'
 import { useTableStore } from '../../stores/tables'
 import { ME, PEOPLE } from '../../utils/hash'
 import { workbookToXlsx } from '../../utils/workbook'
+import { runWithExportLoading } from '../../utils/exportLoading'
 import FortuneSheet from '../../components/FortuneSheet.vue'
 import {
   PIVOT_AGGS, absCellRef, absRangeRef, addFieldTo, applyPivotConfig, buildPivotMatrix,
@@ -24,6 +25,7 @@ const open = computed(() => !!props.tableId)
 const table = computed(() => store.get(props.tableId))
 const sheetRef = ref(null)
 const savedFlash = ref(false)
+const exporting = ref(false)
 const titleEditing = ref(false)
 const titleDraft = ref('')
 const titleInput = ref(null)
@@ -159,16 +161,26 @@ async function onSave() {
 }
 
 async function onExport() {
-  await capture()
-  const t = table.value
-  if (!t) return Message.error('请先打开一张表格')
-  const buf = await workbookToXlsx(t.workbook, t.title)
-  const a = document.createElement('a')
-  a.href = URL.createObjectURL(new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }))
-  a.download = `${t.title}.xlsx`
-  a.click()
-  setTimeout(() => URL.revokeObjectURL(a.href), 800)
-  Message.success('已导出 Excel（.xlsx）')
+  if (exporting.value) return
+  exporting.value = true
+  try {
+    await capture()
+    const t = table.value
+    if (!t) return Message.error('请先打开一张表格')
+    await runWithExportLoading(async () => {
+      const buf = await workbookToXlsx(t.workbook, t.title)
+      const a = document.createElement('a')
+      a.href = URL.createObjectURL(new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }))
+      a.download = `${t.title}.xlsx`
+      a.click()
+      setTimeout(() => URL.revokeObjectURL(a.href), 800)
+    })
+    Message.success('已导出 Excel（.xlsx）')
+  } catch (e) {
+    Message.error(e?.message || '导出失败，请稍后重试')
+  } finally {
+    exporting.value = false
+  }
 }
 
 function openPublish() {
@@ -440,7 +452,7 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onDocPop))
         </div>
         <div class="editor-acts">
           <button type="button" class="btn" @click="onSave">保存<span class="save-dot" :class="{ show: savedFlash }">有更新</span></button>
-          <button type="button" class="btn" @click="onExport">导出</button>
+          <button type="button" class="btn" :disabled="exporting" @click="onExport">{{ exporting ? '导出中…' : '导出' }}</button>
         </div>
       </div>
       <div class="editor-stage">

@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { Message } from '@arco-design/web-vue'
 import { TABLE_TYPES, typeName, useTableStore } from '../../stores/tables'
 import { previewGrid, previewRows, workbookToXlsx } from '../../utils/workbook'
+import { runWithExportLoading } from '../../utils/exportLoading'
 import DirTree from '../../components/DirTree.vue'
 import Icon from '../../components/Icon.vue'
 import AppModal from '../../components/AppModal.vue'
@@ -205,13 +206,19 @@ function confirmAdd() {
 }
 async function downloadXlsx(t) {
   if (!t) return
-  const buf = await workbookToXlsx(t.workbook, t.title)
-  const a = document.createElement('a')
-  a.href = URL.createObjectURL(new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }))
-  a.download = `${t.title}.xlsx`
-  a.click()
-  setTimeout(() => URL.revokeObjectURL(a.href), 800)
-  Message.success(`已导出 Excel（.xlsx）`)
+  try {
+    await runWithExportLoading(async () => {
+      const buf = await workbookToXlsx(t.workbook, t.title)
+      const a = document.createElement('a')
+      a.href = URL.createObjectURL(new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }))
+      a.download = `${t.title}.xlsx`
+      a.click()
+      setTimeout(() => URL.revokeObjectURL(a.href), 800)
+    })
+    Message.success(`已导出 Excel（.xlsx）`)
+  } catch (e) {
+    Message.error(e?.message || '导出失败，请稍后重试')
+  }
 }
 function toggleMenu(e, t) {
   if (menuId.value === t.id) { menuId.value = ''; return }

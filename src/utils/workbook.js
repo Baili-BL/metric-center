@@ -384,8 +384,95 @@ function applyFortuneDataBars(ws, rules) {
         rules: [{
           type: 'dataBar',
           priority: i + 1,
-          cfvo: [{ type: 'num', value: 0 }, { type: 'max' }],
+          cfvo: [{ type: 'min' }, { type: 'max' }],
           color: { argb: color },
+        }],
+      })
+    })
+  })
+}
+
+function applyFortuneColorScales(ws, rules) {
+  let priority = 10
+  ;(rules || []).filter((rule) => rule.type === 'colorGradation').forEach((rule) => {
+    const colors = (rule.format || []).map((c) => ({ argb: argbOf(colorOf(c) || c) || 'FFFFFFFF' }))
+    if (colors.length < 2) return
+    const cfvo = colors.length === 2
+      ? [{ type: 'min' }, { type: 'max' }]
+      : [{ type: 'min' }, { type: 'percentile', value: 50 }, { type: 'max' }]
+    ;(rule.cellrange || []).forEach((range) => {
+      const r0 = range.row?.[0] ?? 0
+      const r1 = range.row?.[1] ?? r0
+      const c0 = range.column?.[0] ?? 0
+      const c1 = range.column?.[1] ?? c0
+      const ref = `${colLetter(c0)}${r0 + 1}:${colLetter(c1)}${r1 + 1}`
+      for (let r = r0; r <= r1; r += 1) {
+        for (let c = c0; c <= c1; c += 1) {
+          const cell = ws.getCell(r + 1, c + 1)
+          if (cell.fill) cell.fill = undefined
+        }
+      }
+      ws.addConditionalFormatting({
+        ref,
+        rules: [{ type: 'colorScale', priority: priority++, cfvo, color: colors }],
+      })
+    })
+  })
+}
+
+function stripCfGlyphs(text) {
+  return String(text ?? '')
+    .replace(/[↑→↓↗↘▲▼▬●⬤◆✓✕!⚑★☆▂▃▄█▁◕◑◔○▣□\s]/g, '')
+    .trim()
+}
+
+function applyFortuneIconSets(ws, rules) {
+  let priority = 20
+  const setName = (rule) => {
+    const id = rule.iconId || ''
+    if (id.includes('st')) return '3Symbols'
+    if (id.includes('c5') || id.includes('h5') || id.includes('a5')) return '5Arrows'
+    if (id.includes('c4') || id.includes('a4') || id.includes('b3')) return '4Arrows'
+    if (id.includes('c3') || id.includes('t3') || id.includes('m3') || id.includes('f')) return '3TrafficLights1'
+    const count = rule.marks?.length || rule.glyphs?.length || rule.format?.length || 3
+    if (count >= 5) return '5Arrows'
+    if (count === 4) return '4Arrows'
+    if (count === 2) return '3TrafficLights1'
+    return '3Arrows'
+  }
+  ;(rules || []).filter((rule) => rule.type === 'icons').forEach((rule) => {
+    const count = rule.marks?.length || rule.glyphs?.length || rule.format?.length || 3
+    const iconSet = setName(rule)
+    const step = Math.floor(100 / count)
+    const cfvo = Array.from({ length: count }, (_, i) => ({
+      type: 'percentile',
+      value: Math.min(100, i === 0 ? 0 : Math.round((i * 100) / count)),
+    }))
+    ;(rule.cellrange || []).forEach((range) => {
+      const r0 = range.row?.[0] ?? 0
+      const r1 = range.row?.[1] ?? r0
+      const c0 = range.column?.[0] ?? 0
+      const c1 = range.column?.[1] ?? c0
+      const ref = `${colLetter(c0)}${r0 + 1}:${colLetter(c1)}${r1 + 1}`
+      for (let r = r0; r <= r1; r += 1) {
+        for (let c = c0; c <= c1; c += 1) {
+          const cell = ws.getCell(r + 1, c + 1)
+          if (typeof cell.value === 'string') {
+            const plain = stripCfGlyphs(cell.value)
+            const num = Number(plain)
+            cell.value = Number.isFinite(num) && plain !== '' ? num : (plain || cell.value)
+          }
+        }
+      }
+      ws.addConditionalFormatting({
+        ref,
+        rules: [{
+          type: 'iconSet',
+          priority: priority++,
+          iconSet,
+          showValue: true,
+          reverse: false,
+          cfvo,
         }],
       })
     })
@@ -497,6 +584,8 @@ export function univerToBook(wb) {
     })
     applyFortuneBorders(ws, sh.fortune?.borderInfo)
     applyFortuneDataBars(ws, sh.fortune?.dataBars)
+    applyFortuneColorScales(ws, sh.fortune?.conditionformat)
+    applyFortuneIconSets(ws, sh.fortune?.conditionformat)
     Object.entries(sh.fortune?.columnlen || {}).forEach(([ck, px]) => {
       const width = Math.max(4, Math.round(Number(px) / 8))
       if (Number.isFinite(width)) ws.getColumn(Number(ck) + 1).width = width
