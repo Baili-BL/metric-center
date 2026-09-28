@@ -4397,9 +4397,20 @@
   flex: none;
   display: inline-flex;
   align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
   margin-left: auto;
   color: #8f959e;
   font-size: 14px;
+}
+.fs-sheet-list-eye,
+.fs-sheet-list-check {
+  display: block;
+  width: 14px;
+  height: 14px;
+  flex: none;
+  color: inherit;
 }
 .fs-sheet-list-item.active .fs-sheet-list-trail {
   color: #336df4;

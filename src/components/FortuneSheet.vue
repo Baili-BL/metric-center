@@ -3427,6 +3427,10 @@ const filteredSheetList = computed(() => {
   return sheets.filter((s) => String(s.name || '').toLowerCase().includes(q))
 })
 const sheetListCanDrag = computed(() => !sheetListPop.query.trim())
+
+function isSheetHidden(sheet) {
+  return Number(sheet?.hide) === 1 || sheet?.hide === true
+}
 const CTX_ICONS = {
   copy: 'M4 2.5h6.2A1.3 1.3 0 0 1 11.5 3.8V11a1.3 1.3 0 0 1-1.3 1.3H4A1.3 1.3 0 0 1 2.7 11V3.8A1.3 1.3 0 0 1 4 2.5Zm0 1.2a.1.1 0 0 0-.1.1V11c0 .06.04.1.1.1h6.2a.1.1 0 0 0 .1-.1V3.8a.1.1 0 0 0-.1-.1H4Zm2.2 10h4.6A1.3 1.3 0 0 0 12.1 12.4V5.2h1.2v7.2A2.5 2.5 0 0 1 10.8 14.9H6.2V13.7Z',
   image: 'M2.5 3.2h11a1.3 1.3 0 0 1 1.3 1.3v7a1.3 1.3 0 0 1-1.3 1.3h-11A1.3 1.3 0 0 1 1.2 11.5v-7A1.3 1.3 0 0 1 2.5 3.2Zm0 1.2v7h11v-7h-11Zm1.6 5.2 1.7-1.8 1.4 1.5 2.2-2.4 2.3 2.7H4.1Zm1.3-3.2a.9.9 0 1 0 0-1.8.9.9 0 0 0 0 1.8Z',
@@ -3964,7 +3968,7 @@ function activateFromSheetList(sheet) {
   }
   if (!sheet?.id) return
   try {
-    if (sheet.hide === 1) {
+    if (isSheetHidden(sheet)) {
       instRef.current?.applyOp?.([
         { op: 'replace', id: sheet.id, path: ['hide'], value: 0 },
       ])
@@ -4053,7 +4057,7 @@ function resolveSheetFromTab(tab) {
   if (!tab) return null
   const name = tab.querySelector?.('.luckysheet-sheets-item-name')?.textContent?.trim()
   const sheets = (instRef.current?.getAllSheets?.() || liveSheets() || [])
-    .filter((s) => s.hide !== 1)
+    .filter((s) => !isSheetHidden(s))
     .sort((a, b) => Number(a.order) - Number(b.order))
   if (name) {
     const byName = sheets.find((s) => s.name === name)
@@ -4172,7 +4176,7 @@ function deleteSheetTab() {
   const sheet = currentSheetTab()
   closeSheetTabMenu()
   if (!api?.deleteSheet || !sheet?.id) return
-  const shown = (api.getAllSheets?.() || []).filter((s) => s.hide !== 1)
+  const shown = (api.getAllSheets?.() || []).filter((s) => !isSheetHidden(s))
   if (shown.length <= 1) {
     Message.warning('至少保留一个工作表')
     return
@@ -4230,7 +4234,7 @@ function hideSheetTab() {
   const sheet = currentSheetTab()
   closeSheetTabMenu()
   if (!api?.applyOp || !sheet?.id) return
-  const shown = (api.getAllSheets?.() || []).filter((s) => s.hide !== 1)
+  const shown = (api.getAllSheets?.() || []).filter((s) => !isSheetHidden(s))
   if (shown.length <= 1) {
     Message.warning('至少保留一个工作表')
     return
@@ -5768,8 +5772,19 @@ defineExpose({
               <i v-if="sheet.color" class="fs-sheet-list-dot" :style="{ background: sheet.color }" />
               <span class="fs-sheet-list-name">{{ sheet.name }}</span>
               <span class="fs-sheet-list-trail">
-                <icon-eye-invisible v-if="sheet.hide === 1" />
-                <icon-check v-else-if="sheet.id === sheetListPop.activeId" />
+                <svg
+                  v-if="isSheetHidden(sheet)"
+                  class="fs-sheet-list-eye"
+                  viewBox="0 0 16 16"
+                  width="14"
+                  height="14"
+                  aria-hidden="true"
+                >
+                  <path d="M2.2 8s2.2-3.6 5.8-3.6S13.8 8 13.8 8s-2.2 3.6-5.8 3.6S2.2 8 2.2 8z" fill="none" stroke="currentColor" stroke-width="1.2" />
+                  <circle cx="8" cy="8" r="1.6" fill="none" stroke="currentColor" stroke-width="1.2" />
+                  <path d="M3.2 12.8 12.8 3.2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
+                </svg>
+                <icon-check v-else-if="sheet.id === sheetListPop.activeId" class="fs-sheet-list-check" />
               </span>
             </button>
           </li>
