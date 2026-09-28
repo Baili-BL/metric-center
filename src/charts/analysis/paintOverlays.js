@@ -345,19 +345,23 @@ function buildManualAnnoChildren(a, seriesList, labels, opts = {}) {
     // 连续维度切成一缕缕的带子，占满整格后相邻列自然连成一片。
     // 宽度按容器估算（实测误差 ±0.3px）：恰好相接时 canvas 在边界处自然融合，看不到缝。
     const bandStep = Number(opts.bandStepPx) || 0
-    const bgRows = dims.filter((d) => labels.indexOf(d) >= 0).map((d) => ({ x: d, y: [0, 1] }))
-    if (bgRows.length) {
+    const wantDims = dims.filter((d) => labels.indexOf(d) >= 0)
+    if (wantDims.length && labels.length) {
+      // 数据铺「全部列」，只把未选中的列设成全透明（fillOpacity 0）：这样色带的 x 数据域
+      // 与主图完全一致（同一批类目）。paint.js 会把它垫到 children 最前（画在柱体/折线之下，
+      // 否则半透明色带罩在柱子上会把柱色洗淡、并被柱子切断成一截一截）。
+      // 若只给选中列数据，垫底会改变共享 band 轴的 domain → 色带整体跑到最左侧（已踩过）。
+      const on = new Set(wantDims)
       out.push({
         type: 'interval',
-        data: bgRows,
-        // __bg：给 paint.js 用来把背景带插到 children 最前面（画在柱体/折线之下，
-        // 否则半透明色带会罩在柱子上把柱色洗淡）
+        data: labels.map((d) => ({ x: d, y: [0, 1] })),
+        // __bg：给 paint.js 用来把背景带垫到 children 最前
         __bg: true,
         encode: { x: 'x', y: 'y', ...(bandStep > 0 ? { size: bandStep } : {}) },
         scale: { y: { type: 'linear', domain: [0, 1], independent: true } },
         style: {
           fill: cfg.dimBg,
-          fillOpacity: 0.18,
+          fillOpacity: (d) => (on.has(d.x) ? 0.18 : 0),
           pointerEvents: 'none',
         },
         axis: { y: false },

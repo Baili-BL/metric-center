@@ -471,6 +471,8 @@ const AXIS_RESERVE_PX = 74
 function bandStepPxOf(chart, spec, extra, labels, mini) {
   const n = (labels || []).length
   if (n < 2) return 0
+  // 开启视图控件（缩略轴/滚动条）时可见列数被窗口限制、格宽随之变化（实测缩略轴下 34 列只显示
+  // 约 21 列，步长 52px 而非 32px），固定像素不再成立 → 返回 0，调用方退回「带宽」方案。
   if (!mini && spec?.viewCtrlShow !== false && usesViewCtrl(spec?.type)) return 0
   const host = extra?.host || (chart.getContainer ? chart.getContainer() : null)
   const hostW = Number(host?.clientWidth) || 0
@@ -523,11 +525,16 @@ function applyCartesianView(chart, spec, rows, children, names, colors, extra = 
 
   const isSeason = isSeasonal(type)
   const overlayLabels = extra.labels || spec.labels || []
-  // 注意：叠加标记必须 push 在 children 末尾。若把维度背景带插到最前面（unshift），
-  // G2 会按"排在最前的 mark"重新归属 x scale，band 轴 domain 变化 → 色带整体跑到最左侧。
-  children.push(...(isSeason ? [] : buildAnalysisOverlays(spec, overlayLabels, {
+  const overlays = isSeason ? [] : buildAnalysisOverlays(spec, overlayLabels, {
     bandStepPx: bandStepPxOf(chart, spec, extra, overlayLabels, mini),
-  })))
+  })
+  // 维度背景带（__bg）垫到 children 最前 → 画在柱体/折线之下，柱色不会被半透明色带洗淡。
+  // 它的 x 数据域与主图一致（铺全部类目），因此不会改变共享 band 轴的 domain；
+  // 若只给选中列数据，垫底会让 G2 按最前的 mark 重算 domain → 色带整体跑到最左侧。
+  const bgMarks = overlays.filter((o) => o && o.__bg)
+  const restMarks = overlays.filter((o) => !(o && o.__bg))
+  children.unshift(...bgMarks)
+  children.push(...restMarks)
 
   const view = {
     type: 'view',

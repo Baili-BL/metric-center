@@ -99,9 +99,7 @@ async function render() {
       ? { tooltipShow: false, disableTooltip: true, listPreview: true }
       : {}),
   }
-  if (typeof window !== 'undefined') window.__mcSpec = spec
   chart = paintChart(el.value, spec)
-  if (typeof window !== 'undefined') window.__mcChart = chart
   const showSlider = !props.mini
     && props.spec.viewCtrlShow
     && props.spec.viewCtrlType === 'slider'
