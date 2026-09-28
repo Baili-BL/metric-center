@@ -26,6 +26,8 @@ import {
   fmtSeriesVal,
   migrateFmtToDisplay,
 } from './fieldFmt'
+import { buildAnalysisOverlays } from './analysis/paintOverlays'
+import { buildSeasonalPack } from './seasonal'
 
 const DEFAULT_COLORS = ['#1664FF', '#e34d59', '#12b76a', '#f2994a', '#7b61ff', '#56ccf2']
 
@@ -148,38 +150,8 @@ function pieRows(series, labels, spec = {}) {
   }))
 }
 
-function seasonalRows(series, labels, nullMode = 'cross') {
-  const years = {}
-  labels.forEach((lab, i) => {
-    const [y, m] = String(lab).split('-')
-    if (!years[y]) years[y] = { year: y, vals: Array(12).fill(null) }
-    years[y].vals[Number(m) - 1] = series[0]?.values?.[i]
-  })
-  const yearList = Object.keys(years).sort()
-  const rows = []
-  yearList.forEach((y, yi) => {
-    years[y].vals.forEach((v, mi) => {
-      const num = Number(v)
-      const empty = v == null || v === '' || !Number.isFinite(num)
-      if (empty) {
-        if (nullMode === 'zero') {
-          rows.push({ x: mi, md: String(mi + 1).padStart(2, '0'), value: 0, name: `${y}年`, year: y, color: DEFAULT_COLORS[yi % DEFAULT_COLORS.length] })
-        } else if (nullMode === 'break') {
-          rows.push({ x: mi, md: String(mi + 1).padStart(2, '0'), value: null, name: `${y}年`, year: y, color: DEFAULT_COLORS[yi % DEFAULT_COLORS.length] })
-        }
-        return
-      }
-      rows.push({
-        x: mi,
-        md: String(mi + 1).padStart(2, '0'),
-        value: num,
-        name: `${y}年`,
-        year: y,
-        color: DEFAULT_COLORS[yi % DEFAULT_COLORS.length],
-      })
-    })
-  })
-  return { rows, years: yearList, colors: yearList.map((_, i) => DEFAULT_COLORS[i % DEFAULT_COLORS.length]) }
+function seasonalRows(series, labels, seasonCfg, nullMode = 'cross') {
+  return buildSeasonalPack(series, labels, seasonCfg, nullMode)
 }
 
 function crossRows(series, labels, spec = {}) {
@@ -282,7 +254,9 @@ function buildAxis(ax, key, fallbackUnit, mini, spec) {
     cfg.labelAutoRotate = !mini && o.labelRule !== 'sparse'
     if (o.labelRule === 'sparse') cfg.tickCount = 6
     if (o.labelRule === 'dense') cfg.tickFilter = () => true
-    if (o.labelContent === 'index') {
+    if (typeof o.labelFormatter === 'function') {
+      cfg.labelFormatter = o.labelFormatter
+    } else if (o.labelContent === 'index') {
       cfg.labelFormatter = (_v, i) => String((i ?? 0) + 1)
     } else {
       cfg.labelFormatter = (v) => formatDimTime(v, spec?.dimTimeFormat, spec?.dimNullDisplay)
@@ -423,7 +397,7 @@ export function decideMiniLayout(el, type, labels, unit) {
 function applyCartesianView(chart, spec, rows, children, names, colors, extra = {}) {
   const {
     type, unit, axisShow, ax, dual, dualSync, tooltipShow, customLegend,
-    barWidth, mini, markLine,
+    barWidth, mini,
   } = spec
   const layout = extra.layout
   const xPad = isColFamily(type) || isHbar(type)
@@ -439,6 +413,14 @@ function applyCartesianView(chart, spec, rows, children, names, colors, extra = 
 
   const scale = { color: colorScale(names, colors) }
   if (xPad != null) scale.x = { paddingInner: xPad, paddingOuter: xPad / 2 }
+  if (Array.isArray(extra.seasonDomain) && extra.seasonDomain.length) {
+    scale.x = {
+      type: 'linear',
+      domain: [0, extra.seasonDomain.length - 1],
+      nice: false,
+      tickCount: Math.min(6, extra.seasonDomain.length),
+    }
+  }
   const yS = yScale(ax?.yL, rows)
   if (Object.keys(yS).length) scale.y = yS
 
@@ -455,14 +437,8 @@ function applyCartesianView(chart, spec, rows, children, names, colors, extra = 
     }
   }
 
-  const ml = Number(markLine)
-  if (Number.isFinite(ml) && String(markLine ?? '').trim() !== '') {
-    children.push({
-      type: 'lineY',
-      data: [ml],
-      style: { stroke: '#e34d59', lineDash: [5, 4], lineWidth: 1.5 },
-    })
-  }
+  const isSeason = isSeasonal(type)
+  children.push(...(isSeason ? [] : buildAnalysisOverlays(spec, extra.labels || spec.labels || [])))
 
   const view = {
     type: 'view',
@@ -472,9 +448,12 @@ function applyCartesianView(chart, spec, rows, children, names, colors, extra = 
     legend: mini || customLegend ? false : { color: { position: 'top' } },
     tooltip: tooltipShow ? {
       css: spec.tooltipBg ? { '.g2-tooltip': { background: spec.tooltipBg, color: spec.tooltipColor, fontSize: `${spec.tooltipSize || 12}px` } } : undefined,
+      title: isSeason ? (d) => d.md || d.tip || '' : undefined,
       items: [{
         channel: 'y',
-        value: (d) => fmtSeriesVal(d.value, findNamedSeries(spec.series, d.name)),
+        value: (d) => (isSeason
+          ? (Number.isFinite(+d.value) ? String(d.value) : '')
+          : fmtSeriesVal(d.value, findNamedSeries(spec.series, d.name))),
       }],
     } : false,
     children,
@@ -557,7 +536,6 @@ export function paintChart(el, spec) {
     barRadius = 0,
     pieStyle = 'pie',
     pieRadius = 92,
-    tooltipShow = true,
     customLegend = false,
     markLine = '',
     lineType = 'curve',
@@ -568,6 +546,10 @@ export function paintChart(el, spec) {
     nullMode = 'cross',
     gradient = false,
   } = spec
+
+  // 列表 / 迷你预览统一关闭 tooltip
+  let tooltipShow = spec.tooltipShow !== false
+  if (mini || spec.listPreview || spec.disableTooltip) tooltipShow = false
 
   const names = series.map(seriesName)
   const colors = series.map((s, i) => s.color || DEFAULT_COLORS[i % DEFAULT_COLORS.length])
@@ -583,22 +565,62 @@ export function paintChart(el, spec) {
   })
 
   if (isSeasonal(type)) {
-    const pack = seasonalRows(series, labels, nullMode)
-    const children = [{
-      type: 'line',
-      encode: { x: 'md', y: 'value', color: 'name', shape: lineShape(lineType) },
-      style: { lineWidth: Number(width) || 1.8, lineDash: dashArr(dash) },
-      labels: labelCfg(spec, false),
-    }]
+    const pack = seasonalRows(series, labels, spec.season, nullMode)
+    const curY = String(pack.currentYear)
+    const tickMap = Object.fromEntries((pack.axisTicks || []).map((t) => [t.idx, t.label]))
+    const histRows = pack.rows.filter((r) => String(r.year) !== curY)
+    const curRows = pack.rows.filter((r) => String(r.year) === curY)
+    const lineEncode = { x: 'x', y: 'value', color: 'name', series: 'name', shape: lineShape(lineType) }
+    const children = []
+    if (histRows.length) {
+      children.push({
+        type: 'line',
+        data: histRows,
+        encode: lineEncode,
+        style: { lineWidth: 1.5, lineDash: dashArr(dash) },
+        labels: labelCfg(spec, false),
+      })
+    }
+    if (curRows.length) {
+      children.push({
+        type: 'line',
+        data: curRows,
+        encode: lineEncode,
+        style: { lineWidth: 3, lineDash: dashArr(dash) },
+        labels: labelCfg(spec, false),
+      })
+    }
     if (marker) {
       const mk = markerSpec(markerShape)
       children.push({
         type: 'point',
-        encode: { x: 'md', y: 'value', color: 'name', shape: mk.g2 },
-        style: { r: mini ? 2.5 : 3.5, fillOpacity: mk.hollow ? 0 : 1, stroke: mk.hollow ? undefined : undefined, lineWidth: mk.hollow ? 1.4 : 0 },
+        encode: { x: 'x', y: 'value', color: 'name', shape: mk.g2 },
+        style: { r: mini ? 2.5 : 3.5, fillOpacity: mk.hollow ? 0 : 1, lineWidth: mk.hollow ? 1.4 : 0 },
       })
     }
-    applyCartesianView(chart, { ...spec, type, mini, customLegend, tooltipShow, markLine }, pack.rows, children, pack.years.map((y) => `${y}年`), pack.colors, { layout })
+    const seasonSpec = {
+      ...spec,
+      type,
+      mini,
+      customLegend,
+      tooltipShow,
+      ax: {
+        ...(spec.ax || {}),
+        x: {
+          ...(spec.ax?.x || {}),
+          labelFormatter: (v) => tickMap[v] || tickMap[Math.round(+v)] || '',
+        },
+      },
+    }
+    applyCartesianView(
+      chart,
+      seasonSpec,
+      pack.rows,
+      children,
+      pack.years.map((y) => `${y}年`),
+      pack.colors,
+      { layout, seasonDomain: pack.domain },
+    )
     chart.render()
     return chart
   }

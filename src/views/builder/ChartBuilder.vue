@@ -1,7 +1,6 @@
 <script setup>
 import { computed, onMounted, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { Message } from '@arco-design/web-vue'
-import ExcelJS from 'exceljs'
 import {
   CHART_TYPES,
   CT_GROUP_ORDER,
@@ -22,10 +21,14 @@ import {
 } from '../../charts/types'
 import G2Chart from '../../components/G2Chart.vue'
 import Icon from '../../components/Icon.vue'
+import ColorPop from '../../components/ColorPop.vue'
 import {
   applyCategoryOrder,
   applyCondToValues,
   applyNumberFmtPreset,
+  displayNullText,
+  formatDimTime,
+  fmtSeriesVal,
   seriesCondText,
   seriesFmtText,
 } from '../../charts/fieldFmt'
@@ -37,9 +40,18 @@ import FieldFmtDialog from './FieldFmtDialog.vue'
 import FieldItem from './FieldItem.vue'
 import AppModal from '../../components/AppModal.vue'
 import DirPathPicker from '../../components/DirPathPicker.vue'
+import AnalysisPanel from './analysis/AnalysisPanel.vue'
 import { useGalleryStore } from '../../stores/gallery'
 import { useIndicatorStore } from '../../stores/indicators'
 import { hashStr, rndSeries } from '../../utils/hash'
+import { exportChartPng } from '../../utils/exportPng'
+import { exportChartExcel } from '../../utils/exportExcelChart'
+import {
+  listSeasonYears,
+  mustCrossYear,
+  normalizeSeason,
+  seasonYearColor,
+} from '../../charts/seasonal'
 
 const props = defineProps({
   chartId: { type: String, default: '' },
@@ -67,7 +79,9 @@ const BUILDER_MONTHS = Array.from({ length: 91 }, (_, i) => {
   const m = (i % 12) + 1
   return `${y}-${String(m).padStart(2, '0')}`
 })
-const MAX_IND = 8
+const MAX_IND = 20
+const COMBO_MAX_IND = 8
+const SEASON_MAX_IND = 1
 
 const gallery = useGalleryStore()
 const indicators = useIndicatorStore()
@@ -91,9 +105,16 @@ const saveVisible = ref(false)
 const aiInput = ref('')
 const aiMsgs = ref([])
 const pickAxis = ref('left')
-const seasonStart = ref('01-01')
-const seasonEnd = ref('12-31')
 const chartHost = ref(null)
+const annoPicking = ref(false)
+const analysisPanelRef = ref(null)
+const detailOpen = ref(false)
+const detailSeries = ref(null)
+const seasonColorOpen = ref(false)
+const seasonColorYear = ref('')
+const seasonColorOrigin = ref('#26bf59')
+const seasonColorLeft = ref(0)
+const seasonColorTop = ref(0)
 
 const groupedTypes = computed(() => CT_GROUP_ORDER.map((g) => ({
   group: g,
@@ -130,7 +151,7 @@ const spec = computed(() => toPaintSpec(state, fieldPaint.value.series, fieldPai
 const fcfgSeries = computed(() => (fcfgIdx.value >= 0 ? state.series[fcfgIdx.value] : null))
 const fmtSeries = computed(() => (fmtIdx.value >= 0 ? state.series[fmtIdx.value] : null))
 const canPaint = computed(() => (isCrossScatter(state.type) ? state.series.length >= 2 : state.series.length > 0))
-const hideDimChip = computed(() => usesCrossSectionTime(state.type) || isCrossScatter(state.type))
+const hideDimChip = computed(() => usesCrossSectionTime(state.type) || isCrossScatter(state.type) || isSeasonal(state.type))
 const hideDatePreset = computed(() => usesCrossSectionTime(state.type) || isSeasonal(state.type))
 const crossBarRange = computed(() => resolveCrossBarRange(state.crossBar, rawLabels.value))
 const crossBarHint = computed(() => crossBarTimeLabel(state.crossBar, rawLabels.value))
@@ -144,7 +165,22 @@ const crossXHint = computed(() => (state.series[0] ? `取值时间：${crossTime
 const crossYHint = computed(() => (state.series[1] ? `取值时间：${crossTimeLabel(state.cross?.y, paintLabels.value)}` : ''))
 const crossXName = computed(() => state.series[0]?.alias || state.series[0]?.name || '')
 const crossYName = computed(() => state.series[1]?.alias || state.series[1]?.name || '')
+const maxInd = computed(() => {
+  if (isSeasonal(state.type)) return SEASON_MAX_IND
+  if (state.type === 'combo') return COMBO_MAX_IND
+  return MAX_IND
+})
+const seasonYears = computed(() => listSeasonYears(paintLabels.value, state.season))
+const seasonCrossLocked = computed(() => mustCrossYear(state.season?.start, state.season?.end))
 const legendSeries = computed(() => {
+  if (isSeasonal(state.type)) {
+    return seasonYears.value.map((y, i) => ({
+      name: `${y}年`,
+      alias: `${y}年`,
+      color: seasonYearColor(state.season, y, i),
+      year: y,
+    }))
+  }
   const items = state.legendItems
   return state.series.filter((s) => !items || items.includes(s.alias || s.name))
 })
@@ -248,6 +284,83 @@ function applyPalette(idx) {
   state.series.forEach((s, i) => { s.color = colors[i % colors.length] })
 }
 
+function onAnnoPointClick(datum) {
+  analysisPanelRef.value?.applyPick?.(datum)
+}
+
+function hashId(name) {
+  const n = Math.abs(hashStr(String(name || 'x')))
+  return String(10000000 + (n % 90000000))
+}
+
+function seriesInfoRow(s) {
+  const labels = paintLabels.value || []
+  const vals = s?.values || []
+  let first = -1
+  let last = -1
+  for (let i = 0; i < Math.max(labels.length, vals.length); i++) {
+    if (vals[i] != null && vals[i] !== '' && Number.isFinite(+vals[i])) {
+      if (first < 0) first = i
+      last = i
+    }
+  }
+  const nullMode = s?.nullDisplay || state.dimNullDisplay || 'blank'
+  return {
+    start: first < 0 ? displayNullText(nullMode) : formatDimTime(labels[first], state.dimTimeFormat, nullMode),
+    end: last < 0 ? displayNullText(nullMode) : formatDimTime(labels[last], state.dimTimeFormat, nullMode),
+    latest: last < 0 ? null : vals[last],
+    latestIdx: last,
+  }
+}
+
+function copySeriesData(s) {
+  const labels = paintLabels.value || []
+  const vals = s?.values || []
+  const rows = labels.map((lab, i) => `${lab}\t${vals[i] == null ? '' : vals[i]}`)
+  const text = `日期\t${s.alias || s.name}\n${rows.join('\n')}`
+  const done = () => Message.success(`已复制 ${rows.length} 期数据，可直接粘贴到 Excel`)
+  if (navigator.clipboard?.writeText) {
+    navigator.clipboard.writeText(text).then(done).catch(() => {
+      fallbackCopy(text)
+      done()
+    })
+  } else {
+    fallbackCopy(text)
+    done()
+  }
+}
+
+function fallbackCopy(text) {
+  const ta = document.createElement('textarea')
+  ta.value = text
+  ta.style.position = 'fixed'
+  ta.style.opacity = '0'
+  document.body.appendChild(ta)
+  ta.select()
+  try { document.execCommand('copy') } catch { /* ignore */ }
+  document.body.removeChild(ta)
+}
+
+function openSeriesDetail(s) {
+  detailSeries.value = s
+  detailOpen.value = true
+}
+
+const detailRows = computed(() => {
+  const s = detailSeries.value
+  if (!s) return []
+  const labels = paintLabels.value || []
+  const vals = s.values || []
+  const rows = []
+  for (let i = labels.length - 1; i >= 0; i--) {
+    rows.push({
+      date: formatDimTime(labels[i], state.dimTimeFormat, s.nullDisplay || 'blank'),
+      value: fmtSeriesVal(vals[i], s),
+    })
+  }
+  return rows
+})
+
 function makeSeries(card, axis, color) {
   return {
     ...defaultSeriesStyle(),
@@ -289,7 +402,7 @@ function addSeries(card, axis = pickAxis.value) {
     state.series = state.series.filter((s) => s.name !== card.title)
     return
   }
-  if (state.series.length >= MAX_IND) return Message.warning(`最多添加 ${MAX_IND} 个指标`)
+  if (state.series.length >= maxInd.value) return Message.warning(`最多添加 ${maxInd.value} 个指标`)
   const colors = PALETTES[state.paletteIdx].colors
   state.series.push(makeSeries(card, axis || 'left', colors[state.series.length % colors.length]))
   if (!state.unit) state.unit = card.unit || ''
@@ -390,6 +503,59 @@ function onFmtOk(fmt) {
 function setType(id) {
   state.type = id
   typeOpen.value = false
+  if (isSeasonal(id)) {
+    if (!state.season) state.season = normalizeSeason()
+    else state.season = normalizeSeason(state.season)
+    if (state.series.length > SEASON_MAX_IND) {
+      state.series = state.series.slice(0, SEASON_MAX_IND)
+      Message.info('季节性图仅支持 1 个指标，已保留第一个')
+    }
+  }
+}
+
+function onSeasonStart(v) {
+  if (!state.season) state.season = normalizeSeason()
+  state.season.start = String(v || '').trim() || '01-01'
+  state.season = normalizeSeason(state.season)
+}
+
+function onSeasonEnd(v) {
+  if (!state.season) state.season = normalizeSeason()
+  state.season.end = String(v || '').trim() || '12-31'
+  state.season = normalizeSeason(state.season)
+}
+
+function onSeasonCross(checked) {
+  if (!state.season) state.season = normalizeSeason()
+  if (mustCrossYear(state.season.start, state.season.end)) {
+    state.season.crossYear = true
+    return
+  }
+  state.season.crossYear = !!checked
+}
+
+function setSeasonYearColor(year, color) {
+  if (!state.season) state.season = normalizeSeason()
+  if (!state.season.yearColors) state.season.yearColors = {}
+  state.season.yearColors[year] = color
+}
+
+function openSeasonYearColor(year, index, e) {
+  const r = e.currentTarget.getBoundingClientRect()
+  const width = 284
+  const height = 420
+  seasonColorLeft.value = Math.min(Math.max(8, r.left), window.innerWidth - width - 8)
+  let top = r.bottom + 6
+  if (top + height > window.innerHeight - 8) top = Math.max(8, r.top - height - 6)
+  seasonColorTop.value = Math.round(top)
+  seasonColorYear.value = year
+  seasonColorOrigin.value = seasonYearColor(state.season, year, index)
+  seasonColorOpen.value = true
+}
+
+function onSeasonYearColorPick(color) {
+  if (!seasonColorYear.value) return
+  setSeasonYearColor(seasonColorYear.value, color || seasonColorOrigin.value)
 }
 function openSave() {
   saveForm.title = state.title || '未命名图表'
@@ -409,45 +575,33 @@ function confirmSave() {
   emit('saved', chart)
 }
 async function exportExcel() {
-  const wb = new ExcelJS.Workbook()
-  const ws = wb.addWorksheet('图表数据')
-  if (usesCrossSectionTime(state.type)) {
-    const range = resolveCrossBarRange(state.crossBar, rawLabels.value)
-    ws.addRow(['截面时间', range.time])
-    ws.addRow(['指标', '取值'])
-    paintSeries.value.forEach((s) => {
-      ws.addRow([s.alias || s.name, sectionValue(s.values || [], range) ?? ''])
-    })
-  } else if (isCrossScatter(state.type)) {
-    ws.addRow(['轴', '指标', '取值时间'])
-    ws.addRow(['X', crossXName.value, crossTimeLabel(state.cross?.x, paintLabels.value)])
-    ws.addRow(['Y', crossYName.value, crossTimeLabel(state.cross?.y, paintLabels.value)])
-  } else {
+  if (!state.series.length) return Message.warning('请先添加至少一个指标系列')
+  try {
     const pack = fieldPaint.value
-    ws.addRow(['日期', ...pack.series.map((s) => s.alias || s.name)])
-    pack.labels.forEach((lab, i) => {
-      ws.addRow([lab, ...pack.series.map((s) => s.values?.[i] ?? '')])
+    await exportChartExcel({
+      state,
+      labels: pack.labels,
+      series: pack.series,
+      filename: `${state.title || 'chart'}.xlsx`,
     })
+    Message.success('已导出：Sheet1 原生图表（可编辑）/ Sheet2 明细数据')
+  } catch (e) {
+    console.error(e)
+    Message.error(e?.message || '导出失败')
   }
-  const buf = await wb.xlsx.writeBuffer()
-  const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
-  const a = document.createElement('a')
-  a.href = URL.createObjectURL(blob)
-  a.download = `${state.title || 'chart'}.xlsx`
-  a.click()
-  Message.success('已导出 Excel')
 }
 function downloadPng() {
   const canvas = chartHost.value?.querySelector?.('canvas')
   if (!canvas) return Message.warning('请先添加指标并生成图表')
-  canvas.toBlob((blob) => {
-    if (!blob) return Message.error('导出失败')
-    const a = document.createElement('a')
-    a.href = URL.createObjectURL(blob)
-    a.download = `${state.title || 'chart'}.png`
-    a.click()
-    Message.success('已下载图片')
-  }, 'image/png')
+  exportChartPng(canvas, {
+    ...state,
+    series: legendSeries.value.length ? legendSeries.value : state.series,
+    lineMarker: !isPie(state.type) && !isCrossScatter(state.type),
+  }).then(() => {
+    Message.success('已导出 PNG（含标题与图例）')
+  }).catch((e) => {
+    Message.error(e?.message || '导出失败')
+  })
 }
 
 function applyAi(text) {
@@ -554,7 +708,7 @@ const isPreview = computed(() => props.mode === 'preview' || props.mode === 'exp
           </div>
         </div>
 
-        <div class="cb-chart-card" :class="['legend-' + state.legendPos, { 'legend-column': state.legendStyle === 'column' }]">
+        <div class="cb-chart-card" :class="['legend-' + state.legendPos, { 'legend-column': state.legendStyle === 'column', 'anno-picking': annoPicking }]">
           <div v-if="state.titleShow" class="chart-title" :class="'align-' + state.titleAlign">
             <h3 contenteditable spellcheck="false" :style="titleTextStyle" @blur="state.title = ($event.target.textContent || '').trim() || '未命名图表'">{{ state.title }}</h3>
             <div v-if="state.remarkOn && state.remark && state.remarkPos !== 'chartTop'" class="chart-remark">{{ state.remark }}</div>
@@ -573,8 +727,21 @@ const isPreview = computed(() => props.mode === 'preview' || props.mode === 'exp
                 <span class="lg-name">{{ s.alias || s.name }}</span>
               </span>
             </div>
+              <div
+                v-if="annoPicking"
+                class="anno-pick-banner"
+              >
+                <Icon name="info-circle" :size="12" />
+                请在图表上点选数据点添加标注
+                <button type="button" @click="annoPicking = false">取消</button>
+              </div>
             <div ref="chartHost" class="chart-body">
-              <G2Chart v-if="canPaint" :spec="spec" />
+              <G2Chart
+                v-if="canPaint"
+                :spec="spec"
+                :picking="annoPicking"
+                @point-click="onAnnoPointClick"
+              />
               <div v-else class="chart-empty">{{ isCrossScatter(state.type) ? '请分别选择 X / Y 轴指标' : '请打开手工配置，在「字段」中点击「选择指标」添加' }}</div>
               <div
                 v-if="isPie(state.type) && state.pieStyle === 'donut' && state.pieTotalShow && state.series.length"
@@ -606,20 +773,76 @@ const isPreview = computed(() => props.mode === 'preview' || props.mode === 'exp
           </div>
           <div class="table-body">
             <table class="d-table">
-              <thead><tr><th>指标</th><th>单位</th><th>频度</th><th>来源</th></tr></thead>
+              <thead>
+                <tr>
+                  <th>指标名称</th>
+                  <th>指标ID</th>
+                  <th>频度</th>
+                  <th>单位</th>
+                  <th>起始时间</th>
+                  <th>最新日期</th>
+                  <th style="text-align:right">最新值</th>
+                  <th>数据来源</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
               <tbody>
-                <tr v-if="!state.series.length"><td colspan="4" style="color:#86909C">暂无指标</td></tr>
+                <tr v-if="!state.series.length"><td colspan="9" style="color:#86909C">暂无指标</td></tr>
                 <tr v-for="s in state.series" :key="s.name">
-                  <td>{{ s.alias || s.name }}</td>
-                  <td>{{ s.unit || state.unit || '—' }}</td>
+                  <td class="nm" :title="s.name">{{ s.alias || s.name }}</td>
+                  <td class="id-cell">{{ hashId(s.name) }}</td>
                   <td>{{ s.freq || '—' }}</td>
+                  <td>{{ s.unit || state.unit || '—' }}</td>
+                  <td>{{ seriesInfoRow(s).start }}</td>
+                  <td>{{ seriesInfoRow(s).end }}</td>
+                  <td class="num">{{ fmtSeriesVal(seriesInfoRow(s).latest, s) }}</td>
                   <td>{{ s.source || '—' }}</td>
+                  <td class="op-cell">
+                    <button type="button" class="op-link" @click.stop="copySeriesData(s)">复制数据</button>
+                    <button type="button" class="op-link" @click.stop="openSeriesDetail(s)">查看数据</button>
+                  </td>
                 </tr>
               </tbody>
             </table>
           </div>
         </div>
       </div>
+
+      <a-modal
+        v-model:visible="detailOpen"
+        :title="detailSeries ? `查看数据：${detailSeries.alias || detailSeries.name}` : '查看数据'"
+        :width="520"
+        :footer="false"
+        unmount-on-close
+      >
+        <div class="detail-table-wrap">
+          <table class="d-table">
+            <thead>
+              <tr>
+                <th>日期</th>
+                <th style="text-align:right">数值（{{ detailSeries?.unit || state.unit || '—' }}）</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="(r, i) in detailRows" :key="i">
+                <td>{{ r.date }}</td>
+                <td class="num">{{ r.value }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </a-modal>
+
+      <Teleport to="body">
+        <ColorPop
+          :show="seasonColorOpen"
+          :left="seasonColorLeft"
+          :top="seasonColorTop"
+          :origin="seasonColorOrigin"
+          @update:show="seasonColorOpen = $event"
+          @pick="onSeasonYearColorPick"
+        />
+      </Teleport>
 
       <aside v-if="!isPreview" class="ai-panel" :class="{ collapsed: configMode !== 'ai' }">
         <div class="ai-top">
@@ -705,11 +928,48 @@ const isPreview = computed(() => props.mode === 'preview' || props.mode === 'exp
               <DimChip :state="state" />
             </div>
             <div v-if="isSeasonal(state.type)" class="fld-block">
-              <div class="fld-block-head">季节性时间范围</div>
+              <div class="fld-block-head">横坐标时间刻度</div>
               <div class="season-range-row">
-                <input class="cfg-input" v-model="seasonStart" maxlength="5">
+                <input
+                  class="cfg-input"
+                  :value="state.season?.start || '01-01'"
+                  maxlength="5"
+                  placeholder="MM-DD"
+                  @change="onSeasonStart($event.target.value)"
+                >
                 <span>至</span>
-                <input class="cfg-input" v-model="seasonEnd" maxlength="5">
+                <input
+                  class="cfg-input"
+                  :value="state.season?.end || '12-31'"
+                  maxlength="5"
+                  placeholder="MM-DD"
+                  @change="onSeasonEnd($event.target.value)"
+                >
+                <label class="season-cross" :class="{ locked: seasonCrossLocked }" :title="seasonCrossLocked ? '开始日期≥结束日期时必须跨年' : ''">
+                  <input
+                    type="checkbox"
+                    :checked="!!state.season?.crossYear"
+                    :disabled="seasonCrossLocked"
+                    @change="onSeasonCross($event.target.checked)"
+                  >
+                  跨年
+                </label>
+              </div>
+              <div v-if="seasonYears.length" class="season-year-colors">
+                <div class="fld-block-head" style="margin-top:10px;padding:0">年份颜色</div>
+                <div class="season-year-list">
+                  <div v-for="(y, i) in seasonYears" :key="y" class="season-year-item">
+                    <button
+                      type="button"
+                      class="f-dot color-well"
+                      :style="{ background: seasonYearColor(state.season, y, i) }"
+                      title="点击更换颜色"
+                      @click.stop="openSeasonYearColor(y, i, $event)"
+                    />
+                    <span class="sy-name">{{ y }}年</span>
+                    <span v-if="y === String(new Date().getFullYear())" class="sy-cur">当前年·3px</span>
+                  </div>
+                </div>
               </div>
             </div>
             <div v-if="isCrossScatter(state.type)" class="fld-block cross-block">
@@ -788,7 +1048,7 @@ const isPreview = computed(() => props.mode === 'preview' || props.mode === 'exp
             <div v-else class="fld-block">
               <div class="fld-block-head">
                 {{ isPie(state.type) ? '扇区' : '指标' }} <span class="fb-tag">系列</span>
-                <span class="fb-count">已添加 <b>{{ state.series.length }}</b> / {{ MAX_IND }}</span>
+                <span class="fb-count">已添加 <b>{{ state.series.length }}</b> / {{ maxInd }}</span>
               </div>
               <FieldItem
                 v-for="(s, i) in state.series"
@@ -804,7 +1064,12 @@ const isPreview = computed(() => props.mode === 'preview' || props.mode === 'exp
                 @null="onFieldNull"
                 @sort="onFieldSort"
               />
-              <button class="fld-add-entry" type="button" @click="openPick('left')">
+              <button
+                v-if="state.series.length < maxInd"
+                class="fld-add-entry"
+                type="button"
+                @click="openPick('left')"
+              >
                 <Icon name="plus-12" :size="12" /> {{ isPie(state.type) ? '选择扇区' : '选择指标' }}
               </button>
             </div>
@@ -822,32 +1087,19 @@ const isPreview = computed(() => props.mode === 'preview' || props.mode === 'exp
           </div>
 
           <div v-show="cfgTab === 'analysis'" class="cfg-body">
-            <div class="sec open">
-              <div class="sec-head"><span class="s-name">分析预警</span></div>
-              <div class="sec-body">
-                <div class="warn-row">
-                  <span>标识线</span>
-                  <span>
-                    <span v-if="state.analysis.markLine" class="warn-on">已开启</span>
-                  </span>
-                </div>
-                <div class="cfg-row"><span class="r-label">数值</span><input class="cfg-input" v-model="state.analysis.markLine" placeholder="例如 4500"></div>
-                <div class="warn-row"><span>趋势线</span><span style="font-size:12px;color:#86909C">规划中</span></div>
-              </div>
-            </div>
-            <div class="sec open">
-              <div class="sec-head"><span class="s-name">标注</span></div>
-              <div class="sec-body">
-                <button type="button" class="anno-add" @click="Message.info('点击图表数据点添加标注（演示）')">添加标注</button>
-              </div>
-            </div>
+            <AnalysisPanel
+              ref="analysisPanelRef"
+              :state="state"
+              :labels="paintLabels"
+              v-model:picking="annoPicking"
+            />
           </div>
 
           <div v-if="pickOpen" class="fld-ind-overlay">
             <div class="fld-ind-head">
               <button type="button" class="fld-ind-back" @click="pickOpen = false"><Icon name="chevron-left-12" :size="12" /> 返回</button>
               <span class="fld-ind-title">{{ isPie(state.type) ? '选择扇区' : '选择指标' }}</span>
-              <span class="fb-count">已选 <b>{{ state.series.length }}</b> / {{ MAX_IND }}</span>
+              <span class="fb-count">已选 <b>{{ state.series.length }}</b> / {{ maxInd }}</span>
             </div>
             <div class="ip-search-row">
               <div class="ip-search">

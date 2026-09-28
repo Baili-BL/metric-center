@@ -154,6 +154,11 @@ onBeforeUnmount(() => {
       title="点击更换颜色"
       @click.stop="openColor"
     />
+    <span class="f-ico" aria-hidden="true">
+      <Icon :name="ico" :size="14" />
+    </span>
+    <span v-if="hasCond" class="f-cond" title="已设置数据条件">条件</span>
+    <span class="f-name" :title="disp">{{ disp }}</span>
     <span v-if="showAxis" class="f-axis" :class="{ right: isRight }">{{ isRight ? '从轴' : '主轴' }}</span>
     <button
       v-if="combo"
@@ -170,7 +175,7 @@ onBeforeUnmount(() => {
       <Icon name="caret-fill" :size="12" />
     </button>
     <button type="button" class="f-del" title="移除" @click.stop="emit('remove', index)">
-      <Icon name="trash-fill" :size="12" />
+      <Icon name="trash" :size="12" />
     </button>
   </div>
 

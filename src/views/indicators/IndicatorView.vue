@@ -56,6 +56,9 @@ function specOf(c) {
     series: [{ name: c.title, color: '#0016ED', values: c.values || [] }],
     labels: store.LABELS,
     unit: c.unit,
+    tooltipShow: false,
+    disableTooltip: true,
+    listPreview: true,
   }
 }
 function sparkTick(i) {
@@ -380,7 +383,7 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
             <span class="k-tag" :class="c.kind === 'calc' ? 'k-calc' : 'k-base'">{{ c.kind === 'calc' ? '计算' : '基础' }}</span>
             <span class="ind-name">{{ c.title }}</span>
           </div>
-          <div class="ind-chart"><G2Chart :spec="specOf(c)" :height="86" /></div>
+          <div class="ind-chart"><G2Chart :spec="specOf(c)" :height="86" mini disable-tooltip /></div>
           <div class="ind-dates">
             <span>{{ sparkTicks[0] }}</span>
             <span>{{ sparkTicks[1] }}</span>

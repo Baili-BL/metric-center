@@ -1,3 +1,6 @@
+import { normalizeAnalysis } from './analysis/types'
+import { defaultSeason, normalizeSeason } from './seasonal'
+
 export const CHART_TYPES = [
   { id: 'line', name: '线图', group: '线/面图', icon: 'chart-line' },
   { id: 'seasonal', name: '季节性图', group: '线/面图', icon: 'chart-seasonal' },
@@ -437,15 +440,32 @@ export function defaultBuilderState(partial = {}) {
     dateFrom: '2019-01',
     dateTo: '2026-07',
     datePreset: 'history',
-    analysis: { markLine: '', markArea: '' },
+    analysis: defaultAnalysisState(),
+    season: defaultSeason(),
     cross: { x: defaultCrossAxis(), y: defaultCrossAxis() },
     crossBar: defaultCrossBarState(),
     ...partial,
   }
 }
 
+function defaultAnalysisState() {
+  return {
+    markLine: '',
+    markArea: '',
+    guides: [],
+    trends: [],
+    annos: [],
+  }
+}
+
+function normalizeAnalysisState(raw, seriesName = '') {
+  return normalizeAnalysis(raw || defaultAnalysisState(), seriesName)
+}
+
 export function mergeBuilderState(saved = {}, extras = {}) {
   const base = defaultBuilderState()
+  const series = Array.isArray(saved.series) ? saved.series.map((s) => ({ ...defaultSeriesStyle(), ...s })) : []
+  const seriesName = series[0]?.name || ''
   const next = {
     ...base,
     ...saved,
@@ -455,7 +475,8 @@ export function mergeBuilderState(saved = {}, extras = {}) {
       yL: { ...base.ax.yL, ...(saved.ax?.yL || {}) },
       yR: { ...base.ax.yR, ...(saved.ax?.yR || {}) },
     },
-    analysis: { ...base.analysis, ...(saved.analysis || {}) },
+    analysis: normalizeAnalysisState(saved.analysis, seriesName),
+    season: normalizeSeason(saved.season || base.season),
     cross: {
       x: { ...base.cross.x, ...(saved.cross?.x || {}) },
       y: { ...base.cross.y, ...(saved.cross?.y || {}) },
@@ -467,7 +488,7 @@ export function mergeBuilderState(saved = {}, extras = {}) {
       start: { ...base.crossBar.start, ...(saved.crossBar?.start || {}) },
       end: { ...base.crossBar.end, ...(saved.crossBar?.end || {}) },
     },
-    series: Array.isArray(saved.series) ? saved.series.map((s) => ({ ...defaultSeriesStyle(), ...s })) : [],
+    series,
   }
   if (extras.title) next.title = extras.title
   if (extras.series) next.series = extras.series
@@ -518,6 +539,10 @@ export function toPaintSpec(state, series, labels) {
     labelBold: state.labelBold,
     labelItalic: state.labelItalic,
     markLine: state.analysis?.markLine,
+    guides: state.analysis?.guides || [],
+    trends: state.analysis?.trends || [],
+    annos: state.analysis?.annos || [],
+    season: state.season,
     viewCtrlShow: state.viewCtrlShow,
     viewCtrlType: state.viewCtrlType,
     viewCtrlMinWidth: state.viewCtrlMinWidth,

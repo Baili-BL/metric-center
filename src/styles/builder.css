@@ -126,6 +126,16 @@
 .cb-root .d-table{width:100%;border-collapse:collapse;font-size:12.5px}
 .cb-root .d-table th{text-align:left;color:var(--text-2);font-weight:500;padding:7px 10px;background:#f7f8fa;border-bottom:1px solid var(--border)}
 .cb-root .d-table td{padding:7px 10px;border-bottom:1px solid #f5f6f8;color:var(--text)}
+.cb-root .d-table td.num,.cb-root .d-table th.num{text-align:right;font-variant-numeric:tabular-nums}
+.cb-root .d-table .nm{max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cb-root .d-table .id-cell{color:var(--text-3);font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px}
+.cb-root .d-table .op-cell{white-space:nowrap}
+.cb-root .d-table .op-link{
+  color:var(--primary);font-size:12px;background:none;border:none;padding:0 6px 0 0;cursor:pointer;
+}
+.cb-root .d-table .op-link:last-child{padding-right:0}
+.cb-root .d-table .op-link:hover{text-decoration:underline}
+.detail-table-wrap{max-height:min(60vh,480px);overflow:auto}
 
 .cb-root .panel-toggle{
   position:absolute;top:50%;transform:translateY(-50%);z-index:40;left:-12px;
@@ -268,12 +278,8 @@
   display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:6px;cursor:pointer;font-size:12px;
 }
 .cb-root .pal-item.active{background:var(--primary-bg);color:var(--primary)}
-.cb-root .warn-row{display:flex;align-items:center;justify-content:space-between;padding:8px 0;font-size:13px}
-.cb-root .warn-on{font-size:12px;color:var(--success);margin-right:8px}
-.cb-root .anno-add{
-  width:100%;height:28px;border:none;border-radius:2px;margin:0 0 12px;
-  background:#2e74ff;color:#fff;font-size:12px;
-}
+.cb-root .warn-row{display:flex;align-items:center;justify-content:space-between;padding:4px 0;font-size:12px;min-height:28px}
+.cb-root .warn-on{font-size:11px;color:var(--primary);margin-right:8px}
 
 .cb-root .fld-ind-overlay,.cb-root .fcfg-overlay{
   position:absolute;inset:0;background:#fff;z-index:20;display:flex;flex-direction:column;
@@ -360,8 +366,25 @@
   border-radius:4px;background:#fff;color:var(--text-3);cursor:pointer;font-size:12px;
 }
 .cb-root .cross-ind.filled{border-style:solid;border-color:#26bf59;background:rgba(38,191,89,.12);color:var(--text)}
-.cb-root .season-range-row{display:flex;align-items:center;gap:6px}
+.cb-root .season-range-row{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
 .cb-root .season-range-row .cfg-input{width:80px;flex:none;text-align:center}
+.cb-root .season-cross{
+  display:inline-flex;align-items:center;gap:4px;margin-left:8px;
+  font-size:12px;color:rgba(0,0,0,.65);cursor:pointer;user-select:none;
+}
+.cb-root .season-cross input{accent-color:var(--primary);margin:0}
+.cb-root .season-cross.locked{opacity:.7;cursor:not-allowed}
+.cb-root .season-year-list{display:flex;flex-direction:column;gap:6px;margin-top:6px}
+.cb-root .season-year-item{
+  display:flex;align-items:center;gap:8px;font-size:12px;color:rgba(0,0,0,.75);
+}
+.cb-root .season-year-item .f-dot.color-well{
+  width:14px;height:14px;border-radius:50%;border:none;padding:0;flex:none;cursor:pointer;
+  box-shadow:inset 0 0 0 1px rgba(0,0,0,.08);
+}
+.cb-root .season-year-item .f-dot.color-well:hover{outline:2px solid var(--primary);outline-offset:1px}
+.cb-root .season-year-item .sy-name{width:52px}
+.cb-root .season-year-item .sy-cur{color:var(--primary);font-size:11px}
 
 .page-panel:has(.cb-root){background:var(--bg)}
 .cb-chart-card .chart-body .g2-wrap,

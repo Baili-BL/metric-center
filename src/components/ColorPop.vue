@@ -1,5 +1,5 @@
 <script setup>
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue'
 
 const MATRIX = [
   '#ffffff', '#165dff', '#00d6c8', '#14c9c9', '#00b42a', '#9fdb1d', '#f7ba1e', '#ff7d00', '#f53f3f', '#f5319d', '#722ed1', '#d91ad9',
@@ -23,6 +23,7 @@ const props = defineProps({
 })
 const emit = defineEmits(['update:show', 'pick'])
 
+const rootEl = ref(null)
 const cp = reactive({
   origin: '#1f2329',
   hueBase: [46, 116, 255],
@@ -30,6 +31,34 @@ const cp = reactive({
   hsl: [214, 100, 59],
 })
 const recent = ref(loadRecent())
+
+function close() {
+  if (!props.show) return
+  emit('update:show', false)
+}
+
+function onDocDown(e) {
+  if (!props.show) return
+  const t = e.target
+  if (rootEl.value?.contains(t)) return
+  /* 色块本身负责开关，避免点开瞬间被关掉 */
+  if (t?.closest?.('.color-well, .anno-color-well, .cp')) return
+  close()
+}
+
+function onKey(e) {
+  if (e.key === 'Escape') close()
+}
+
+function bindOutside(on) {
+  if (on) {
+    document.addEventListener('mousedown', onDocDown, true)
+    document.addEventListener('keydown', onKey)
+  } else {
+    document.removeEventListener('mousedown', onDocDown, true)
+    document.removeEventListener('keydown', onKey)
+  }
+}
 
 function hslToRgb(h, s, l) {
   h /= 360
@@ -193,17 +222,25 @@ async function dropper() {
 }
 
 watch(() => props.show, (on) => {
-  if (!on) return
+  if (!on) {
+    bindOutside(false)
+    return
+  }
   cp.origin = props.origin || '#1f2329'
   loadColor(cp.origin)
   if (!props.origin) cp.alpha = 0
   recent.value = loadRecent()
+  /* 延后绑定，避免打开时的同一次点击立刻触发关闭 */
+  nextTick(() => bindOutside(true))
 })
+
+onBeforeUnmount(() => bindOutside(false))
 </script>
 
 <template>
   <div
     v-show="show"
+    ref="rootEl"
     class="cp"
     :style="{ left: `${left}px`, top: `${top}px` }"
     @mousedown.stop

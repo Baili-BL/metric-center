@@ -111,6 +111,24 @@ function viewCtrlSliderStyle(chart, series, labels) {
   return style
 }
 
+function viewCtrlScrollbarStyle(ratio) {
+  return {
+    ratio: Math.max(0.05, Math.min(1, ratio)),
+    value: 0,
+    slidable: true,
+    isRound: true,
+    position: 'bottom',
+    trackSize: 10,
+    trackFill: '#E5E6EB',
+    trackFillOpacity: 1,
+    trackStroke: 'transparent',
+    thumbFill: '#C9CDD4',
+    thumbFillOpacity: 1,
+    thumbStroke: 'transparent',
+    thumbLineWidth: 0,
+  }
+}
+
 export function applyViewControls(view, chart, spec, labels, hostEl) {
   if (!spec?.viewCtrlShow || spec.mini || !usesViewCtrl(spec.type)) {
     view.slider = false
@@ -134,11 +152,16 @@ export function applyViewControls(view, chart, spec, labels, hostEl) {
     view.scrollbar = false
     view.interaction = { ...(view.interaction || {}), sliderFilter: true, scrollbarFilter: false }
   } else {
-    // G2 view 不会把 scrollbar 继承到子 mark，滚动条改由图表容器展示
+    /* G2 原生滚动条：https://g2.antv.antgroup.com/zh/manual/component/scrollbar/ */
     view.slider = false
-    view.scrollbar = false
-    view.paddingBottom = Math.max(Number(view.paddingBottom) || 0, 16)
-    view.interaction = { ...(view.interaction || {}), scrollbarFilter: false, sliderFilter: false }
+    if (ratio >= 0.999) {
+      view.scrollbar = false
+      view.paddingBottom = Math.max(Number(view.paddingBottom) || 0, 16)
+      view.interaction = { ...(view.interaction || {}), scrollbarFilter: false, sliderFilter: false }
+    } else {
+      view.scrollbar = { x: viewCtrlScrollbarStyle(ratio) }
+      view.interaction = { ...(view.interaction || {}), scrollbarFilter: true, sliderFilter: false }
+    }
   }
   stampViewCtrlOnMarks(view)
   return view

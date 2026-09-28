@@ -2,7 +2,6 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Message } from '@arco-design/web-vue'
-import ExcelJS from 'exceljs'
 import { useGalleryStore } from '../../stores/gallery'
 import { CHART_TYPES, CT_GROUP_ORDER, isBarFamily, isPie, isScatter, mergeBuilderState, toPaintSpec, typeName } from '../../charts/types'
 import DirTree from '../../components/DirTree.vue'
@@ -13,6 +12,8 @@ import AppModal from '../../components/AppModal.vue'
 import DirPathPicker from '../../components/DirPathPicker.vue'
 import ChartBuilder from '../builder/ChartBuilder.vue'
 import { hashStr } from '../../utils/hash'
+import { exportChartPng } from '../../utils/exportPng'
+import { exportChartExcel } from '../../utils/exportExcelChart'
 
 const store = useGalleryStore()
 const route = useRoute()
@@ -102,7 +103,13 @@ function specOf(c) {
   const st = mergeBuilderState(c.builderState || {}, { title: c.title, series: c.builderState?.series || [] })
   if (!st.type) st.type = c.type || 'line'
   if (!st.unit) st.unit = c.unit || ''
-  return { ...toPaintSpec(st, st.series || [], store.LABELS), customLegend: true, tooltipShow: true }
+  return {
+    ...toPaintSpec(st, st.series || [], store.LABELS),
+    customLegend: true,
+    tooltipShow: false,
+    listPreview: true,
+    disableTooltip: true,
+  }
 }
 function isFav(c) {
   return c.inMine != null ? !!c.inMine : !!c.mine
@@ -207,34 +214,47 @@ function openInfo(c) {
 }
 async function downloadXlsx(c) {
   closeMenu()
-  const series = c.builderState?.series || []
-  if (!series.length) return Message.warning('没有可导出的数据')
-  const wb = new ExcelJS.Workbook()
-  const ws = wb.addWorksheet('图表数据')
-  ws.addRow(['日期', ...series.map((s) => s.alias || s.name)])
-  store.LABELS.forEach((lab, i) => {
-    ws.addRow([lab, ...series.map((s) => s.values?.[i] ?? '')])
-  })
-  const buf = await wb.xlsx.writeBuffer()
-  const a = document.createElement('a')
-  a.href = URL.createObjectURL(new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }))
-  a.download = `${c.title || 'chart'}.xlsx`
-  a.click()
-  Message.success('已导出 Excel')
+  const bs = mergeBuilderState(c.builderState || {}, { title: c.title, series: c.builderState?.series || c.series || [] })
+  if (!bs.series.length) return Message.warning('没有可导出的数据')
+  const from = (bs.dateFrom || '').slice(0, 7)
+  const to = (bs.dateTo || '').slice(0, 7)
+  const labels = store.LABELS.filter((d) => (!from || d >= from) && (!to || d <= to))
+  const labelSet = new Set(labels)
+  const idx = store.LABELS.map((d, i) => (labelSet.has(d) ? i : -1)).filter((i) => i >= 0)
+  const exportLabels = labels.length ? labels : store.LABELS
+  const series = bs.series.map((s) => ({
+    ...s,
+    values: idx.length ? idx.map((i) => s.values?.[i]) : (s.values || []),
+  }))
+  try {
+    await exportChartExcel({
+      state: bs,
+      labels: exportLabels,
+      series,
+      filename: `${c.title || 'chart'}.xlsx`,
+    })
+    Message.success('已导出：Sheet1 原生图表（可编辑）/ Sheet2 明细数据')
+  } catch (e) {
+    console.error(e)
+    Message.error(e?.message || '导出失败')
+  }
 }
 function downloadPng(c) {
   closeMenu()
   const card = document.querySelector(`.gal-grid .chart-card[data-id="${c.id}"]`)
   const canvas = card?.querySelector('canvas')
   if (!canvas) return Message.warning('请等待预览加载完成')
-  canvas.toBlob((blob) => {
-    if (!blob) return Message.error('导出失败')
-    const a = document.createElement('a')
-    a.href = URL.createObjectURL(blob)
-    a.download = `${c.title || 'chart'}.png`
-    a.click()
-    Message.success('已下载图片')
-  }, 'image/png')
+  const bs = mergeBuilderState(c.builderState || {}, { title: c.title, series: c.series })
+  exportChartPng(canvas, {
+    ...bs,
+    title: c.title || bs.title,
+    series: (bs.series || []).length ? bs.series : (c.series || []),
+    lineMarker: !isPie(bs.type) && !isScatter(bs.type),
+  }).then(() => {
+    Message.success('已导出 PNG（含标题与图例）')
+  }).catch((e) => {
+    Message.error(e?.message || '导出失败')
+  })
 }
 function onDocClick(e) {
   closeMenu()
@@ -541,7 +561,7 @@ function onDropDir(fromPath, targetPath) {
           </span>
         </div>
         <div class="cc-preview">
-          <G2Chart :spec="specOf(c)" fill />
+          <G2Chart :spec="specOf(c)" fill mini disable-tooltip />
         </div>
       </router-link>
     </div>
