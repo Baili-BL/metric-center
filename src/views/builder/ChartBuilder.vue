@@ -18,6 +18,7 @@ import {
   sectionValue,
   toPaintSpec,
   usesCrossSectionTime,
+  usesViewCtrl,
 } from '../../charts/types'
 import G2Chart from '../../components/G2Chart.vue'
 import Icon from '../../components/Icon.vue'
@@ -152,6 +153,7 @@ const fcfgSeries = computed(() => (fcfgIdx.value >= 0 ? state.series[fcfgIdx.val
 const fmtSeries = computed(() => (fmtIdx.value >= 0 ? state.series[fmtIdx.value] : null))
 const canPaint = computed(() => (isCrossScatter(state.type) ? state.series.length >= 2 : state.series.length > 0))
 const hideDimChip = computed(() => usesCrossSectionTime(state.type) || isCrossScatter(state.type) || isSeasonal(state.type))
+const paletteColors = computed(() => PALETTES[state.paletteIdx]?.colors || PALETTES[0].colors)
 const hideDatePreset = computed(() => usesCrossSectionTime(state.type) || isSeasonal(state.type))
 const crossBarRange = computed(() => resolveCrossBarRange(state.crossBar, rawLabels.value))
 const crossBarHint = computed(() => crossBarTimeLabel(state.crossBar, rawLabels.value))
@@ -503,6 +505,8 @@ function onFmtOk(fmt) {
 function setType(id) {
   state.type = id
   typeOpen.value = false
+  // 视图控件跟随图类型取默认值（线/面/混合/柱图默认开，占比等默认关）
+  state.viewCtrlShow = usesViewCtrl(id)
   if (isSeasonal(id)) {
     if (!state.season) state.season = normalizeSeason()
     else state.season = normalizeSeason(state.season)
@@ -532,6 +536,12 @@ function onSeasonCross(checked) {
     return
   }
   state.season.crossYear = !!checked
+}
+
+function onSeasonAlign(align) {
+  if (!state.season) state.season = normalizeSeason()
+  state.season.align = align
+  state.season = normalizeSeason(state.season)
 }
 
 function setSeasonYearColor(year, color) {
@@ -711,10 +721,10 @@ const isPreview = computed(() => props.mode === 'preview' || props.mode === 'exp
         <div class="cb-chart-card" :class="['legend-' + state.legendPos, { 'legend-column': state.legendStyle === 'column', 'anno-picking': annoPicking }]">
           <div v-if="state.titleShow" class="chart-title" :class="'align-' + state.titleAlign">
             <h3 contenteditable spellcheck="false" :style="titleTextStyle" @blur="state.title = ($event.target.textContent || '').trim() || '未命名图表'">{{ state.title }}</h3>
-            <div v-if="state.remarkOn && state.remark && state.remarkPos !== 'chartTop'" class="chart-remark">{{ state.remark }}</div>
+            <div v-if="state.remarkOn && state.remark && state.remarkPos !== 'chartTop'" class="chart-remark rich-note" v-html="state.remark"></div>
             <div v-if="state.divider" class="chart-divider" :style="{ borderTopColor: state.dividerColor, borderTopWidth: (state.dividerWidth || 1) + 'px' }"></div>
           </div>
-          <div v-if="state.remarkOn && state.remark && state.remarkPos === 'chartTop'" class="chart-remark">{{ state.remark }}</div>
+          <div v-if="state.remarkOn && state.remark && state.remarkPos === 'chartTop'" class="chart-remark rich-note" v-html="state.remark"></div>
           <div class="chart-plot-wrap">
             <div
               v-if="state.legendShow && legendSeries.length && (state.legendPos === 'left' || state.legendPos === 'top' || !state.legendPos)"
@@ -727,14 +737,6 @@ const isPreview = computed(() => props.mode === 'preview' || props.mode === 'exp
                 <span class="lg-name">{{ s.alias || s.name }}</span>
               </span>
             </div>
-              <div
-                v-if="annoPicking"
-                class="anno-pick-banner"
-              >
-                <Icon name="info-circle" :size="12" />
-                请在图表上点选数据点添加标注
-                <button type="button" @click="annoPicking = false">取消</button>
-              </div>
             <div ref="chartHost" class="chart-body">
               <G2Chart
                 v-if="canPaint"
@@ -763,7 +765,7 @@ const isPreview = computed(() => props.mode === 'preview' || props.mode === 'exp
               </span>
             </div>
           </div>
-          <div v-if="state.footnoteOn && state.footnote" class="chart-footnote">{{ state.footnote }}</div>
+          <div v-if="state.footnoteOn && state.footnote" class="chart-footnote rich-note" v-html="state.footnote"></div>
         </div>
 
         <div v-if="state.tableShow !== false" class="table-card" :class="{ open: infoOpen }">
@@ -928,7 +930,23 @@ const isPreview = computed(() => props.mode === 'preview' || props.mode === 'exp
               <DimChip :state="state" />
             </div>
             <div v-if="isSeasonal(state.type)" class="fld-block">
-              <div class="fld-block-head">横坐标时间刻度</div>
+              <div class="fld-block-head">对齐方式</div>
+              <div class="season-align-row">
+                <button
+                  type="button"
+                  class="season-align-btn"
+                  :class="{ active: (state.season?.align || 'gregorian') === 'gregorian' }"
+                  @click="onSeasonAlign('gregorian')"
+                >公历对齐</button>
+                <button
+                  type="button"
+                  class="season-align-btn"
+                  :class="{ active: state.season?.align === 'cny' }"
+                  @click="onSeasonAlign('cny')"
+                >春节对齐</button>
+              </div>
+              <div v-if="state.season?.align === 'cny'" class="season-align-tip">X 轴变为相对当年春节的天数，各年份曲线以春节为锚点对齐</div>
+              <div class="fld-block-head" style="margin-top:10px">横坐标时间刻度</div>
               <div class="season-range-row">
                 <input
                   class="cfg-input"
@@ -1018,6 +1036,7 @@ const isPreview = computed(() => props.mode === 'preview' || props.mode === 'exp
                 :index="x.i"
                 :show-axis="false"
                 combo
+                :palette="paletteColors"
                 @remove="removeSeries"
                 @configure="openFcfg"
                 @color="onFieldColor"
@@ -1035,6 +1054,7 @@ const isPreview = computed(() => props.mode === 'preview' || props.mode === 'exp
                 :index="x.i"
                 :show-axis="false"
                 combo
+                :palette="paletteColors"
                 @remove="removeSeries"
                 @configure="openFcfg"
                 @color="onFieldColor"
@@ -1056,6 +1076,7 @@ const isPreview = computed(() => props.mode === 'preview' || props.mode === 'exp
                 :series="s"
                 :index="i"
                 :show-axis="!isPie(state.type)"
+                :palette="paletteColors"
                 @remove="removeSeries"
                 @configure="openFcfg"
                 @color="onFieldColor"

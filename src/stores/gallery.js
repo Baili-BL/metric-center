@@ -3,6 +3,7 @@ import { computed, ref } from 'vue'
 import { hashStr, ME, monthLabels, PEOPLE, PALETTE, rndSeries, todayStr, uid } from '../utils/hash'
 import { dirAddUnder, dirChildKids, dirLocate, dirMoveDrop, dirRemove, dirRename, matchText, pathStarts, remountPath } from '../utils/dir'
 import { defaultBuilderState } from '../charts/types'
+import { sourceOf } from './indicators'
 
 const LS_CHARTS = 'ailab.gallery.userCharts'
 const LS_DIRS = 'ailab.gallery.dirTree'
@@ -25,7 +26,7 @@ const DEFAULT_DIRS = [
 ]
 
 function makeSeries(name, color, seed, base, amp) {
-  return { name, color, axis: 'left', values: rndSeries(seed, LABELS.length, base, amp), unit: '元/吨' }
+  return { name, color, axis: 'left', values: rndSeries(seed, LABELS.length, base, amp), unit: '元/吨', source: sourceOf(name) }
 }
 
 function seedCharts() {
@@ -59,6 +60,7 @@ function seedCharts() {
     const date = `2026-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
     const s1 = makeSeries(x.t.split(/与|及/)[0] || x.t, PALETTE[0], seed, 3800 + (seed % 800), 80)
     const s2 = makeSeries('对比序列', PALETTE[1], seed + 17, 3600 + (seed % 500), 70)
+    s2.source = sourceOf(x.t)
     const type = x.type
     return {
       id: 'C' + String(10000 + seed % 90000),

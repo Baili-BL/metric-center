@@ -86,6 +86,31 @@
 .cb-chart-card .chart-title.align-right{text-align:right}
 .cb-chart-card .chart-divider{margin:8px 10px 0;border-top:1px solid #e3e6eb}
 .cb-chart-card .chart-remark{font-size:12px;color:var(--text-3);margin:0 18px 4px;line-height:1.5}
+.cb-chart-card .chart-footnote{font-size:12px;color:var(--text-3);margin:4px 18px 0;line-height:1.5}
+/* 备注与尾注富文本排版（v-html 内容） */
+.rich-note{word-break:break-word}
+.rich-note p{margin:0}
+.rich-note h3,.rich-note h4{margin:0 0 2px;font-weight:600;color:var(--text)}
+.rich-note h3{font-size:14px}
+.rich-note h4{font-size:13px}
+.rich-note b,.rich-note strong{font-weight:600}
+.rich-note u,.rich-note s{text-decoration-skip-ink:none}
+.rich-note blockquote{margin:2px 0;padding:1px 8px;border-left:3px solid var(--border);color:var(--text-2)}
+.rich-note ol,.rich-note ul{margin:2px 0;padding-left:20px}
+.rich-note a{color:var(--primary);text-decoration:none}
+.rich-note a:hover{text-decoration:underline}
+.rich-note hr{border:none;border-top:1px solid var(--border);margin:6px 0}
+.rich-note img{max-width:100%}
+/* 手工配置-备注与尾注：内容编辑入口 */
+.cb-root .note-edit{
+  flex:1;height:32px;display:flex;align-items:center;gap:6px;padding:0 10px;
+  border:1px solid var(--border-input);border-radius:6px;background:#fff;cursor:pointer;
+  color:var(--text-3);font-size:13px;text-align:left;min-width:0;
+}
+.cb-root .note-edit:hover{border-color:var(--primary);color:var(--text-2)}
+.cb-root .note-edit .ne-text{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text)}
+.cb-root .note-edit .ne-text.empty{color:var(--text-3)}
+.cb-root .note-edit svg{flex-shrink:0;color:var(--text-3)}
 .cb-chart-card .chart-plot-wrap{flex:1;min-height:0;display:flex;flex-direction:column}
 .cb-chart-card.legend-left .chart-plot-wrap,
 .cb-chart-card.legend-right .chart-plot-wrap{flex-direction:row}
@@ -374,6 +399,15 @@
 }
 .cb-root .season-cross input{accent-color:var(--primary);margin:0}
 .cb-root .season-cross.locked{opacity:.7;cursor:not-allowed}
+.cb-root .season-align-row{display:inline-flex;border:1px solid var(--border,#e5e6eb);border-radius:4px;overflow:hidden}
+.cb-root .season-align-btn{
+  padding:4px 12px;border:none;background:#fff;color:var(--text-3,#86909c);
+  font-size:12px;cursor:pointer;transition:all .15s;
+}
+.cb-root .season-align-btn+.season-align-btn{border-left:1px solid var(--border,#e5e6eb)}
+.cb-root .season-align-btn:hover{color:var(--primary,#2e74ff)}
+.cb-root .season-align-btn.active{background:var(--primary,#2e74ff);color:#fff}
+.cb-root .season-align-tip{margin-top:6px;font-size:12px;color:var(--text-3,#86909c);line-height:1.5}
 .cb-root .season-year-list{display:flex;flex-direction:column;gap:6px;margin-top:6px}
 .cb-root .season-year-item{
   display:flex;align-items:center;gap:8px;font-size:12px;color:rgba(0,0,0,.75);
@@ -717,12 +751,26 @@ body:has(.builder-drawer-root.open){overflow:hidden}
 }
 
 .dim-menu{
-  position:fixed;z-index:220;width:210px;min-width:210px;
+  position:fixed;z-index:280;width:210px;min-width:210px;
   background:#fff;border:none;border-radius:8px;
   box-shadow:0 0 0 1px rgba(0,0,0,.06),0 9px 28px rgba(0,0,0,.05),0 12px 48px 16px rgba(0,0,0,.03);
   padding:2px;display:none;box-sizing:border-box;
 }
 .dim-menu.show{display:block}
+/* 字段统一配色弹层：限定当前调色板 */
+.fld-palette-pop{
+  position:fixed;z-index:281;width:148px;box-sizing:border-box;
+  background:#fff;border-radius:8px;padding:10px 10px 8px;
+  box-shadow:0 0 0 1px rgba(0,0,0,.06),0 9px 28px rgba(0,0,0,.05),0 12px 48px 16px rgba(0,0,0,.03);
+}
+.fld-palette-pop .fpp-title{font-size:12px;line-height:18px;color:rgba(0,0,0,.55);margin:0 4px 8px}
+.fld-palette-pop .fpp-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.fld-palette-pop .fpp-swatch{
+  height:22px;border-radius:4px;border:none;cursor:pointer;padding:0;
+  box-shadow:inset 0 0 0 1px rgba(0,0,0,.08);
+}
+.fld-palette-pop .fpp-swatch:hover{box-shadow:inset 0 0 0 1px rgba(0,0,0,.2)}
+.fld-palette-pop .fpp-swatch.active{outline:2px solid var(--primary,#2e74ff);outline-offset:1px}
 .dim-time-menu{width:148px;min-width:148px}
 .fld-dim-menu,.fld-dim-menu .dim-sub{width:148px;min-width:148px}
 .dim-mi{
@@ -757,7 +805,7 @@ body:has(.builder-drawer-root.open){overflow:hidden}
 .dim-opt:hover{background:#f5f5f5}
 .dim-opt.active{background:#eaf1ff;color:#2e74ff}
 .f-mark-menu{
-  position:fixed;z-index:230;min-width:118px;padding:4px;
+  position:fixed;z-index:290;min-width:118px;padding:4px;
   background:#fff;border-radius:8px;
   box-shadow:0 0 0 1px rgba(0,0,0,.06),0 9px 28px rgba(0,0,0,.05),0 12px 48px 16px rgba(0,0,0,.03);
   display:none;

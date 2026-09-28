@@ -41,6 +41,8 @@ const crumb = computed(() => {
   return { root: route.meta.title || '图库', cur: '' }
 })
 
+const collapseTip = computed(() => (collapsed.value ? '展开菜单' : '收起菜单'))
+
 function go(path, query) {
   router.push({ path, query })
 }
@@ -76,13 +78,30 @@ function srcName() {
         <span class="sub">AI指标工坊</span>
       </div>
       <nav class="menu">
-        <button class="menu-item" data-tip="BI看板" @click="placeholder('bi')"><span class="mi-icon"><Icon name="nav-bi" :size="15" /></span>BI看板</button>
-        <button class="menu-item" data-tip="研报管理" @click="placeholder('report')"><span class="mi-icon"><Icon name="nav-report" :size="15" /></span>研报管理<span class="mi-arrow"><Icon name="caret-down" :size="10" /></span></button>
-        <button class="menu-item" data-tip="智能ppt" @click="placeholder('ppt')"><span class="mi-icon"><Icon name="nav-ppt" :size="15" /></span>智能ppt</button>
-        <button class="menu-item" :class="{ active: isActive('gallery') }" data-tip="图库" @click="go('/gallery')"><span class="mi-icon"><Icon name="nav-gallery" :size="15" /></span>图库</button>
-        <button class="menu-item" :class="{ active: isActive('indicators') }" data-tip="指标中心" @click="go('/indicators')"><span class="mi-icon"><Icon name="nav-indicator" :size="15" /></span>指标中心</button>
+        <button class="menu-item" data-tip="BI看板" @click="placeholder('bi')">
+          <span class="mi-icon"><Icon name="nav-bi" :size="15" /></span>
+          <span class="mi-text">BI看板</span>
+        </button>
+        <button class="menu-item" data-tip="研报管理" @click="placeholder('report')">
+          <span class="mi-icon"><Icon name="nav-report" :size="15" /></span>
+          <span class="mi-text">研报管理</span>
+          <span class="mi-arrow"><Icon name="caret-down" :size="10" /></span>
+        </button>
+        <button class="menu-item" data-tip="智能ppt" @click="placeholder('ppt')">
+          <span class="mi-icon"><Icon name="nav-ppt" :size="15" /></span>
+          <span class="mi-text">智能ppt</span>
+        </button>
+        <button class="menu-item" :class="{ active: isActive('gallery') }" data-tip="图库" @click="go('/gallery')">
+          <span class="mi-icon"><Icon name="nav-gallery" :size="15" /></span>
+          <span class="mi-text">图库</span>
+        </button>
+        <button class="menu-item" :class="{ active: isActive('indicators') }" data-tip="指标中心" @click="go('/indicators')">
+          <span class="mi-icon"><Icon name="nav-indicator" :size="15" /></span>
+          <span class="mi-text">指标中心</span>
+        </button>
         <button class="menu-item" :class="{ active: isActive('tables'), expanded: openTable }" data-tip="表格" @click="openTable = !openTable; go('/tables', { type: tableType() })">
-          <span class="mi-icon"><Icon name="nav-table" :size="15" /></span>表格
+          <span class="mi-icon"><Icon name="nav-table" :size="15" /></span>
+          <span class="mi-text">表格</span>
           <span class="mi-arrow"><Icon name="caret-down" :size="10" /></span>
         </button>
         <div class="sub-menu" :class="{ open: openTable }">
@@ -93,7 +112,8 @@ function srcName() {
           <button class="sub-item" :class="{ active: tableType() === 'balance' }" @click="go('/tables', { type: 'balance' })">平衡表</button>
         </div>
         <button class="menu-item" :class="{ active: isActive('datasource'), expanded: openDs }" data-tip="数据源" @click="openDs = !openDs; go('/datasource')">
-          <span class="mi-icon"><Icon name="nav-datasource" :size="15" /></span>数据源
+          <span class="mi-icon"><Icon name="nav-datasource" :size="15" /></span>
+          <span class="mi-text">数据源</span>
           <span class="mi-arrow"><Icon name="caret-down" :size="10" /></span>
         </button>
         <div class="sub-menu" :class="{ open: openDs }">
@@ -102,18 +122,26 @@ function srcName() {
           <button class="sub-item" :class="{ active: srcName() === 'SMM' }" @click="go('/datasource', { src: 'SMM' })">SMM</button>
           <button class="sub-item" :class="{ active: route.path === '/manual' }" @click="go('/manual')">手工录入数据</button>
         </div>
-        <button class="menu-item" data-tip="预测指标" @click="placeholder('forecast')"><span class="mi-icon"><Icon name="trend-2" :size="15" /></span>预测指标</button>
+        <button class="menu-item" data-tip="预测指标" @click="placeholder('forecast')">
+          <span class="mi-icon"><Icon name="trend-2" :size="15" /></span>
+          <span class="mi-text">预测指标</span>
+        </button>
         <button class="menu-item" :class="{ active: isActive('projects'), expanded: openProject }" data-tip="项目管理" @click="openProject = !openProject; go('/projects/' + projectVer())">
-          <span class="mi-icon"><Icon name="calendar" :size="15" /></span>项目管理
+          <span class="mi-icon"><Icon name="calendar" :size="15" /></span>
+          <span class="mi-text">项目管理</span>
           <span class="mi-arrow"><Icon name="caret-down" :size="10" /></span>
         </button>
         <div class="sub-menu" :class="{ open: openProject }">
           <button class="sub-item" :class="{ active: projectVer() === 'v1' && route.path.startsWith('/projects') }" @click="go('/projects/v1')">V1 项目排期</button>
           <button class="sub-item" :class="{ active: projectVer() === 'v2' }" @click="go('/projects/v2')">V2 飞书排期</button>
         </div>
-        <button class="menu-item" data-tip="外部链接" @click="placeholder('link')"><span class="mi-icon"><Icon name="nav-link" :size="15" /></span>外部链接</button>
+        <button class="menu-item" data-tip="外部链接" @click="placeholder('link')">
+          <span class="mi-icon"><Icon name="nav-link" :size="15" /></span>
+          <span class="mi-text">外部链接</span>
+        </button>
         <button class="menu-item" :class="{ active: isActive('drafts'), expanded: openDraft }" data-tip="草稿箱" @click="openDraft = !openDraft; go('/drafts')">
-          <span class="mi-icon"><Icon name="nav-draft" :size="15" /></span>草稿箱
+          <span class="mi-icon"><Icon name="nav-draft" :size="15" /></span>
+          <span class="mi-text">草稿箱</span>
           <span class="mi-arrow"><Icon name="caret-down" :size="10" /></span>
         </button>
         <div class="sub-menu" :class="{ open: openDraft }">
@@ -122,7 +150,7 @@ function srcName() {
         </div>
       </nav>
       <div class="sidebar-foot">
-        <button type="button" class="sb-collapse" :data-tip="collapsed ? '展开菜单' : '收起菜单'" @click="collapsed = !collapsed">
+        <button type="button" class="sb-collapse" :data-tip="collapseTip" :title="collapseTip" @click="collapsed = !collapsed">
           <Icon name="panel-collapse" :size="16" />
         </button>
       </div>

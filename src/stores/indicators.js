@@ -58,7 +58,7 @@ function freqOf(t) {
   if (/周/.test(t)) return '周频'
   return '日频'
 }
-function sourceOf(t) {
+export function sourceOf(t) {
   if (/螺纹|盘螺|焦炭|铁矿|废钢|热轧/.test(t)) return '上海钢联'
   if (/豆粕|棕榈|甲醇|PTA|白糖|棉花/.test(t)) return '期货交易所'
   if (/普氏|海运|BDI/.test(t)) return '同花顺'

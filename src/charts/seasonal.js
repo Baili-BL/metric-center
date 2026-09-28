@@ -1,4 +1,4 @@
-import { DEFAULT_COLORS as FALLBACK } from './seasonalColors'
+import { DEFAULT_COLORS as FALLBACK } from './seasonalColors.js'
 
 const COLORS = FALLBACK
 
@@ -32,8 +32,42 @@ export function defaultSeason() {
     start: '01-01',
     end: '12-31',
     crossYear: false,
+    align: 'gregorian',
     yearColors: {},
   }
+}
+
+/** 春节（正月初一）日期表，覆盖 2000-2049 */
+const CNY_DATES = {
+  2000: '02-05', 2001: '01-24', 2002: '02-12', 2003: '02-01', 2004: '01-22',
+  2005: '02-09', 2006: '01-29', 2007: '02-18', 2008: '02-07', 2009: '01-26',
+  2010: '02-14', 2011: '02-03', 2012: '01-23', 2013: '02-10', 2014: '01-31',
+  2015: '02-19', 2016: '02-08', 2017: '01-28', 2018: '02-16', 2019: '02-05',
+  2020: '01-25', 2021: '02-12', 2022: '02-01', 2023: '01-22', 2024: '02-10',
+  2025: '01-29', 2026: '02-17', 2027: '02-06', 2028: '01-26', 2029: '02-13',
+  2030: '02-03', 2031: '01-23', 2032: '02-11', 2033: '01-31', 2034: '02-19',
+  2035: '02-08', 2036: '01-28', 2037: '02-15', 2038: '02-04', 2039: '01-24',
+  2040: '02-12', 2041: '02-01', 2042: '01-22', 2043: '02-10', 2044: '01-30',
+  2045: '02-17', 2046: '02-06', 2047: '01-26', 2048: '02-14', 2049: '02-02',
+}
+
+/** 某年春节（正月初一）的 Date；未知年份返回 null */
+export function cnyDate(y) {
+  const md = CNY_DATES[+y]
+  if (!md) return null
+  const [m, d] = md.split('-').map(Number)
+  return new Date(+y, m - 1, d)
+}
+
+/** b - a 的天数差（同为本地零点时精确） */
+function dayDiff(a, b) {
+  return Math.round((b.getTime() - a.getTime()) / 86400000)
+}
+
+/** 格式化春节相对天数：0 → 春节，正 → +n，负 → -n */
+export function cnyOffsetLabel(off) {
+  if (off === 0) return '春节'
+  return off > 0 ? `+${off}` : String(off)
 }
 
 export function normalizeSeason(raw = {}) {
@@ -45,6 +79,7 @@ export function normalizeSeason(raw = {}) {
     start,
     end,
     crossYear: forced ? true : !!raw.crossYear,
+    align: raw.align === 'cny' ? 'cny' : 'gregorian',
     yearColors: raw.yearColors && typeof raw.yearColors === 'object' ? { ...raw.yearColors } : {},
   }
 }
@@ -166,13 +201,44 @@ export function buildSeasonalPack(series, labels, seasonCfg = {}, nullMode = 'cr
   const sr = series?.[0]
   const vals = sr?.values || []
   const daily = labelsAreDaily(labels)
-  const axisTicks = buildSeasonAxis(season.start, season.end, season.crossYear, daily)
-  const idxByKey = new Map(axisTicks.map((t) => [t.key, t.idx]))
+  const cnyAligned = season.align === 'cny'
+
+  let axisTicks = buildSeasonAxis(season.start, season.end, season.crossYear, daily)
+  let idxByKey = new Map(axisTicks.map((t) => [t.key, t.idx]))
   // 月度数据：仅用 MM-01 键匹配
   if (!daily) {
     axisTicks.forEach((t) => {
       idxByKey.set(`${pad2(t.m)}-01`, t.idx)
     })
+  }
+
+  // 春节对齐：x 轴改为「相对当年春节的天数」，各年曲线按春节锚点平移对齐
+  let cnyOffOf = null
+  let cnyOMin = 0
+  if (cnyAligned) {
+    const offsets = []
+    cnyOffOf = new Map()
+    labels.forEach((lab, i) => {
+      const p = parseLabel(lab)
+      if (!p) return
+      const cny = cnyDate(p.y)
+      if (!cny) return
+      const off = dayDiff(cny, new Date(p.y, p.m - 1, daily ? p.d : 1))
+      cnyOffOf.set(i, off)
+      offsets.push(off)
+    })
+    if (offsets.length) {
+      cnyOMin = Math.min(...offsets)
+      const oMax = Math.max(...offsets)
+      axisTicks = []
+      for (let o = cnyOMin; o <= oMax; o++) {
+        axisTicks.push({ key: `cny:${o}`, label: cnyOffsetLabel(o) })
+      }
+      axisTicks = axisTicks.map((t, i) => ({ ...t, idx: i }))
+    } else {
+      // 年份超出春节表范围，退回公历
+      cnyOffOf = null
+    }
   }
 
   const byYear = {}
@@ -182,14 +248,21 @@ export function buildSeasonalPack(series, labels, seasonCfg = {}, nullMode = 'cr
     const md = { m: p.m, d: daily ? p.d : 1, key: `${pad2(p.m)}-${pad2(daily ? p.d : 1)}` }
     if (!inSeasonWindow(md, season.start, season.end, season.crossYear)) return
     const sy = seasonYearOf(p.y, md, season.start, season.crossYear)
-    let x = idxByKey.get(md.key)
-    if (x == null && !daily) x = idxByKey.get(`${pad2(p.m)}-01`)
-    if (x == null) return
+    let x
+    if (cnyOffOf) {
+      const off = cnyOffOf.get(i)
+      if (off == null) return
+      x = off - cnyOMin
+    } else {
+      x = idxByKey.get(md.key)
+      if (x == null && !daily) x = idxByKey.get(`${pad2(p.m)}-01`)
+      if (x == null) return
+    }
     if (!byYear[sy]) byYear[sy] = []
     byYear[sy].push({
       idx: i,
       x,
-      md: axisTicks[x]?.label || md.key.replace('-', '/'),
+      md: cnyOffOf ? cnyOffsetLabel(cnyOffOf.get(i)) : (axisTicks[x]?.label || md.key.replace('-', '/')),
       mdKey: md.key,
       value: vals[i],
       tip: lab,

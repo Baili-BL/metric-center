@@ -19,6 +19,7 @@ const store = useGalleryStore()
 const route = useRoute()
 const router = useRouter()
 const info = ref(null)
+const dirCollapsed = ref(false)
 const dirModal = reactive({ visible: false, mode: 'add', parent: '', name: '' })
 const delModal = reactive({ visible: false, kind: '', title: '', msg: '', id: '', path: '' })
 const batchModal = reactive({ visible: false, dir: '', ids: [] })
@@ -390,7 +391,7 @@ function onDropDir(fromPath, targetPath) {
 </script>
 
 <template>
-  <aside class="dir-panel">
+  <aside class="dir-panel" :class="{ collapsed: dirCollapsed }">
     <div class="dir-head">
       <h2>目录</h2>
       <label class="only-mine"><a-checkbox v-model="store.filters.onlyMine">只看我的</a-checkbox></label>
@@ -422,6 +423,9 @@ function onDropDir(fromPath, targetPath) {
         批量移动图表
       </a-button>
     </div>
+    <button class="dir-toggle" title="收起 / 展开目录" @click="dirCollapsed = !dirCollapsed">
+      <Icon name="chevrons-left" :size="12" />
+    </button>
   </aside>
 
   <section class="gallery-panel">

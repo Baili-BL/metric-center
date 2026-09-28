@@ -1,6 +1,7 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import Icon from '../../components/Icon.vue'
+import RichNoteDialog from '../../components/RichNoteDialog.vue'
 import {
   BAR_VIS_TYPES,
   DASH_STYLES,
@@ -25,6 +26,14 @@ const emit = defineEmits(['palette'])
 
 const kw = ref('')
 const moreOpen = ref(false)
+const noteOpen = ref(false)
+const footOpen = ref(false)
+
+/** 备注摘要：去 HTML 标签并截断 */
+function plainNote(html) {
+  const t = String(html || '').replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').trim()
+  return t.length > 14 ? t.slice(0, 14) + '…' : t
+}
 const palOpen = ref(false)
 const dashOpen = ref(false)
 const srDashOpen = ref(false)
@@ -269,7 +278,13 @@ onBeforeUnmount(() => document.removeEventListener('click', onDoc))
       <div class="sec-body note-body">
         <label class="check-line"><input type="checkbox" v-model="state.remarkOn">备注</label>
         <div v-if="state.remarkOn" class="ax-nest">
-          <div class="cfg-row"><span class="r-label">备注内容</span><input class="cfg-input" v-model="state.remark" placeholder="点击编辑"></div>
+          <div class="cfg-row">
+            <span class="r-label">备注内容</span>
+            <button type="button" class="note-edit" :title="plainNote(state.remark) || '点击编辑'" @click="noteOpen = true">
+              <span class="ne-text" :class="{ empty: !plainNote(state.remark) }">{{ plainNote(state.remark) || '点击编辑' }}</span>
+              <Icon name="edit" :size="13" />
+            </button>
+          </div>
           <div class="cfg-row">
             <span class="r-label">位置</span>
             <div class="radio-line">
@@ -280,7 +295,13 @@ onBeforeUnmount(() => document.removeEventListener('click', onDoc))
         </div>
         <label class="check-line"><input type="checkbox" v-model="state.footnoteOn">尾注</label>
         <div v-if="state.footnoteOn" class="ax-nest">
-          <div class="cfg-row"><span class="r-label">尾注内容</span><input class="cfg-input" v-model="state.footnote" placeholder="点击编辑"></div>
+          <div class="cfg-row">
+            <span class="r-label">尾注内容</span>
+            <button type="button" class="note-edit" :title="plainNote(state.footnote) || '点击编辑'" @click="footOpen = true">
+              <span class="ne-text" :class="{ empty: !plainNote(state.footnote) }">{{ plainNote(state.footnote) || '点击编辑' }}</span>
+              <Icon name="edit" :size="13" />
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -988,5 +1009,8 @@ onBeforeUnmount(() => document.removeEventListener('click', onDoc))
         </div>
       </div>
     </div>
+
+    <RichNoteDialog v-model:visible="noteOpen" title="备注内容" :html="state.remark || ''" @ok="(h) => { state.remark = h }" />
+    <RichNoteDialog v-model:visible="footOpen" title="尾注内容" :html="state.footnote || ''" placeholder="请输入尾注" @ok="(h) => { state.footnote = h }" />
   </div>
 </template>

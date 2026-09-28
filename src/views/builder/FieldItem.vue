@@ -1,5 +1,5 @@
 <script setup>
-import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import ColorPop from '../../components/ColorPop.vue'
 import Icon from '../../components/Icon.vue'
 import {
@@ -19,6 +19,8 @@ const props = defineProps({
   showAxis: { type: Boolean, default: true },
   combo: { type: Boolean, default: false },
   icon: { type: String, default: '' },
+  /** 传入调色板色板时，颜色选择限定在调色板内（与样式面板配色统一） */
+  palette: { type: Array, default: null },
 })
 const emit = defineEmits(['remove', 'configure', 'color', 'mark', 'fmt', 'null', 'sort'])
 
@@ -48,6 +50,21 @@ function placeMenu() {
   menu.style.left = `${r.left}px`
   menu.style.top = `${r.bottom + 4}px`
 }
+
+/** 二级菜单太长时会溢出视口底部（如数据展示格式的「自定义」被截断），弹出后钳制回可视区 */
+function adjustSub() {
+  const sub = menuEl.value?.querySelector('.dim-mi.open > .dim-sub')
+  if (!sub) return
+  sub.style.top = '-4px'
+  const r = sub.getBoundingClientRect()
+  if (r.bottom > window.innerHeight - 8) {
+    const shift = r.bottom - (window.innerHeight - 8)
+    sub.style.top = `${-4 - shift}px`
+  } else if (r.top < 8) {
+    sub.style.top = `${-4 + (8 - r.top)}px`
+  }
+}
+watch(openSub, () => nextTick(adjustSub))
 
 function placeMark() {
   const btn = markBtnEl.value
@@ -119,9 +136,17 @@ function onDoc(e) {
   if (menuEl.value?.contains(e.target)) return
   if (markEl.value?.contains(e.target)) return
   if (e.target.closest?.('.cp')) return
+  if (e.target.closest?.('.fld-palette-pop')) return
   colorOpen.value = false
   closeAll()
 }
+
+function pickPalette(hex) {
+  colorOpen.value = false
+  emit('color', props.index, hex)
+}
+
+const isCurColor = (hex) => String(hex).toLowerCase() === String(props.series.color || '').toLowerCase()
 
 function onWin() {
   if (menuOpen.value) placeMenu()
@@ -171,7 +196,7 @@ onBeforeUnmount(() => {
     >
       <Icon :name="comboMarkIcon(mark)" :size="14" />
     </button>
-    <button type="button" class="f-set" title="字段配置" @click.stop="toggleMenu">
+    <button type="button" class="f-set" title="数据格式" @click.stop="toggleMenu">
       <Icon name="caret-fill" :size="12" />
     </button>
     <button type="button" class="f-del" title="移除" @click.stop="emit('remove', index)">
@@ -180,7 +205,28 @@ onBeforeUnmount(() => {
   </div>
 
   <Teleport to="body">
+    <!-- 统一配色：字段颜色限定使用当前调色板 -->
+    <div
+      v-if="palette && colorOpen"
+      class="fld-palette-pop"
+      :style="{ left: colorLeft + 'px', top: colorTop + 'px' }"
+    >
+      <div class="fpp-title">配色</div>
+      <div class="fpp-grid">
+        <button
+          v-for="c in palette"
+          :key="c"
+          type="button"
+          class="fpp-swatch"
+          :class="{ active: isCurColor(c) }"
+          :style="{ background: c }"
+          :title="c"
+          @click.stop="pickPalette(c)"
+        />
+      </div>
+    </div>
     <ColorPop
+      v-if="!palette"
       :show="colorOpen"
       :left="colorLeft"
       :top="colorTop"

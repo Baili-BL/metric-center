@@ -18,7 +18,7 @@ import {
   resolveCrossTimeIdx,
   sectionValue,
 } from './types'
-import { applyViewControls, syncViewControlsToChart } from './viewCtrl'
+import { applyViewControls } from './viewCtrl'
 import {
   displayNullText,
   formatAxisLabelValue,
@@ -222,6 +222,30 @@ function findNamedSeries(series, name) {
   return (series || []).find((s) => (s.alias || s.name) === name)
 }
 
+/**
+ * mark 级 tooltip 配置。G2 5 中 view 级 tooltip 的 items 在 series tooltip 下不生效，
+ * 必须挂在每个 mark 上；且 items 对象形式的自定义 value 会被忽略，只能用函数形式。
+ */
+function seriesTooltipOf(spec, isSeason = false) {
+  const cnyAligned = isSeason && spec?.season?.align === 'cny'
+  return {
+    // title 同样只在 mark 级生效；春节对齐模式下补上真实日期（公历模式 md 本身就是日期）
+    ...(isSeason ? {
+      title: cnyAligned
+        ? (d) => {
+            const md = d.md || ''
+            const date = String(d.tip || '').slice(5).replace('-', '/')
+            return date ? `${md}（${date}）` : md
+          }
+        : (d) => d.md || d.tip || '',
+    } : {}),
+    items: [isSeason
+      // 季节性图的行名是「2023年」这类年份，匹配不到用户系列，格式取主指标（spec.series[0]）的
+      ? (d) => ({ name: d.name, value: fmtSeriesVal(d.value, spec.series?.[0]) })
+      : (d) => ({ name: d.name, value: fmtSeriesVal(d.value, findNamedSeries(spec.series, d.name)) })],
+  }
+}
+
 function buildAxis(ax, key, fallbackUnit, mini, spec) {
   const o = ax?.[key] || {}
   if (!o.show) return false
@@ -296,7 +320,7 @@ function yScale(axY, rows) {
   return scale
 }
 
-function labelCfg(spec, forBar, series) {
+function labelCfg(spec, forBar, series, fallbackSeries) {
   const anySeries = Array.isArray(series) && series.some((s) => s.labelShow)
   if (!spec.labelShow && !anySeries) return undefined
   const pos = spec.labelPos
@@ -310,7 +334,7 @@ function labelCfg(spec, forBar, series) {
   const cfg = {
     text: (d) => {
       if (named && !spec.labelShow && !named[d.name]?.labelShow) return ''
-      return fmtSeriesVal(d.value, named?.[d.name])
+      return fmtSeriesVal(d.value, named?.[d.name] || fallbackSeries)
     },
     position,
     style: textStyle(spec.labelColor, spec.labelSize, spec.labelBold, spec.labelItalic),
@@ -449,19 +473,18 @@ function applyCartesianView(chart, spec, rows, children, names, colors, extra = 
     tooltip: tooltipShow ? {
       css: spec.tooltipBg ? { '.g2-tooltip': { background: spec.tooltipBg, color: spec.tooltipColor, fontSize: `${spec.tooltipSize || 12}px` } } : undefined,
       title: isSeason ? (d) => d.md || d.tip || '' : undefined,
-      items: [{
-        channel: 'y',
-        value: (d) => (isSeason
-          ? (Number.isFinite(+d.value) ? String(d.value) : '')
-          : fmtSeriesVal(d.value, findNamedSeries(spec.series, d.name))),
-      }],
+      // 注意：view 级 tooltip 的 items 在 series tooltip 下不生效（显示原始值），
+      // 数据格式化统一由 mark 级 seriesTooltipOf() 负责，这里只保留样式/标题配置
     } : false,
+    // G2 5 中 tooltip 事件由 interaction 驱动，view.tooltip = false 不够，需显式关闭
+    interaction: tooltipShow ? undefined : { tooltip: false },
     children,
   }
   applyViewControls(view, chart, spec, extra.labels || spec.labels || [], extra.host || chart.getContainer?.())
   if (isHbar(type)) view.coordinate = { transform: [{ type: 'transpose' }] }
+  // 注意：不能在 chart.options(view) 之后再调 syncViewControlsToChart ——
+  // G2 的 options 是替换语义，二次调用只传 {slider,scrollbar,interaction} 会把 tooltip 等配置整个冲掉
   chart.options(view)
-  syncViewControlsToChart(chart, view)
 }
 
 const SPARK_LINE = '#0016ED'
@@ -578,7 +601,8 @@ export function paintChart(el, spec) {
         data: histRows,
         encode: lineEncode,
         style: { lineWidth: 1.5, lineDash: dashArr(dash) },
-        labels: labelCfg(spec, false),
+        labels: labelCfg(spec, false, null, spec.series?.[0]),
+        tooltip: seriesTooltipOf(spec, true),
       })
     }
     if (curRows.length) {
@@ -587,7 +611,8 @@ export function paintChart(el, spec) {
         data: curRows,
         encode: lineEncode,
         style: { lineWidth: 3, lineDash: dashArr(dash) },
-        labels: labelCfg(spec, false),
+        labels: labelCfg(spec, false, null, spec.series?.[0]),
+        tooltip: seriesTooltipOf(spec, true),
       })
     }
     if (marker) {
@@ -649,9 +674,13 @@ export function paintChart(el, spec) {
       .legend(mini || customLegend ? false : true)
       .tooltip(tooltipShow ? {
         title: (d) => d.name,
+        // 同上：对象形式的自定义 value 在 G2 5 中不生效，需用函数形式 item
         items: spec.tooltipShare === false
-          ? [{ channel: 'y' }]
-          : [{ channel: 'y' }, { name: '占比', value: (d) => `${(d.share * 100).toFixed(Math.max(0, shareDec))}%` }],
+          ? [(d) => ({ name: d.name, value: fmtSeriesVal(d.value, findNamedSeries(spec.series, d.name)) })]
+          : [
+            (d) => ({ name: d.name, value: fmtSeriesVal(d.value, findNamedSeries(spec.series, d.name)) }),
+            (d) => ({ name: '占比', value: `${((d.share || 0) * 100).toFixed(Math.max(0, shareDec))}%` }),
+          ],
       } : false)
     if (spec.labelShow) {
       chart.encode('label', 'labelText')
@@ -675,6 +704,7 @@ export function paintChart(el, spec) {
       encode: { x: 'name', y: 'value', color: 'name' },
       style: { fillOpacity: op, radiusTopLeft: radius, radiusTopRight: radius },
       labels: labelCfg(spec, true),
+      tooltip: seriesTooltipOf(spec),
     }]
     applyCartesianView(chart, { ...spec, type, mini, customLegend: true, tooltipShow, markLine }, data, children, data.map((d) => d.name), data.map((d) => d.color), { layout })
     chart.render()
@@ -724,6 +754,9 @@ export function paintChart(el, spec) {
         position: 'top',
         style: textStyle(spec.labelColor, spec.labelSize, spec.labelBold, spec.labelItalic),
       }] : undefined,
+      tooltip: {
+        items: [(d) => ({ name: data[0].yInd, value: fmtSeriesVal(d.y, findNamedSeries(spec.series, data[0].yInd)) })],
+      },
     }]
     applyCartesianView(chart, { ...patched, type, mini, customLegend: true, tooltipShow, markLine }, data, children, [xName], [data[0].color], { layout })
     chart.render()
@@ -749,6 +782,9 @@ export function paintChart(el, spec) {
         position: spec.labelPos === 'belowLine' || spec.labelPos === 'bottom' ? 'bottom' : 'top',
         style: textStyle(spec.labelColor, spec.labelSize, spec.labelBold, spec.labelItalic),
       }] : undefined,
+      tooltip: {
+        items: [(d) => ({ name: d.name, value: fmtSeriesVal(d.y, findNamedSeries(spec.series, d.name)) })],
+      },
     }]
     applyCartesianView(chart, { ...spec, type, mini, customLegend: true, tooltipShow, markLine }, data, children, [data[0]?.name || '散点'], [colors[0]], { layout })
     chart.render()
@@ -794,9 +830,10 @@ export function paintChart(el, spec) {
             stroke: (d) => smap[d.name]?.barStroke || undefined,
             lineWidth: (d) => Number(smap[d.name]?.barStrokeWidth) || 0,
           },
-          transform: [{ type: 'dodgeX' }],
-          labels: labelCfg(spec, true, bars),
-        })
+        transform: [{ type: 'dodgeX' }],
+        labels: labelCfg(spec, true, bars),
+        tooltip: seriesTooltipOf(spec),
+      })
       }
       if (lines.length) {
         const lineRows = flattenRows(lines, labels, nullMode)
@@ -811,6 +848,7 @@ export function paintChart(el, spec) {
             lineDash: (d) => lineStyleOf(smap[d.name], spec).lineDash,
           },
           labels: labelCfg(spec, false, lines),
+          tooltip: seriesTooltipOf(spec),
         })
         if (marker || lines.some((s) => showMarker(s, spec))) {
           children.push({
@@ -875,6 +913,7 @@ export function paintChart(el, spec) {
           ? (percent ? [{ type: 'stackY' }, { type: 'normalizeY' }] : [{ type: 'stackY' }])
           : [{ type: 'dodgeX' }],
         labels: labelCfg(spec, true, srcSeries),
+        tooltip: seriesTooltipOf(spec),
       })
       return children
     }
@@ -891,6 +930,7 @@ export function paintChart(el, spec) {
           fillOpacity: gradient ? 1 : Math.min(op, 0.45),
         },
         transform: stacked ? (percent ? [{ type: 'stackY' }, { type: 'normalizeY' }] : [{ type: 'stackY' }]) : [],
+        tooltip: seriesTooltipOf(spec),
       })
       children.push({
         type: 'line',
@@ -904,6 +944,7 @@ export function paintChart(el, spec) {
         },
         transform: stacked ? (percent ? [{ type: 'stackY' }, { type: 'normalizeY' }] : [{ type: 'stackY' }]) : [],
         labels: labelCfg(spec, false, srcSeries),
+        tooltip: seriesTooltipOf(spec),
       })
     } else {
       children.push({
@@ -917,6 +958,7 @@ export function paintChart(el, spec) {
           lineDash: (d) => lineStyleOf(smap[d.name], spec).lineDash,
         },
         labels: labelCfg(spec, false, srcSeries),
+        tooltip: seriesTooltipOf(spec),
       })
     }
 

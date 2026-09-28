@@ -159,7 +159,9 @@ export function applyViewControls(view, chart, spec, labels, hostEl) {
       view.paddingBottom = Math.max(Number(view.paddingBottom) || 0, 16)
       view.interaction = { ...(view.interaction || {}), scrollbarFilter: false, sliderFilter: false }
     } else {
-      view.scrollbar = { x: viewCtrlScrollbarStyle(ratio) }
+      /* 滑块过长时滚动条形同虚设，限制最长占轨道 60% */
+      const sbRatio = Math.min(ratio, 0.6)
+      view.scrollbar = { x: viewCtrlScrollbarStyle(sbRatio) }
       view.interaction = { ...(view.interaction || {}), scrollbarFilter: true, sliderFilter: false }
     }
   }

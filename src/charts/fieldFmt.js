@@ -234,6 +234,8 @@ export function formatAxisLabelValue(v, spec) {
   let unitTxt = ''
   let val = n
   if (cfg.kind === 'percent') {
+    // 百分比语义：数值 × 100（0.1385 → 13.85%），与 Excel「0.00%」格式一致
+    val = n * 100
     unitTxt = '%'
   } else {
     const u = cfg.unit || 'none'

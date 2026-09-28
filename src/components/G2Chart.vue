@@ -1,5 +1,5 @@
 <script setup>
-import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { paintChart } from '../charts/paint'
 import { usesViewCtrl } from '../charts/types'
 import { bindViewCtrlDateLabels, hideViewCtrlDateLabels } from '../charts/viewCtrl'
@@ -20,6 +20,16 @@ const el = ref(null)
 const layer = ref(null)
 const startEl = ref(null)
 const endEl = ref(null)
+
+/** 左下角来源标注：取各指标的数据来源去重，空则回退「同花顺」 */
+const sourceNote = computed(() => {
+  const srcs = [...new Set((props.spec?.series || [])
+    .map((s) => String(s?.source || '').trim())
+    .filter(Boolean))]
+  return `来源:${srcs.length ? srcs.join('、') : '同花顺'},中辉期货有限公司`
+})
+const isSpark = computed(() => props.spec?.type === 'sparkArea' || !!props.spec?.spark)
+const showSourceNote = computed(() => !props.mini && !isSpark.value)
 let chart = null
 let unbindLabels = null
 let unbindClick = null
@@ -107,8 +117,62 @@ async function render() {
   bindClick()
 }
 
-onMounted(render)
+/* 容器宽度变化（如折叠侧栏/面板）时 G2 的 autoFit 不总可靠，手动 forceFit 兜底 */
+let resizeOb = null
+let lastWidth = 0
+let resizeTimer = null
+
+function rebindSliderLabels() {
+  clearLabels()
+  const showSlider = !props.mini
+    && props.spec.viewCtrlShow
+    && props.spec.viewCtrlType === 'slider'
+    && usesViewCtrl(props.spec.type)
+    && chart
+  if (showSlider) {
+    unbindLabels = bindViewCtrlDateLabels(chart, props.spec.labels || [], {
+      host: wrap.value,
+      layer: layer.value,
+      start: startEl.value,
+      end: endEl.value,
+    })
+  } else {
+    hideViewCtrlDateLabels({ layer: layer.value })
+  }
+}
+
+function onContainerResize() {
+  const w = wrap.value?.clientWidth || 0
+  if (w === lastWidth) return
+  lastWidth = w
+  clearTimeout(resizeTimer)
+  resizeTimer = setTimeout(() => {
+    if (!chart) return
+    if (typeof chart.forceFit === 'function') {
+      chart.forceFit()
+      rebindSliderLabels()
+    } else {
+      render()
+    }
+  }, 120)
+}
+
+function bindResize() {
+  if (typeof ResizeObserver !== 'function' || !wrap.value) return
+  resizeOb?.disconnect()
+  lastWidth = wrap.value.clientWidth
+  resizeOb = new ResizeObserver(onContainerResize)
+  resizeOb.observe(wrap.value)
+}
+
+onMounted(() => {
+  render()
+  bindResize()
+})
 onBeforeUnmount(() => {
+  resizeOb?.disconnect()
+  resizeOb = null
+  clearTimeout(resizeTimer)
   clearLabels()
   clearClick()
   chart?.destroy?.()
@@ -127,6 +191,7 @@ watch(() => props.picking, () => {
     :style="height ? { height: height + 'px' } : null"
   >
     <div ref="el" class="g2-host" />
+    <div v-if="showSourceNote" class="chart-src-note">{{ sourceNote }}</div>
     <div ref="layer" class="viewctrl-date-layer" hidden>
       <span ref="startEl" class="vc-date"></span>
       <span ref="endEl" class="vc-date"></span>
@@ -135,15 +200,21 @@ watch(() => props.picking, () => {
 </template>
 
 <style scoped>
-.g2-wrap { position: relative; width: 100%; height: 100%; min-height: 120px; }
+.g2-wrap { position: relative; width: 100%; height: 100%; min-height: 120px; display: flex; flex-direction: column; }
 .g2-wrap.mini { min-height: 120px; height: 132px; }
 .g2-wrap.spark { min-height: 86px; height: 86px; }
 .g2-wrap.fill { min-height: 0; height: 100%; }
-.g2-host { width: 100%; height: 100%; min-height: inherit; }
+.g2-host { width: 100%; min-height: inherit; flex: 1; }
 .viewctrl-date-layer {
   position: absolute; inset: 0; pointer-events: none; z-index: 4; overflow: hidden;
 }
 .viewctrl-date-layer[hidden] { display: none !important; }
+.chart-src-note {
+  flex: none; margin-top: 2px; padding: 0 8px 1px;
+  font-size: 11px; line-height: 1.3; color: #86909c; pointer-events: none;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; user-select: none;
+  font-family: "Helvetica Neue", Arial, "PingFang SC", "Microsoft YaHei", sans-serif;
+}
 .vc-date {
   position: absolute; font-size: 11px; line-height: 1; color: #4E5969;
   font-family: "Helvetica Neue", Arial, "PingFang SC", "Microsoft YaHei", sans-serif;

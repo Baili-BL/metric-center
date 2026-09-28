@@ -141,7 +141,7 @@ export function exportChartPng(srcCanvas, meta = {}) {
     }
   }
 
-  const remarkText = meta.remarkOn && meta.remark ? String(meta.remark) : ''
+  const remarkText = meta.remarkOn && meta.remark ? String(meta.remark).replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').trim() : ''
   const remarkH = remarkText ? 18 : 0
   const footnoteText = meta.footnoteOn && meta.footnote ? String(meta.footnote).replace(/<[^>]+>/g, '') : ''
   const footnoteH = footnoteText ? 18 : 0

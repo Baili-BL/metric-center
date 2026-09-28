@@ -1,5 +1,5 @@
-import { normalizeAnalysis } from './analysis/types'
-import { defaultSeason, normalizeSeason } from './seasonal'
+import { normalizeAnalysis } from './analysis/types.js'
+import { defaultSeason, normalizeSeason } from './seasonal.js'
 
 export const CHART_TYPES = [
   { id: 'line', name: '线图', group: '线/面图', icon: 'chart-line' },
@@ -76,7 +76,11 @@ export function isStack(t) { return ['stackCol', 'stackColPercent', 'stackArea',
 export function isPercent(t) { return t === 'stackColPercent' || t === 'stackAreaPercent' }
 export function isCrossSection(t) { return t === 'crossBar' || t === 'crossScatter' }
 export function usesCrossSectionTime(t) { return t === 'crossBar' || t === 'pie' }
-export function usesViewCtrl(t) { return LINE_FAMILY.includes(t) }
+/** 需要视图控件（slider/scrollbar）：线/面/混合 + 柱图家族，占比类（百分比堆积）除外 */
+export function usesViewCtrl(t) {
+  if (isPercent(t)) return false
+  return LINE_FAMILY.includes(t) || t === 'bar' || t === 'stackCol'
+}
 export function showLinePlot(t) { return LINE_FAMILY.includes(t) || t === 'seasonal' }
 export function showDualAxis(t) {
   return !isBarFamily(t) && !isPie(t) && !isSeasonal(t) && !isCrossSection(t)
@@ -428,7 +432,7 @@ export function defaultBuilderState(partial = {}) {
     footnote: '',
     footnoteOn: false,
     tableShow: true,
-    viewCtrlShow: false,
+    viewCtrlShow: true,
     viewCtrlType: 'scrollbar',
     viewCtrlMinWidth: 32,
     dimTimeFormat: 'auto',
