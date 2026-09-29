@@ -43,6 +43,7 @@ const SEED = {
     { title: 'PVC月度价格序列', dir: 'PVC' },
     { title: '烧碱开工率时序', dir: '烧碱/开工率' },
     { title: '沪锌基差时序表', dir: '沪锌/基差' },
+    { title: '螺纹钢月度价格时序', dir: '钢材/螺纹' },
   ],
   mixed: [
     { title: '钢材量价混合监测', dir: '钢材' },
@@ -149,7 +150,12 @@ function loadSaved() {
     if (saved && typeof saved === 'object') {
       TABLE_TYPES.forEach((tp) => {
         if (saved[tp.id]?.dirs?.length) store[tp.id].dirs = saved[tp.id].dirs
-        if (saved[tp.id]?.tables?.length) store[tp.id].tables = saved[tp.id].tables
+        if (saved[tp.id]?.tables?.length) {
+          // 预置（SEED）新增表增量合并进已保存数据（按标题去重），保证新表对老用户可见
+          const have = new Set(saved[tp.id].tables.map((t) => t.title))
+          const extra = store[tp.id].tables.filter((t) => !have.has(t.title))
+          store[tp.id].tables = [...extra, ...saved[tp.id].tables]
+        }
       })
     }
   } catch { /* */ }
@@ -334,6 +340,24 @@ export const useTableStore = defineStore('tables', () => {
     t.pivotConfig = cfg
     persist()
   }
+  function setTsConfig(id, cfg) {
+    const t = get(id)
+    if (!t) return
+    t.tsSeries = cfg
+    persist()
+  }
+  function setMixedConfig(id, cfg) {
+    const t = get(id)
+    if (!t) return
+    t.mixedConfig = cfg
+    persist()
+  }
+  function setCustomInd(id, list) {
+    const t = get(id)
+    if (!t) return
+    t.customInd = list
+    persist()
+  }
   function submitPublish(id, payload) {
     const t = get(id)
     if (!t) return { ok: false, msg: '表格不存在' }
@@ -353,6 +377,6 @@ export const useTableStore = defineStore('tables', () => {
     dirs, tables, filtered,
     setType, tableFav, dirCount, itemsInDir, findById, get,
     addDir, renameDir, removeDir, moveDir,
-    createTable, removeTable, toggleFav, saveWorkbook, renameTable, moveTable, savePivotConfig, submitPublish, persist,
+    createTable, removeTable, toggleFav, saveWorkbook, renameTable, moveTable, savePivotConfig, setTsConfig, setMixedConfig, setCustomInd, submitPublish, persist,
   }
 })

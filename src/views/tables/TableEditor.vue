@@ -1,8 +1,11 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import { Message } from '@arco-design/web-vue'
 import { useTableStore } from '../../stores/tables'
-import { ME, PEOPLE } from '../../utils/hash'
+import { useIndicatorStore } from '../../stores/indicators'
+import { ME, PEOPLE, todayStr } from '../../utils/hash'
+import { ANCHOR_OPTS, evalExpr, indValueAt, parseDate, refToRC, shiftPeriods, transformDate } from '../../utils/mixed'
 import { workbookToXlsx } from '../../utils/workbook'
 import { runWithExportLoading } from '../../utils/exportLoading'
 import FortuneSheet from '../../components/FortuneSheet.vue'
@@ -20,6 +23,7 @@ const props = defineProps({
 })
 const emit = defineEmits(['close'])
 const store = useTableStore()
+const router = useRouter()
 
 const open = computed(() => !!props.tableId)
 const table = computed(() => store.get(props.tableId))
@@ -44,6 +48,613 @@ const wizard = reactive({
 const pub = reactive({ visible: false, approver: '', reason: '' })
 const pivot = reactive(emptyPivot())
 const approvers = PEOPLE.filter((p) => p !== ME)
+
+/* —— 时间序列表格：选择指标 / 布局切换 / 批量设置 —— */
+const indStore = useIndicatorStore()
+const tsCfg = reactive({ picks: [], layout: 'indCols', decimals: 2, withUnit: false })
+const tsPickOpen = ref(false)
+const tsBatchOpen = ref(false)
+const tsKw = ref('')
+const isTs = computed(() => table.value?.type === 'timeseries')
+
+watch(() => props.tableId, () => {
+  const c = table.value?.tsSeries
+  Object.assign(tsCfg, {
+    picks: [...(c?.picks || [])],
+    layout: c?.layout || 'indCols',
+    decimals: c?.decimals ?? 2,
+    withUnit: !!c?.withUnit,
+  })
+}, { immediate: true })
+
+const groupedTs = computed(() => {
+  const kw = tsKw.value.trim().toLowerCase()
+  const map = new Map()
+  indStore.cards.forEach((c) => {
+    if (kw && !c.title.toLowerCase().includes(kw) && !String(c.id).toLowerCase().includes(kw)) return
+    const g = c.dir || '未分类'
+    if (!map.has(g)) map.set(g, [])
+    map.get(g).push(c)
+  })
+  return [...map.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([g, items]) => ({ g, items }))
+})
+
+function toggleTsPick(title) {
+  const i = tsCfg.picks.indexOf(title)
+  if (i >= 0) tsCfg.picks.splice(i, 1)
+  else tsCfg.picks.push(title)
+}
+function tsIndOf(title) {
+  return indStore.get(title)
+}
+function tsHeadName(ind) {
+  return tsCfg.withUnit && ind?.unit ? `${ind.title}(${ind.unit})` : ind.title
+}
+function buildTsCells() {
+  const inds = tsCfg.picks.map((t) => tsIndOf(t)).filter(Boolean)
+  const labels = indStore.LABELS
+  const hd = (name) => ({ v: name, t: 1, s: { bl: 1, bg: { rgb: '#E8F3FF' } } })
+  const num = (v) => Number(Number(v).toFixed(tsCfg.decimals))
+  const cellData = {}
+  if (tsCfg.layout === 'indRows') {
+    // 指标为行、日期为列
+    cellData[0] = { 0: hd('指标') }
+    labels.forEach((m, c) => { cellData[0][c + 1] = hd(m) })
+    inds.forEach((ind, r) => {
+      cellData[r + 1] = { 0: hd(tsHeadName(ind)) }
+      ;(ind.values || []).forEach((v, c) => {
+        if (v != null) cellData[r + 1][c + 1] = { v: num(v), t: 2 }
+      })
+    })
+  } else {
+    // 日期为行、指标为列
+    cellData[0] = { 0: hd('日期') }
+    inds.forEach((ind, j) => { cellData[0][j + 1] = hd(tsHeadName(ind)) })
+    labels.forEach((m, r) => {
+      cellData[r + 1] = { 0: { v: m, t: 1 } }
+      inds.forEach((ind, j) => {
+        const v = ind.values?.[r]
+        if (v != null) cellData[r + 1][j + 1] = { v: num(v), t: 2 }
+      })
+    })
+  }
+  return { cellData, rows: (tsCfg.layout === 'indRows' ? inds.length : labels.length) + 1, cols: (tsCfg.layout === 'indRows' ? labels.length : inds.length) + 1 }
+}
+async function applyTsSeries(isRefresh = false) {
+  const t = table.value
+  if (!t) return
+  if (!tsCfg.picks.length) return Message.warning('请先选择指标')
+  if (!sheetRef.value) return
+  const built = buildTsCells()
+  const snap = sheetRef.value.snapshot()
+  const sheetId = snap.sheetOrder?.[0] || Object.keys(snap.sheets || {})[0]
+  const sh = sheetId ? snap.sheets?.[sheetId] : null
+  if (!sh) return Message.error('未找到可写入的工作表')
+  sh.cellData = built.cellData
+  sh.rowCount = Math.max(sh.rowCount || 40, built.rows + 6)
+  sh.columnCount = Math.max(sh.columnCount || 12, built.cols + 4)
+  sheetRef.value.load(snap)
+  store.setTsConfig(t.id, JSON.parse(JSON.stringify({
+    picks: [...tsCfg.picks], layout: tsCfg.layout, decimals: tsCfg.decimals, withUnit: tsCfg.withUnit,
+  })))
+  await capture()
+  Message.success(isRefresh
+    ? `已按指标中心最新数据刷新 ${tsCfg.picks.length} 个指标（${tsCfg.layout === 'indRows' ? '日期为列' : '指标为列'}）`
+    : `已生成 ${tsCfg.picks.length} 个指标的时序数据（${tsCfg.layout === 'indRows' ? '日期为列' : '指标为列'}）`)
+}
+function refreshTsData() {
+  if (!sheetRef.value) return
+  applyTsSeries(true)
+}
+function confirmTsPick() {
+  tsPickOpen.value = false
+  applyTsSeries()
+}
+function setTsLayout(l) {
+  if (tsCfg.layout === l) return
+  tsCfg.layout = l
+  if (tsCfg.picks.length) applyTsSeries()
+  else transposeSheet()
+}
+// 未选择指标时：对当前工作表已有内容做原地转置，保证布局切换始终生效
+async function transposeSheet() {
+  const t = table.value
+  if (!t || !sheetRef.value) return
+  const snap = sheetRef.value.snapshot()
+  const sheetId = snap.sheetOrder?.[0] || Object.keys(snap.sheets || {})[0]
+  const sh = sheetId ? snap.sheets?.[sheetId] : null
+  if (!sh) return
+  const cd = sh.cellData || {}
+  let maxR = -1
+  let maxC = -1
+  Object.keys(cd).forEach((r) => {
+    const ri = Number(r)
+    if (ri > maxR) maxR = ri
+    Object.keys(cd[ri] || {}).forEach((c) => {
+      const ci = Number(c)
+      if (ci > maxC) maxC = ci
+    })
+  })
+  if (maxR < 0 || maxC < 0) return Message.warning('当前工作表没有数据')
+  const out = {}
+  for (let r = 0; r <= maxR; r++) {
+    const row = cd[r]
+    if (!row) continue
+    for (let c = 0; c <= maxC; c++) {
+      const cell = row[c]
+      if (!cell) continue
+      out[c] = out[c] || {}
+      out[c][r] = cell
+    }
+  }
+  sh.cellData = out
+  sh.rowCount = Math.max(sh.rowCount || 40, maxC + 7)
+  sh.columnCount = Math.max(sh.columnCount || 12, maxR + 5)
+  sheetRef.value.load(snap)
+  store.setTsConfig(t.id, JSON.parse(JSON.stringify({
+    picks: [...tsCfg.picks], layout: tsCfg.layout, decimals: tsCfg.decimals, withUnit: tsCfg.withUnit,
+  })))
+  await capture()
+  Message.success(`已切换为${tsCfg.layout === 'indRows' ? '日期为列' : '指标为列'}`)
+}
+function confirmTsBatch() {
+  tsBatchOpen.value = false
+  applyTsSeries()
+}
+
+/* —— 混合表格：插入指标值 / 导入日期 / 日期计算 / 指标计算 + 动态绑定刷新 —— */
+const isMixed = computed(() => table.value?.type === 'mixed')
+const mxMenuOpen = ref(false)
+const mxValOpen = ref(false)
+const mxDateOpen = ref(false)
+const mxCalcOpen = ref(false)
+const mxDiffOpen = ref(false)
+const mxTarget = ref(null) // 插入目标格 {row, col}
+const mxCachedSnap = ref(null) // 打开弹层时的工作表快照（供关联单元格取值预览）
+const mxLib = ref('base') // 指标库 / 预测指标库
+const mxValPick = ref('')
+const mxCalcPicks = ref([])
+const mxCalcExpr = ref('A*B')
+const mxDateInd = ref('')
+const mxDate = reactive({ src: 'indLatest', periodShift: 0, cellRef: '', days: 0, weeks: 0, months: 0, anchor: 'none' })
+const mxOp = reactive({ a: '', b: '', kind: 'diffDays' })
+
+const mxCount = computed(() => Object.keys(table.value?.mixedConfig?.bindings || {}).length)
+const r4 = (v) => Math.round(Number(v) * 10000) / 10000
+const mxKw = ref('')
+const mxFiltered = computed(() => {
+  const kw = mxKw.value.trim().toLowerCase()
+  return indStore.cards.filter((c) => {
+    if (mxLib.value === 'pred' && c.kind !== 'calc') return false
+    if (kw && !c.title.toLowerCase().includes(kw) && !String(c.id).toLowerCase().includes(kw)) return false
+    return true
+  })
+})
+
+function openMx(kind) {
+  mxMenuOpen.value = false
+  const cell = sheetRef.value?.activeCell?.()
+  if (!cell) return Message.warning('请先在表格中点选一个单元格')
+  mxTarget.value = cell
+  mxCachedSnap.value = sheetRef.value.snapshot()
+  // 恢复表单默认值
+  Object.assign(mxDate, { src: 'indLatest', periodShift: 0, cellRef: '', days: 0, weeks: 0, months: 0, anchor: 'none' })
+  mxValPick.value = ''
+  mxCalcPicks.value = []
+  mxCalcExpr.value = 'A*B'
+  mxOp.a = ''
+  mxOp.b = ''
+  mxOp.kind = 'diffDays'
+  if (kind === 'value') mxValOpen.value = true
+  else if (kind === 'date') { mxDate.src = 'system'; mxDateOpen.value = true }
+  else if (kind === 'calc') mxCalcOpen.value = true
+  else if (kind === 'diff') mxDiffOpen.value = true
+}
+
+function mxCellVal(refStr) {
+  const rc = refToRC(refStr)
+  const cd = mxCachedSnap.value?.sheets?.[mxCachedSnap.value.sheetOrder?.[0]]?.cellData
+  return rc ? cd?.[rc.row]?.[rc.col]?.v : null
+}
+
+function mxResolveBase(dateCfg, ind) {
+  if (dateCfg.src === 'system') return todayStr()
+  if (dateCfg.src === 'cell') {
+    const v = mxCellVal(dateCfg.cellRef)
+    return parseDate(v) ? String(v).trim() : ''
+  }
+  return ind ? shiftPeriods(ind.latestDate, dateCfg.periodShift, ind.freq) : ''
+}
+function mxResolveDate(dateCfg, ind) {
+  const base = mxResolveBase(dateCfg, ind)
+  if (!base) return ''
+  return transformDate(base, { days: dateCfg.days, weeks: dateCfg.weeks, months: dateCfg.months, anchor: dateCfg.anchor })
+}
+
+// 各弹层预览
+const mxValPv = computed(() => {
+  const ind = indStore.get(mxValPick.value)
+  if (!ind) return null
+  const date = mxResolveDate(mxDate, ind)
+  if (!date) return { date: '—', err: '无法解析日期，请检查来源配置' }
+  const pv = indValueAt(ind, date, indStore.LABELS)
+  if (!pv) return { date, err: '该日期下无数据' }
+  return { date, value: pv.value, label: pv.label, unit: ind.unit || '' }
+})
+const mxDatePv = computed(() => {
+  const ind = mxDate.src === 'indLatest' ? indStore.get(mxDateInd.value) : null
+  if (mxDate.src === 'indLatest' && !ind) return { date: '—', err: '请选择指标' }
+  const date = mxResolveDate(mxDate, ind)
+  if (!date) return { date: '—', err: '无法解析日期，请检查来源配置' }
+  return { date }
+})
+const mxCalcPv = computed(() => {
+  if (!mxCalcPicks.value.length) return { err: '请选择参与计算的指标（A、B…）' }
+  const vars = {}
+  let lastDate = ''
+  mxCalcPicks.value.forEach((t, i) => {
+    const ind = indStore.get(t)
+    if (!ind) return
+    const d = mxResolveDate(mxDate, ind)
+    const pv = indValueAt(ind, d, indStore.LABELS)
+    if (pv) {
+      vars[String.fromCharCode(65 + i)] = pv.value
+      lastDate = d || lastDate
+    }
+  })
+  const val = evalExpr(mxCalcExpr.value, vars)
+  if (val == null) return { date: lastDate || '—', err: '表达式无效或指标无数据' }
+  return { date: lastDate, value: val }
+})
+const mxDiffPv = computed(() => {
+  const va = mxCellVal(mxOp.a)
+  const vb = mxCellVal(mxOp.b)
+  const da = parseDate(va)
+  const db = parseDate(vb)
+  if (!da || !db) return { err: `请填写两个日期单元格引用（${!da && va != null ? 'A' : ''}${!db && vb != null ? 'B' : ''} 格内容须为日期）` }
+  const days = Math.round((da - db) / 86400000)
+  if (mxOp.kind === 'diffDays') return { value: Math.abs(days), note: `天（${fmtShort(da)} 与 ${fmtShort(db)}）` }
+  const picked = mxOp.kind === 'earlier' ? (days <= 0 ? da : db) : (days >= 0 ? da : db)
+  return { value: fmtShort(picked) }
+})
+function fmtShort(d) {
+  const p = (n) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
+}
+
+async function writeMixedCell(cellObj, binding) {
+  const t = table.value
+  if (!t || !sheetRef.value || !mxTarget.value) return
+  const snap = sheetRef.value.snapshot()
+  const sheetId = snap.sheetOrder?.[0] || Object.keys(snap.sheets || {})[0]
+  const sh = sheetId ? snap.sheets?.[sheetId] : null
+  if (!sh) return
+  sh.cellData[mxTarget.value.row] = sh.cellData[mxTarget.value.row] || {}
+  sh.cellData[mxTarget.value.row][mxTarget.value.col] = cellObj
+  sheetRef.value.load(snap)
+  const bindings = { ...(t.mixedConfig?.bindings || {}) }
+  if (binding) bindings[`${mxTarget.value.row},${mxTarget.value.col}`] = binding
+  else delete bindings[`${mxTarget.value.row},${mxTarget.value.col}`]
+  store.setMixedConfig(t.id, { bindings })
+  await capture()
+}
+
+async function insertMxValue() {
+  const ind = indStore.get(mxValPick.value)
+  if (!ind) return Message.warning('请先选择一个指标')
+  const date = mxResolveDate(mxDate, ind)
+  const pv = date ? indValueAt(ind, date, indStore.LABELS) : null
+  if (!pv) return Message.warning('该配置下取不到数据，请调整日期来源或变换')
+  await writeMixedCell({ v: r4(pv.value), t: 2 }, { kind: 'value', pick: ind.title, date: { ...mxDate } })
+  mxValOpen.value = false
+  Message.success(`已插入 ${ind.title} @ ${date}`)
+}
+async function insertMxDate() {
+  const ind = mxDate.src === 'indLatest' ? indStore.get(mxDateInd.value) : null
+  if (mxDate.src === 'indLatest' && !ind) return Message.warning('请选择指标')
+  const date = mxResolveDate(mxDate, ind)
+  if (!date) return Message.warning('无法解析日期，请检查来源配置')
+  await writeMixedCell({ v: date, t: 1 }, { kind: 'date', date: { ...mxDate, indTitle: ind?.title || '' } })
+  mxDateOpen.value = false
+  Message.success(`已插入日期 ${date}（动态更新）`)
+}
+async function insertMxCalc() {
+  if (!mxCalcPicks.value.length) return Message.warning('请选择参与计算的指标')
+  const pv = mxCalcPv.value
+  if (pv.value == null) return Message.warning(pv.err || '计算结果无效')
+  await writeMixedCell({ v: r4(pv.value), t: 2 }, {
+    kind: 'calc', picks: [...mxCalcPicks.value], expr: mxCalcExpr.value, date: { ...mxDate },
+  })
+  mxCalcOpen.value = false
+  Message.success(`已插入计算结果 ${r4(pv.value)}（跟随指标更新）`)
+}
+async function insertMxDiff() {
+  const pv = mxDiffPv.value
+  if (pv.value == null) return Message.warning(pv.err || '无法计算')
+  const isNum = mxOp.kind === 'diffDays'
+  await writeMixedCell({ v: isNum ? pv.value : pv.value, t: isNum ? 2 : 1 }, null)
+  mxDiffOpen.value = false
+  Message.success(`已插入计算结果：${pv.value}${isNum ? ' 天' : ''}`)
+}
+
+function computeBinding(b, sh) {
+  if (!b || !b.kind) return null
+  const cd = sh?.cellData
+  const readCell = (refStr) => {
+    const rc = refToRC(refStr)
+    return rc ? cd?.[rc.row]?.[rc.col]?.v : null
+  }
+  const resolve = (dateCfg, ind) => {
+    let base = ''
+    if (dateCfg.src === 'system') base = todayStr()
+    else if (dateCfg.src === 'cell') {
+      const v = readCell(dateCfg.cellRef)
+      base = parseDate(v) ? String(v).trim() : ''
+    } else base = ind ? shiftPeriods(ind.latestDate, dateCfg.periodShift, ind.freq) : ''
+    return base ? transformDate(base, { days: dateCfg.days, weeks: dateCfg.weeks, months: dateCfg.months, anchor: dateCfg.anchor }) : ''
+  }
+  if (b.kind === 'date') {
+    const d = resolve(b.date, indStore.get(b.date.indTitle || ''))
+    if (!d) return null
+    return b.style ? { v: d, t: 1, s: { ...b.style } } : { v: d, t: 1 }
+  }
+  if (b.kind === 'value') {
+    const ind = indStore.get(b.pick)
+    if (!ind) return null
+    const pv = indValueAt(ind, resolve(b.date, ind), indStore.LABELS)
+    return pv ? { v: r4(pv.value), t: 2 } : null
+  }
+  if (b.kind === 'calc') {
+    const vars = {}
+    b.picks.forEach((t, i) => {
+      const ind = indStore.get(t)
+      if (!ind) return
+      const pv = indValueAt(ind, resolve(b.date, ind), indStore.LABELS)
+      if (pv) vars[String.fromCharCode(65 + i)] = pv.value
+    })
+    const r = evalExpr(b.expr, vars)
+    return r == null ? null : { v: r4(r), t: 2 }
+  }
+  if (b.kind === 'cmp') {
+    const ind = indStore.get(b.pick)
+    const vs = ind?.values
+    if (!Array.isArray(vs) || !vs.length) return null
+    const cur = vs.at(-1)
+    const prev = vs.length > 1 ? vs.at(-2) : null
+    if (b.role === 'cur') return { v: r4(cur), t: 2, s: { ht: 2 } }
+    if (b.role === 'prev') return { v: prev == null ? null : r4(prev), t: 2, s: { ht: 2 } }
+    if (b.role === 'dod') {
+      const d = (cur ?? 0) - (prev ?? 0)
+      // 中国惯例：涨红跌绿（univer 快照格式：s.bg 背景 / s.cl 字色 / s.ht 2=居中）
+      const s = { ht: 2 }
+      if (d > 0) { s.bg = '#FDE7E7'; s.cl = '#D5304F' } else if (d < 0) { s.bg = '#E6F6E9'; s.cl = '#00913C' }
+      return { v: r4(d), t: 2, s }
+    }
+    if (b.role === 'yoy') {
+      const base = vs.length > 12 ? vs.at(-13) : vs[0]
+      if (base == null || base === 0) return { v: '0%', t: 1, s: { ht: 2 } }
+      const pct = Math.round((cur / base - 1) * 100)
+      return { v: `${pct}%`, t: 1, s: { ht: 2 } }
+    }
+  }
+  return null
+}
+
+async function refreshMixed() {
+  const t = table.value
+  const bindings = t?.mixedConfig?.bindings || {}
+  const keys = Object.keys(bindings)
+  if (!keys.length) return Message.warning('暂无动态单元格（插入指标值/日期/计算结果后可刷新）')
+  if (!sheetRef.value) return
+  const snap = sheetRef.value.snapshot()
+  const sheetId = snap.sheetOrder?.[0] || Object.keys(snap.sheets || {})[0]
+  const sh = sheetId ? snap.sheets?.[sheetId] : null
+  if (!sh) return
+  let n = 0
+  keys.forEach((k) => {
+    const [r, c] = k.split(',').map(Number)
+    const cell = computeBinding(bindings[k], sh)
+    if (cell != null) {
+      sh.cellData[r] = sh.cellData[r] || {}
+      sh.cellData[r][c] = cell
+      n++
+    }
+  })
+  sheetRef.value.load(snap)
+  await capture()
+  Message.success(`已刷新 ${n} 个动态单元格`)
+}
+
+/* —— 混合表：指标对比模板（首行动态日期 + 当前值/上期值/日环比/同比，涨红跌绿） —— */
+const mxTplOpen = ref(false)
+function openMxTpl() {
+  const cell = sheetRef.value?.activeCell?.()
+  if (!cell) return Message.warning('请先在表格中点选一个单元格（将作为模板左上角）')
+  mxTarget.value = cell
+  mxCachedSnap.value = sheetRef.value.snapshot()
+  Object.assign(mxDate, { src: 'system', periodShift: 0, cellRef: '', days: 0, weeks: 0, months: 0, anchor: 'none' })
+  mxCalcPicks.value = []
+  mxLib.value = 'base'
+  mxKw.value = ''
+  mxTplOpen.value = true
+}
+
+async function insertMxTpl() {
+  const t = table.value
+  if (!t || !sheetRef.value || !mxTarget.value) return
+  const picks = [...mxCalcPicks.value]
+  if (!picks.length) return Message.warning('请选择至少一个指标')
+  const snap = sheetRef.value.snapshot()
+  const sheetId = snap.sheetOrder?.[0] || Object.keys(snap.sheets || {})[0]
+  const sh = sheetId ? snap.sheets?.[sheetId] : null
+  if (!sh) return
+  const { row: r0, col: c0 } = mxTarget.value
+  const bindings = { ...(t.mixedConfig?.bindings || {}) }
+  const put = (dr, dc, cell, binding) => {
+    const r = r0 + dr
+    const c = c0 + dc
+    sh.cellData[r] = sh.cellData[r] || {}
+    sh.cellData[r][c] = cell
+    if (binding) bindings[`${r},${c}`] = binding
+  }
+  const hd = (v) => ({ v, t: 1, s: { bl: 1, bg: '#595959', cl: '#FFFFFF', ht: 2 } })
+  const ctr = (v, tp) => ({ v, t: tp, s: { ht: 2 } })
+  // 首行：动态日期 + 表头
+  const bDate = { kind: 'date', date: { ...mxDate, indTitle: mxDate.src === 'indLatest' ? (indStore.get(picks[0])?.title || '') : '' }, style: { bl: 1, bg: '#595959', cl: '#FFFFFF', ht: 2 } }
+  put(0, 0, computeBinding(bDate, sh) || hd(todayStr()), bDate)
+  put(0, 1, hd('当前值'))
+  put(0, 2, hd('上期值'))
+  put(0, 3, hd('日环比'))
+  put(0, 4, hd('同比'))
+  // 指标行：直接按绑定算出初值（样式平铺在 cell 上）
+  picks.forEach((title, i) => {
+    put(i + 1, 0, ctr(title, 1))
+    ;[['cur', 1], ['prev', 2], ['dod', 3], ['yoy', 4]].forEach(([role, dc]) => {
+      const b = { kind: 'cmp', role, pick: title }
+      put(i + 1, dc, computeBinding(b, sh) || { v: null, t: 2 }, b)
+    })
+  })
+  sh.rowCount = Math.max(sh.rowCount || 40, r0 + picks.length + 7)
+  sh.columnCount = Math.max(sh.columnCount || 12, c0 + 10)
+  sheetRef.value.load(snap)
+  store.setMixedConfig(t.id, { bindings })
+  await capture()
+  mxTplOpen.value = false
+  Message.success(`已生成 ${picks.length} 个指标的对比模板（${1 + picks.length * 4} 个动态单元格）`)
+}
+
+/* —— 自定义分析表格：选区生成指标（日期序列+数值序列）→ 指标库 + 一键刷新（对齐 ETA） —— */
+const isCus = computed(() => table.value?.type === 'custom')
+const cusListOpen = ref(false)
+const cusGenOpen = ref(false)
+const cusKw = ref('')
+const cusGen = reactive({ title: '', unit: '元/吨', freq: '月频', dir: '黑色建材', dateCol: 0, valCol: 1, hasHeader: true })
+const cusSel = ref(null) // 框选区域 {startRow,startColumn,endRow,endColumn}
+const cusCols = ref([]) // 选区各列预览 [{idx, letter, first, dateLike, ratio}]
+const cusInds = computed(() => table.value?.customInd || [])
+const cusIndRows = computed(() => cusInds.value.map((b) => {
+  const c = indStore.get(b.indId)
+  return { ...b, latest: c?.latest, latestDate: c?.latestDate, unit: c?.unit, missing: !c }
+}))
+const cusFiltered = computed(() => {
+  const kw = cusKw.value.trim().toLowerCase()
+  return cusIndRows.value.filter((x) => !kw || x.title.toLowerCase().includes(kw))
+})
+const cusDirs = computed(() => {
+  const out = []
+  const walk = (nodes, prefix) => (nodes || []).forEach((n) => {
+    const p = prefix ? `${prefix}/${n.name}` : n.name
+    out.push(p)
+    walk(n.children, p)
+  })
+  walk(indStore.dirs, '')
+  return out
+})
+const cusPointCount = computed(() => cusPoints.value.length)
+
+function colLetter(c) {
+  let s = ''
+  c += 1
+  while (c > 0) {
+    const m = (c - 1) % 26
+    s = String.fromCharCode(65 + m) + s
+    c = Math.floor((c - 1) / 26)
+  }
+  return s
+}
+const DATE_RE = /^\d{4}[-/]\d{1,2}([-/]\d{1,2})?$/
+// 日期样式值：文本日期 或 Excel 日期序列号（fortune 键入日期会转序列，20000~80000 ≈ 1954~2119 年）
+const isDateVal = (v) => DATE_RE.test(String(v ?? '').trim()) || (typeof v === 'number' && Number.isFinite(v) && v >= 20000 && v <= 80000)
+function cusSnapshot() {
+  const snap = sheetRef.value?.snapshot?.()
+  const sheetId = snap?.sheetOrder?.[0] || Object.keys(snap?.sheets || {})[0]
+  return sheetId ? snap?.sheets?.[sheetId] : null
+}
+function fmtLocal(d) {
+  const p = (n) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
+}
+function cusParsePoints(colDate, colVal, rowStart, rowEnd, sh) {
+  const pts = []
+  for (let r = rowStart; r <= rowEnd; r++) {
+    const d = sh?.cellData?.[r]?.[colDate]?.v
+    const v = sh?.cellData?.[r]?.[colVal]?.v
+    const dd = parseDate(d)
+    if (!dd || v == null || v === '' || Number.isNaN(Number(v))) continue
+    pts.push({ date: fmtLocal(dd), value: r4(Number(v)) })
+  }
+  return pts
+}
+function openCusGen() {
+  const sel = sheetRef.value?.getSelection?.()
+  if (!sel) return Message.warning('请先在表格中框选区域（包含日期列与数值列）')
+  const sh = cusSnapshot()
+  if (!sh) return Message.error('未读取到工作表数据')
+  const cols = []
+  for (let c = sel.startColumn; c <= sel.endColumn; c++) {
+    let first = null
+    let dateCnt = 0
+    let numCnt = 0
+    let cnt = 0
+    for (let r = sel.startRow; r <= sel.endRow; r++) {
+      const v = sh.cellData?.[r]?.[c]?.v
+      if (v == null || v === '') continue
+      if (first == null) first = v
+      if (isDateVal(v)) dateCnt++
+      if (typeof v === 'number') numCnt++
+      cnt++
+    }
+    cols.push({ idx: c, letter: colLetter(c), first, dateLike: dateCnt > 0, ratio: cnt ? numCnt / cnt : 0 })
+  }
+  if (!cols.length) return Message.warning('选区内没有数据')
+  const dCol = cols.find((x) => x.dateLike)
+  const vCol = cols.filter((x) => x !== dCol).sort((a, b) => b.ratio - a.ratio)[0] || cols[cols.length - 1]
+  cusSel.value = sel
+  cusCols.value = cols
+  cusGen.dateCol = dCol?.idx ?? cols[0].idx
+  cusGen.valCol = vCol?.idx ?? cols[cols.length - 1].idx
+  cusGen.hasHeader = !!(dCol && !isDateVal(sh.cellData?.[sel.startRow]?.[cusGen.dateCol]?.v))
+  const headCell = sh.cellData?.[sel.startRow]?.[cusGen.valCol]?.v
+  cusGen.title = `${table.value?.title || '自定义指标'}${headCell != null && !isDateVal(headCell) && typeof headCell !== 'number' ? ':' + headCell : ''}`
+  cusGenOpen.value = true
+}
+const cusPoints = computed(() => {
+  const sel = cusSel.value
+  if (!sel) return []
+  return cusParsePoints(cusGen.dateCol, cusGen.valCol, cusGen.hasHeader ? sel.startRow + 1 : sel.startRow, sel.endRow, cusSnapshot())
+})
+async function saveCusGen() {
+  const title = cusGen.title.trim()
+  if (!title) return Message.warning('请填写指标名称')
+  if (!cusPoints.value.length) return Message.warning('未解析出有效的（日期, 数值）数据行，请检查日期列/数值列与「首行为表头」设置')
+  const res = indStore.addFromTable({ title, unit: cusGen.unit, freq: cusGen.freq, dir: cusGen.dir, points: cusPoints.value })
+  if (!res) return Message.error('创建失败')
+  if (res.dup) return Message.warning(`指标「${title}」已存在，请换个名称`)
+  store.setCustomInd(table.value.id, [...cusInds.value, { indId: res.id, title, dateCol: cusGen.dateCol, valCol: cusGen.valCol, hasHeader: cusGen.hasHeader }])
+  await capture()
+  cusGenOpen.value = false
+  Message.success(`已生成指标「${title}」（${cusPoints.value.length} 个数据点），保存至指标库 ${cusGen.dir}`)
+}
+async function refreshCusInds() {
+  const list = cusInds.value
+  if (!list.length) return Message.warning('尚未从该表格生成指标')
+  const sh = cusSnapshot()
+  if (!sh) return
+  const rows = Object.keys(sh.cellData || {}).map(Number).sort((a, b) => a - b)
+  let n = 0
+  list.forEach((b) => {
+    const start = b.hasHeader ? Math.max(1, rows[0] ?? 0) : (rows[0] ?? 0)
+    const last = rows[rows.length - 1] ?? 0
+    if (indStore.updateFromTable(b.indId, cusParsePoints(b.dateCol, b.valCol, start, last, sh))) n++
+  })
+  if (!n) return Message.warning('未解析到可刷新的数据（日期列/数值列可能已被改动）')
+  await capture()
+  Message.success(`已按表格最新数据刷新 ${n} 个指标`)
+}
+function gotoIndicators() {
+  cusListOpen.value = false
+  router.push('/indicators')
+}
 
 let savedTimer = 0
 
@@ -451,6 +1062,67 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onDocPop))
           </div>
         </div>
         <div class="editor-acts">
+          <div v-if="isTs" class="ts-ctrl">
+            <button type="button" class="ts-btn" @click="tsPickOpen = true">
+              <Icon name="plus-12" :size="12" /> 选择指标<span v-if="tsCfg.picks.length" class="ts-cnt">{{ tsCfg.picks.length }}</span>
+            </button>
+            <div class="ts-seg" title="时序布局切换">
+              <button type="button" :class="{ on: tsCfg.layout === 'indCols' }" @click="setTsLayout('indCols')">指标为列</button>
+              <button type="button" :class="{ on: tsCfg.layout === 'indRows' }" @click="setTsLayout('indRows')">日期为列</button>
+            </div>
+            <button type="button" class="ts-btn" @click="tsBatchOpen = true">批量设置</button>
+            <button
+              v-if="tsCfg.picks.length"
+              type="button"
+              class="ts-btn"
+              title="按已选指标的最新数据重建当前工作表"
+              @click="refreshTsData"
+            >刷新指标数据<span class="ts-cnt">{{ tsCfg.picks.length }}</span></button>
+          </div>
+          <div v-if="isMixed" class="ts-ctrl">
+            <div class="mx-drop" @mouseleave="mxMenuOpen = false">
+              <button type="button" class="ts-btn" @click.stop="mxMenuOpen = !mxMenuOpen">
+                <Icon name="plus-12" :size="12" /> 插入<span class="mx-caret">▾</span>
+              </button>
+              <div v-show="mxMenuOpen" class="mx-menu">
+                <button type="button" @click="openMx('value')">根据日期选择指标值</button>
+                <button type="button" @click="openMx('date')">导入日期</button>
+                <button type="button" @click="openMx('diff')">日期计算</button>
+                <button type="button" @click="openMx('calc')">指标计算</button>
+                <button type="button" @click="mxMenuOpen = false; openMxTpl()">生成指标对比模板</button>
+              </div>
+            </div>
+            <button type="button" class="ts-btn" title="按绑定配置重算所有动态单元格" @click="refreshMixed">
+              刷新动态数据<span v-if="mxCount" class="ts-cnt">{{ mxCount }}</span>
+            </button>
+          </div>
+          <div v-if="isCus" class="ts-ctrl">
+            <button type="button" class="ts-btn" title="框选区域后，将日期序列+数值序列生成为指标库指标" @click="openCusGen">
+              <Icon name="plus-12" :size="12" /> 生成指标
+            </button>
+            <div class="mx-drop" @mouseleave="cusListOpen = false">
+              <button type="button" class="ts-btn" @click.stop="cusListOpen = !cusListOpen">
+                已生成指标<span v-if="cusInds.length" class="ts-cnt">{{ cusInds.length }}</span><span class="mx-caret">▾</span>
+              </button>
+              <div v-show="cusListOpen" class="mx-menu" style="min-width:280px">
+                <input v-model="cusKw" class="mx-ref" style="margin:4px 6px 8px; width:calc(100% - 12px)" placeholder="搜索指标名称">
+                <div v-if="!cusFiltered.length" style="padding:14px 12px; font-size:12px; color:var(--text-3)">该表格尚未生成指标</div>
+                <div v-for="b in cusFiltered" :key="b.indId" class="cus-ind-item" :title="b.title">
+                  <span class="cus-ind-name">{{ b.title }}</span>
+                  <span class="cus-ind-meta">{{ b.missing ? '指标已删除' : `${b.latest ?? '—'}${b.unit || ''} · ${b.latestDate || ''}` }}</span>
+                  <button type="button" class="cus-ind-go" @click="gotoIndicators">查看</button>
+                </div>
+                <button v-if="cusFiltered.length" type="button" style="border-top:1px solid var(--border)" @click="gotoIndicators">前往指标中心 →</button>
+              </div>
+            </div>
+            <button
+              v-if="cusInds.length"
+              type="button"
+              class="ts-btn"
+              title="将表格最新数据更新至所有由本表格生成的指标"
+              @click="refreshCusInds"
+            >刷新指标<span class="ts-cnt">{{ cusInds.length }}</span></button>
+          </div>
           <button type="button" class="btn" @click="onSave">保存<span class="save-dot" :class="{ show: savedFlash }">有更新</span></button>
           <button type="button" class="btn" :disabled="exporting" @click="onExport">{{ exporting ? '导出中…' : '导出' }}</button>
         </div>
@@ -625,6 +1297,373 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onDocPop))
     <template #footer>
       <button type="button" class="btn tint" style="min-width:88px" @click="pub.visible = false">取消</button>
       <button type="button" class="btn primary" style="min-width:88px" @click="confirmPublish">提交申请</button>
+    </template>
+  </AppModal>
+
+  <AppModal :visible="tsPickOpen" title="选择指标" icon="search" :width="560" :z-index="330" @update:visible="(v) => { tsPickOpen = v }">
+    <div class="ts-pick-search">
+      <Icon name="search" :size="13" />
+      <input v-model="tsKw" placeholder="搜索指标名称" autocomplete="off">
+      <span class="ts-pick-count">已选 <b>{{ tsCfg.picks.length }}</b> 个</span>
+    </div>
+    <div class="ts-pick-list">
+      <div v-if="!groupedTs.length" class="ts-pick-empty">未找到匹配的指标</div>
+      <div v-for="g in groupedTs" :key="g.g" class="ts-pick-group">
+        <div class="ts-pick-gname">{{ g.g }}</div>
+        <button
+          v-for="c in g.items"
+          :key="c.id"
+          type="button"
+          class="ts-pick-item"
+          :class="{ on: tsCfg.picks.includes(c.title) }"
+          @click="toggleTsPick(c.title)"
+        >
+          <span class="ts-pick-name" :title="c.title">{{ c.title }}</span>
+          <span class="ts-pick-meta">{{ c.freq }}{{ c.unit ? ' · ' + c.unit : '' }}</span>
+          <span class="ts-pick-tick">✓</span>
+        </button>
+      </div>
+    </div>
+    <template #footer>
+      <button type="button" class="btn" style="min-width:88px" @click="tsPickOpen = false">取消</button>
+      <button type="button" class="btn primary" style="min-width:110px" @click="confirmTsPick">应用到表格</button>
+    </template>
+  </AppModal>
+
+  <AppModal :visible="tsBatchOpen" title="批量设置" icon="edit-fill" :width="420" :z-index="330" @update:visible="(v) => { tsBatchOpen = v }">
+    <div class="fm-field">
+      <label>小数位数（应用到 {{ tsCfg.picks.length }} 个已选指标）</label>
+      <div class="ts-dec-row">
+        <button
+          v-for="d in [0, 1, 2, 3, 4]"
+          :key="d"
+          type="button"
+          class="ts-dec-btn"
+          :class="{ on: tsCfg.decimals === d }"
+          @click="tsCfg.decimals = d"
+        >{{ d }}</button>
+      </div>
+    </div>
+    <div class="fm-field">
+      <label class="ts-chk"><input type="checkbox" v-model="tsCfg.withUnit"> 表头附带单位（如「螺纹钢:现货价:上海(元/吨)」）</label>
+    </div>
+    <div class="ts-batch-tip">确定后将按当前布局（{{ tsCfg.layout === 'indRows' ? '日期为列' : '指标为列' }}）重建当前工作表内容。</div>
+    <template #footer>
+      <button type="button" class="btn" style="min-width:88px" @click="tsBatchOpen = false">取消</button>
+      <button type="button" class="btn primary" style="min-width:88px" @click="confirmTsBatch">确定</button>
+    </template>
+  </AppModal>
+
+  <!-- 混合表：根据日期选择指标值 -->
+  <AppModal :visible="mxValOpen" title="根据日期选择指标值" icon="search" :width="560" :z-index="330" @update:visible="(v) => { mxValOpen = v }">
+    <div class="fm-field">
+      <div class="mx-libtabs">
+        <button type="button" :class="{ on: mxLib === 'base' }" @click="mxLib = 'base'">指标库</button>
+        <button type="button" :class="{ on: mxLib === 'pred' }" @click="mxLib = 'pred'">预测指标库</button>
+        <div class="ts-pick-search" style="flex:1;margin-bottom:0">
+          <Icon name="search" :size="13" />
+          <input v-model="mxKw" placeholder="搜索指标名称" autocomplete="off">
+        </div>
+      </div>
+    </div>
+    <div class="ts-pick-list" style="max-height:26vh">
+      <div v-if="!mxFiltered.length" class="ts-pick-empty">未找到匹配的指标</div>
+      <button
+        v-for="c in mxFiltered"
+        :key="c.id"
+        type="button"
+        class="ts-pick-item"
+        :class="{ on: mxValPick === c.title }"
+        @click="mxValPick = c.title"
+      >
+        <span class="ts-pick-name" :title="c.title">{{ c.title }}</span>
+        <span class="ts-pick-meta">{{ c.freq }}{{ c.unit ? ' · ' + c.unit : '' }} · 最新 {{ c.latestDate }}</span>
+        <span class="ts-pick-tick">✓</span>
+      </button>
+    </div>
+    <div class="fm-field">
+      <label>日期来源与变换</label>
+      <div class="mx-row">
+        <select v-model="mxDate.src" class="mx-select">
+          <option value="indLatest">指标最新日期</option>
+          <option value="system">系统日期</option>
+          <option value="cell">关联单元格日期</option>
+        </select>
+        <input v-if="mxDate.src === 'indLatest'" v-model.number="mxDate.periodShift" type="number" class="mx-num" title="期数位移（按指标频率），负数为前移">
+        <span v-if="mxDate.src === 'indLatest'" class="mx-unit">期位移</span>
+        <input v-if="mxDate.src === 'cell'" v-model="mxDate.cellRef" class="mx-ref" placeholder="单元格引用，如 B3">
+      </div>
+      <div class="mx-row" style="margin-top:6px">
+        <input v-model.number="mxDate.months" type="number" class="mx-num" title="位移月数">
+        <span class="mx-unit">月</span>
+        <input v-model.number="mxDate.weeks" type="number" class="mx-num" title="位移周数">
+        <span class="mx-unit">周</span>
+        <input v-model.number="mxDate.days" type="number" class="mx-num" title="位移天数">
+        <span class="mx-unit">天</span>
+        <select v-model="mxDate.anchor" class="mx-select" style="margin-left:auto">
+          <option v-for="a in ANCHOR_OPTS" :key="a.id" :value="a.id">{{ a.name }}</option>
+        </select>
+      </div>
+    </div>
+    <div class="mx-preview">
+      <template v-if="mxValPv?.err"><span class="mx-pv-err">{{ mxValPv.err }}</span></template>
+      <template v-else>
+        <span class="mx-pv-k">日期</span><b>{{ mxValPv?.date }}</b>
+        <span class="mx-pv-k">值</span><b>{{ mxValPv?.value }}{{ mxValPv?.unit ? ' ' + mxValPv.unit : '' }}</b>
+        <span class="mx-pv-note">所在期 {{ mxValPv?.label }}</span>
+      </template>
+    </div>
+    <template #footer>
+      <button type="button" class="btn" style="min-width:88px" @click="mxValOpen = false">取消</button>
+      <button type="button" class="btn primary" style="min-width:88px" @click="insertMxValue">插入单元格</button>
+    </template>
+  </AppModal>
+
+  <!-- 混合表：导入日期 -->
+  <AppModal :visible="mxDateOpen" title="导入日期" icon="edit-fill" :width="520" :z-index="330" @update:visible="(v) => { mxDateOpen = v }">
+    <div class="fm-field">
+      <label>日期来源</label>
+      <div class="mx-row">
+        <select v-model="mxDate.src" class="mx-select">
+          <option value="system">系统日期</option>
+          <option value="indLatest">指标最新日期</option>
+          <option value="cell">关联单元格日期</option>
+        </select>
+        <select v-if="mxDate.src === 'indLatest'" v-model="mxDateInd" class="mx-select" style="flex:1">
+          <option value="">选择指标…</option>
+          <option v-for="c in indStore.cards" :key="c.id" :value="c.title">{{ c.title }}（{{ c.latestDate }}）</option>
+        </select>
+        <input v-if="mxDate.src === 'indLatest'" v-model.number="mxDate.periodShift" type="number" class="mx-num" title="期数位移，负数为前移">
+        <span v-if="mxDate.src === 'indLatest'" class="mx-unit">期位移</span>
+        <input v-if="mxDate.src === 'cell'" v-model="mxDate.cellRef" class="mx-ref" placeholder="单元格引用，如 B3">
+      </div>
+      <div class="mx-row" style="margin-top:6px">
+        <input v-model.number="mxDate.months" type="number" class="mx-num" title="位移月数">
+        <span class="mx-unit">月</span>
+        <input v-model.number="mxDate.weeks" type="number" class="mx-num" title="位移周数">
+        <span class="mx-unit">周</span>
+        <input v-model.number="mxDate.days" type="number" class="mx-num" title="位移天数">
+        <span class="mx-unit">天</span>
+        <select v-model="mxDate.anchor" class="mx-select" style="margin-left:auto">
+          <option v-for="a in ANCHOR_OPTS" :key="a.id" :value="a.id">{{ a.name }}</option>
+        </select>
+      </div>
+    </div>
+    <div class="mx-preview">
+      <template v-if="mxDatePv?.err"><span class="mx-pv-err">{{ mxDatePv.err }}</span></template>
+      <template v-else>
+        <span class="mx-pv-k">将插入</span><b>{{ mxDatePv?.date }}</b>
+        <span class="mx-pv-note">源数据更新后可通过「刷新动态数据」同步</span>
+      </template>
+    </div>
+    <template #footer>
+      <button type="button" class="btn" style="min-width:88px" @click="mxDateOpen = false">取消</button>
+      <button type="button" class="btn primary" style="min-width:110px" @click="insertMxDate">插入日期</button>
+    </template>
+  </AppModal>
+
+  <!-- 混合表：日期计算 -->
+  <AppModal :visible="mxDiffOpen" title="日期计算" icon="edit-fill" :width="480" :z-index="330" @update:visible="(v) => { mxDiffOpen = v }">
+    <div class="fm-field">
+      <label>参与计算的日期单元格</label>
+      <div class="mx-row">
+        <input v-model="mxOp.a" class="mx-ref" placeholder="如 B2">
+        <span class="mx-unit">{{ mxOp.kind === 'diffDays' ? '与' : '和' }}</span>
+        <input v-model="mxOp.b" class="mx-ref" placeholder="如 D2">
+      </div>
+    </div>
+    <div class="fm-field">
+      <label>计算方式</label>
+      <div class="mx-row">
+        <select v-model="mxOp.kind" class="mx-select" style="flex:1">
+          <option value="diffDays">相差天数</option>
+          <option value="earlier">较早的日期</option>
+          <option value="later">较晚的日期</option>
+        </select>
+      </div>
+    </div>
+    <div class="mx-preview">
+      <template v-if="mxDiffPv?.err"><span class="mx-pv-err">{{ mxDiffPv.err }}</span></template>
+      <template v-else>
+        <span class="mx-pv-k">结果</span><b>{{ mxDiffPv?.value }}</b>
+        <span v-if="mxDiffPv?.note" class="mx-pv-note">{{ mxDiffPv.note }}</span>
+      </template>
+    </div>
+    <template #footer>
+      <button type="button" class="btn" style="min-width:88px" @click="mxDiffOpen = false">取消</button>
+      <button type="button" class="btn primary" style="min-width:110px" @click="insertMxDiff">插入结果</button>
+    </template>
+  </AppModal>
+
+  <!-- 混合表：指标计算 -->
+  <AppModal :visible="mxCalcOpen" title="指标计算" icon="search" :width="560" :z-index="330" @update:visible="(v) => { mxCalcOpen = v }">
+    <div class="fm-field">
+      <div class="mx-libtabs">
+        <button type="button" :class="{ on: mxLib === 'base' }" @click="mxLib = 'base'">指标库</button>
+        <button type="button" :class="{ on: mxLib === 'pred' }" @click="mxLib = 'pred'">预测指标库</button>
+        <div class="ts-pick-search" style="flex:1;margin-bottom:0">
+          <Icon name="search" :size="13" />
+          <input v-model="mxKw" placeholder="搜索指标名称" autocomplete="off">
+        </div>
+      </div>
+    </div>
+    <div class="ts-pick-list" style="max-height:22vh">
+      <div v-if="!mxFiltered.length" class="ts-pick-empty">未找到匹配的指标</div>
+      <button
+        v-for="c in mxFiltered"
+        :key="c.id"
+        type="button"
+        class="ts-pick-item"
+        :class="{ on: mxCalcPicks.includes(c.title) }"
+        @click="mxCalcPicks.includes(c.title) ? mxCalcPicks.splice(mxCalcPicks.indexOf(c.title), 1) : mxCalcPicks.push(c.title)"
+      >
+        <span class="ts-pick-meta" style="min-width:16px">{{ mxCalcPicks.includes(c.title) ? String.fromCharCode(65 + mxCalcPicks.indexOf(c.title)) : '' }}</span>
+        <span class="ts-pick-name" :title="c.title">{{ c.title }}</span>
+        <span class="ts-pick-meta">{{ c.freq }} · 最新 {{ c.latestDate }}</span>
+        <span class="ts-pick-tick">✓</span>
+      </button>
+    </div>
+    <div class="fm-field">
+      <label>计算表达式（用 A、B… 引用上面选中的指标）</label>
+      <input v-model="mxCalcExpr" class="mx-ref" style="width:100%" placeholder="如 A/B*100 或 (A-B)/A">
+    </div>
+    <div class="fm-field">
+      <label>取数日期（每个指标按各自频率解析）</label>
+      <div class="mx-row">
+        <select v-model="mxDate.src" class="mx-select">
+          <option value="indLatest">指标最新日期</option>
+          <option value="system">系统日期</option>
+          <option value="cell">关联单元格日期</option>
+        </select>
+        <input v-if="mxDate.src === 'indLatest'" v-model.number="mxDate.periodShift" type="number" class="mx-num" title="期数位移，负数为前移">
+        <span v-if="mxDate.src === 'indLatest'" class="mx-unit">期位移</span>
+        <input v-if="mxDate.src === 'cell'" v-model="mxDate.cellRef" class="mx-ref" placeholder="单元格引用，如 B3">
+        <input v-model.number="mxDate.months" type="number" class="mx-num" title="位移月数">
+        <span class="mx-unit">月</span>
+        <input v-model.number="mxDate.days" type="number" class="mx-num" title="位移天数">
+        <span class="mx-unit">天</span>
+        <select v-model="mxDate.anchor" class="mx-select">
+          <option v-for="a in ANCHOR_OPTS" :key="a.id" :value="a.id">{{ a.name }}</option>
+        </select>
+      </div>
+    </div>
+    <div class="mx-preview">
+      <template v-if="mxCalcPv?.err"><span class="mx-pv-err">{{ mxCalcPv.err }}</span></template>
+      <template v-else>
+        <span class="mx-pv-k">结果</span><b>{{ mxCalcPv?.value }}</b>
+        <span class="mx-pv-note">取数日期 {{ mxCalcPv?.date }} · 跟随指标数据更新</span>
+      </template>
+    </div>
+    <template #footer>
+      <button type="button" class="btn" style="min-width:88px" @click="mxCalcOpen = false">取消</button>
+      <button type="button" class="btn primary" style="min-width:110px" @click="insertMxCalc">插入结果</button>
+    </template>
+  </AppModal>
+
+  <!-- 混合表：生成指标对比模板 -->
+  <AppModal :visible="mxTplOpen" title="生成指标对比模板" icon="search" :width="560" :z-index="330" @update:visible="(v) => { mxTplOpen = v }">
+    <div class="mx-hint" style="margin-bottom:10px">在选中单元格处生成：首行为动态日期 + 表头，每行一个指标（当前值 / 上期值 / 日环比 / 同比），日环比涨红跌绿，数据可一键刷新。</div>
+    <div class="fm-field">
+      <div class="mx-libtabs">
+        <button type="button" :class="{ on: mxLib === 'base' }" @click="mxLib = 'base'">指标库</button>
+        <button type="button" :class="{ on: mxLib === 'pred' }" @click="mxLib = 'pred'">预测指标库</button>
+        <div class="ts-pick-search" style="flex:1;margin-bottom:0">
+          <Icon name="search" :size="13" />
+          <input v-model="mxKw" placeholder="搜索指标名称" autocomplete="off">
+          <span class="ts-pick-count">已选 <b>{{ mxCalcPicks.length }}</b> 个</span>
+        </div>
+      </div>
+    </div>
+    <div class="ts-pick-list" style="max-height:26vh">
+      <div v-if="!mxFiltered.length" class="ts-pick-empty">未找到匹配的指标</div>
+      <button
+        v-for="c in mxFiltered"
+        :key="c.id"
+        type="button"
+        class="ts-pick-item"
+        :class="{ on: mxCalcPicks.includes(c.title) }"
+        @click="mxCalcPicks.includes(c.title) ? mxCalcPicks.splice(mxCalcPicks.indexOf(c.title), 1) : mxCalcPicks.push(c.title)"
+      >
+        <span class="ts-pick-name" :title="c.title">{{ c.title }}</span>
+        <span class="ts-pick-meta">{{ c.freq }} · 最新 {{ c.latestDate }}</span>
+        <span class="ts-pick-tick">✓</span>
+      </button>
+    </div>
+    <div class="fm-field">
+      <label>首行日期来源</label>
+      <div class="mx-row">
+        <select v-model="mxDate.src" class="mx-select">
+          <option value="system">系统日期</option>
+          <option value="indLatest">指标最新日期</option>
+        </select>
+        <input v-if="mxDate.src === 'indLatest'" v-model.number="mxDate.periodShift" type="number" class="mx-num" title="期数位移，负数为前移">
+        <span v-if="mxDate.src === 'indLatest'" class="mx-unit">期位移</span>
+      </div>
+    </div>
+    <template #footer>
+      <button type="button" class="btn" style="min-width:88px" @click="mxTplOpen = false">取消</button>
+      <button type="button" class="btn primary" style="min-width:110px" @click="insertMxTpl">生成模板</button>
+    </template>
+  </AppModal>
+
+  <!-- 自定义分析：选区生成指标 -->
+  <AppModal :visible="cusGenOpen" title="生成指标" icon="search" :width="560" :z-index="330" @update:visible="(v) => { cusGenOpen = v }">
+    <div class="mx-hint" style="margin-bottom:10px">
+      将表格选区解析为「日期序列 + 数值序列」并保存为指标库指标；生成后表格数据更新时，可用「刷新指标」一键同步。
+    </div>
+    <div class="fm-field">
+      <label>数据选区</label>
+      <div class="mx-preview" style="margin-top:0">
+        <span class="mx-pv-k">已框选</span>
+        <b>{{ cusSel ? `${colLetter(cusSel.startColumn)}${cusSel.startRow + 1}:${colLetter(cusSel.endColumn)}${cusSel.endRow + 1}` : '—' }}</b>
+        <span class="mx-pv-k">解析出</span>
+        <b>{{ cusPointCount }}</b>
+        <span class="mx-pv-k">行有效数据</span>
+        <span v-if="!cusPointCount && cusSel" class="mx-pv-err">未解析到数据，请检查列设置</span>
+      </div>
+    </div>
+    <div class="fm-field">
+      <label>指标名称</label>
+      <input v-model="cusGen.title" class="mx-ref" placeholder="如：螺纹利润测算表:现货价格" style="max-width:100%">
+    </div>
+    <div class="fm-field">
+      <label>序列设置</label>
+      <div class="mx-row">
+        <span class="mx-unit">日期列</span>
+        <select v-model.number="cusGen.dateCol" class="mx-select">
+          <option v-for="c in cusCols" :key="c.idx" :value="c.idx">列 {{ c.letter }}（{{ c.first ?? '空' }}）</option>
+        </select>
+        <span class="mx-unit">数值列</span>
+        <select v-model.number="cusGen.valCol" class="mx-select">
+          <option v-for="c in cusCols" :key="c.idx" :value="c.idx">列 {{ c.letter }}（{{ c.first ?? '空' }}）</option>
+        </select>
+        <label class="ts-chk"><input v-model="cusGen.hasHeader" type="checkbox"> 首行为表头</label>
+      </div>
+    </div>
+    <div class="fm-field">
+      <label>指标属性</label>
+      <div class="mx-row">
+        <input v-model="cusGen.unit" class="mx-num" style="width:90px" placeholder="单位">
+        <select v-model="cusGen.freq" class="mx-select">
+          <option>月频</option>
+          <option>周频</option>
+          <option>日频</option>
+        </select>
+        <select v-model="cusGen.dir" class="mx-select" style="max-width:200px">
+          <option v-for="d in cusDirs" :key="d" :value="d">{{ d }}</option>
+        </select>
+      </div>
+    </div>
+    <div v-if="cusPoints.length" class="mx-preview">
+      <span class="mx-pv-k">预览</span>
+      <template v-for="(p, i) in cusPoints.slice(0, 3)" :key="i">
+        <span>{{ p.date }}</span><b>{{ p.value }}</b>
+      </template>
+      <span v-if="cusPoints.length > 3" class="mx-pv-note">… 共 {{ cusPoints.length }} 行</span>
+    </div>
+    <template #footer>
+      <button type="button" class="btn" style="min-width:88px" @click="cusGenOpen = false">取消</button>
+      <button type="button" class="btn primary" style="min-width:110px" @click="saveCusGen">保存至指标库</button>
     </template>
   </AppModal>
 </template>

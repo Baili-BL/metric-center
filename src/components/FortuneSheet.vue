@@ -1,7 +1,7 @@
 <script setup>
 import { createElement, createRef } from 'react'
 import { createRoot } from 'react-dom/client'
-import { handleBorder } from '@fortune-sheet/core'
+import { handleBorder, handleFormulaInput } from '@fortune-sheet/core'
 import { Workbook } from '@fortune-sheet/react'
 import { Message, Modal } from '@arco-design/web-vue'
 import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue'
@@ -3725,19 +3725,45 @@ function clearSelection(mode) {
   const api = instRef.current
   const box = selectionBox()
   if (!api || !box) return
+  const data = box.sheet?.data
+  if (!Array.isArray(data)) return
+  // 旧实现逐格调用 setCellValue/setCellFormatByRange：清格式每格 11 次 API，
+  // 大选区直接卡死主线程，且每次调用各推一条撤销记录（撤销要按格按次按）。
+  // 改为收集单元格补丁 op，一次 applyOpUndoable 提交：单次渲染 + 整块一次撤销。
+  const FMT_KEYS = ['bg', 'fc', 'bl', 'it', 'un', 'cl', 'fs', 'ff', 'ht', 'vt', 'ct']
+  const ops = []
   for (let r = box.r0; r <= box.r1; r += 1) {
     for (let c = box.c0; c <= box.c1; c += 1) {
-      const range = { row: [r, r], column: [c, c] }
-      if (mode !== 'format') {
-        api.setCellValue?.(r, c, '', { id: box.id })
+      const cell = data[r]?.[c]
+      if (!cell || typeof cell !== 'object' || Object.keys(cell).length === 0) continue
+      if (mode === 'all') {
+        // 全部清除：内容+格式一起，与原生 Delete 同形（空对象）
+        ops.push({ op: 'replace', id: box.id, path: ['data', r, c], value: {} })
         logCell(r, c, '')
-      }
-      if (mode !== 'value') {
-        ;['bg', 'fc', 'bl', 'it', 'un', 'cl', 'fs', 'ff', 'ht', 'vt', 'ct'].forEach((key) => {
-          api.setCellFormatByRange?.(key, null, range, { id: box.id })
-        })
+      } else if (mode === 'value') {
+        // 清内容：只剥值/公式字段（v/m/f/si），保留样式（bg/bl/ct…）——对齐 Excel 清除内容
+        const next = { ...cell }
+        ;['v', 'm', 'f', 'si'].forEach((k) => { delete next[k] })
+        ops.push({ op: 'replace', id: box.id, path: ['data', r, c], value: next })
+        logCell(r, c, '')
+      } else {
+        // 清格式：剥掉样式键，保留 v/m/f 等内容字段
+        if (!FMT_KEYS.some((k) => cell[k] != null)) continue
+        const next = { ...cell }
+        FMT_KEYS.forEach((k) => { delete next[k] })
+        ops.push({ op: 'replace', id: box.id, path: ['data', r, c], value: next })
       }
     }
+  }
+  if (ops.length) {
+    applyOpUndoable(ops)
+    // 菜单点击后焦点落在 body，Cmd/Ctrl+Z 的监听在 .fortune-container 上收不到——
+    // 把焦点还给 fortune 的输入元素（正常点格子后 fortune 也是 focus 在这里）
+    requestAnimationFrame(() => {
+      const el = document.getElementById('luckysheet-rich-text-editor')
+        || document.getElementById('luckysheet-functionbox-cell')
+      el?.focus?.()
+    })
   }
 }
 
@@ -4729,6 +4755,20 @@ function getSelection() {
   }
 }
 
+// 当前活动单元格（单格位置，供混合表等外部插入使用）
+function activeCell() {
+  try {
+    const sel = instRef.current?.getSelection?.()
+    const cur = sel?.[0]
+    const r = cur?.row?.[0]
+    const c = cur?.column?.[0]
+    if (r == null || c == null) return null
+    return { row: r, col: c }
+  } catch {
+    return null
+  }
+}
+
 function addSheet(name) {
   const api = instRef.current
   if (!api?.addSheet) return null
@@ -5104,7 +5144,28 @@ function acceptFuncSug(i) {
   if (sel && sel.modify) {
     for (let k = 0; k < funcSug.partial.length; k++) sel.modify('extend', 'backward', 'character')
   }
+  // fortune 的 onChange 只在真实 keydown 之后才会处理公式输入（lastKeyDownEventRef 门槛），
+  // execCommand 插入对它不可见 → 编辑器停留纯文本、公式选区判定（israngeseleciton）不成立，
+  // 随后点/拖格子会被 fortune 当普通点击提交公式，表现为编辑器「自动关闭」成 =SUM()。
+  // 先派发一个普通字符 keydown 把 fortune 的输入管线唤醒，再插入 NAME( ，
+  // 让 fortune 在自己的 immer draft 里完整重建彩色 span + 引用高亮，光标落回 '(' 后，
+  // 选区判定成立，点/拖格子即可正常插入引用。
+  const wake = new KeyboardEvent('keydown', { key: 'a', code: 'KeyA', bubbles: true, cancelable: true })
+  Object.defineProperty(wake, 'keyCode', { get: () => 65 })
+  act.ed.dispatchEvent(wake)
   document.execCommand('insertText', false, item.name + '(')
+  // 兜底：若唤醒路径未生效（DOM 仍是纯文本、无彩色 span），手动补跑 handleFormulaInput。
+  // 此时 ctx 是 frozen 快照，fortune 内部个别状态写回会抛错，但不影响 DOM 重建这一核心目标。
+  if (!act.ed.querySelector('span')) {
+    try {
+      const ctx = reactStateBy((st) => Array.isArray(st.luckysheetfile))
+      const cell = document.getElementById('luckysheet-rich-text-editor')
+      const fx = document.getElementById('luckysheet-functionbox-cell')
+      const $editor = act.isFx ? fx : cell
+      const $copyTo = act.isFx ? cell : fx
+      if (ctx && $editor) handleFormulaInput(ctx, $copyTo, $editor, 65, ' ')
+    } catch { /* 兜底失败不阻断 */ }
+  }
   updateFuncTip()
 }
 function onDocFuncSelChange() {
@@ -5172,6 +5233,101 @@ function onDocEditResidueDown(e) {
 }
 document.addEventListener('mousedown', onDocEditResidueDown, true)
 
+/* —— fx 公式栏拖选扩展 ——
+   fortune 在 fx 编辑态点格子能原生插首个引用（mousedown），但拖选扩展不会改写 fx 文本
+   （原生缺陷，拖完整片区域 fx 里仍只有左上角一个格，回车后公式残缺）。
+   注意：fx 编辑态拖选时 fortune 不更新 luckysheet_select_save（停留在编辑前的选区），
+   所以不能读选区状态，只能按鼠标坐标 + 列宽/行高配置自己算当前格。 */
+const fxDrag = { armed: false, anchor: null, lastWritten: '', frame: 0 }
+function colName(c) {
+  let s = ''
+  c += 1
+  while (c > 0) {
+    const m = (c - 1) % 26
+    s = String.fromCharCode(65 + m) + s
+    c = Math.floor((c - 1) / 26)
+  }
+  return s
+}
+function cellFromPoint(ctx, clientX, clientY) {
+  const cv = document.querySelector('.fortune-cell-area canvas') || hostRef.value?.querySelector('canvas')
+  if (!cv) return null
+  const rect = cv.getBoundingClientRect()
+  let x = clientX - rect.left - (ctx.rowHeaderWidth || 0) + (ctx.scrollLeft || 0)
+  let y = clientY - rect.top - (ctx.columnHeaderHeight || 0) + (ctx.scrollTop || 0)
+  if (x < 0 || y < 0) return null
+  const cw = (c) => (ctx.config?.columnlen?.[c] ?? ctx.defaultcollen ?? 73)
+  const rh = (r) => (ctx.config?.rowlen?.[r] ?? ctx.defaultrowlen ?? 24)
+  let c = 0
+  let acc = 0
+  while (x >= acc + cw(c)) { acc += cw(c); c += 1; if (c > 9999) return null }
+  let r = 0
+  acc = 0
+  while (y >= acc + rh(r)) { acc += rh(r); r += 1; if (r > 99999) return null }
+  return { r, c }
+}
+function rangeText(a, b) {
+  const r1 = Math.min(a.r, b.r)
+  const r2 = Math.max(a.r, b.r)
+  const c1 = Math.min(a.c, b.c)
+  const c2 = Math.max(a.c, b.c)
+  return c1 === c2 && r1 === r2
+    ? colName(c1) + (r1 + 1)
+    : colName(c1) + (r1 + 1) + ':' + colName(c2) + (r2 + 1)
+}
+function onDocFxRangeDown(e) {
+  fxDrag.armed = false
+  fxDrag.anchor = null
+  if (!hostRef.value?.contains(e.target)) return
+  if (!e.target.closest?.('.fortune-cell-area')) return
+  const act = activeFormulaEditor()
+  if (!act || !act.isFx || act.box.offsetParent === null) return
+  if (!(act.ed.innerText || '').trim().startsWith('=')) return
+  const ctx = reactStateBy((st) => Array.isArray(st.luckysheetfile))
+  if (!ctx) return
+  fxDrag.anchor = cellFromPoint(ctx, e.clientX, e.clientY)
+  fxDrag.armed = true
+  fxDrag.lastWritten = ''
+}
+function onDocFxRangeMove(e) {
+  if (!fxDrag.armed || !fxDrag.anchor || fxDrag.frame) return
+  const { clientX, clientY } = e
+  fxDrag.frame = requestAnimationFrame(() => {
+    fxDrag.frame = 0
+    if (!fxDrag.armed || !fxDrag.anchor) return
+    const ctx = reactStateBy((st) => Array.isArray(st.luckysheetfile))
+    if (!ctx) return
+    const cur = cellFromPoint(ctx, clientX, clientY)
+    if (!cur) return
+    const range = rangeText(fxDrag.anchor, cur)
+    if (range === fxDrag.lastWritten) return
+    const fx = document.getElementById('luckysheet-functionbox-cell')
+    const sel = window.getSelection()
+    if (!fx || !sel || !sel.rangeCount || !fx.contains(sel.anchorNode)) return
+    let back = 0
+    if (fxDrag.lastWritten) {
+      back = fxDrag.lastWritten.length
+    } else {
+      // 首次扩展：fortune 刚插进来的是单个引用（如 B3），从光标前把它选回来
+      const off = funcCaretOffset(fx)
+      const m = /[A-Za-z]{1,3}\d+$/.exec((fx.innerText || '').slice(0, off))
+      if (!m) return
+      back = m[0].length
+    }
+    for (let k = 0; k < back; k++) sel.modify('extend', 'backward', 'character')
+    document.execCommand('insertText', false, range)
+    fxDrag.lastWritten = range
+    updateFuncTip()
+  })
+}
+function onDocFxRangeUp() {
+  fxDrag.armed = false
+  if (fxDrag.frame) { cancelAnimationFrame(fxDrag.frame); fxDrag.frame = 0 }
+}
+document.addEventListener('mousedown', onDocFxRangeDown, true)
+document.addEventListener('mousemove', onDocFxRangeMove, true)
+document.addEventListener('mouseup', onDocFxRangeUp, true)
+
 watch(folded, () => {
   alignPop.show = false
   wrapPop.show = false
@@ -5199,6 +5355,9 @@ onBeforeUnmount(() => {
   document.removeEventListener('compositionend', onDocFormulaInput, true)
   document.removeEventListener('keydown', onDocFormulaKeydown, true)
   document.removeEventListener('mousedown', onDocEditResidueDown, true)
+  document.removeEventListener('mousedown', onDocFxRangeDown, true)
+  document.removeEventListener('mousemove', onDocFxRangeMove, true)
+  document.removeEventListener('mouseup', onDocFxRangeUp, true)
   document.removeEventListener('selectionchange', onDocFuncSelChange, true)
   document.removeEventListener('scroll', onDocFuncScroll, true)
   labelObs?.disconnect()
@@ -5222,6 +5381,7 @@ defineExpose({
   captureThumb,
   getActiveSheetName,
   getSelection,
+  activeCell,
   addSheet,
   setActiveSheet,
   writeBlock,

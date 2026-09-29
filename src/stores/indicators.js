@@ -340,11 +340,59 @@ export const useIndicatorStore = defineStore('indicators', () => {
   function get(id) {
     return cards.value.find((c) => c.id === id || c.title === id)
   }
+  // —— 自定义分析表格：表格数据生成/刷新指标 ——
+  function alignByMonth(points) {
+    const map = new Map()
+    points.forEach((p) => {
+      const ym = String(p.date).slice(0, 7)
+      map.set(ym, p.value) // 同月多次取最后一次（日期升序时即月内最新）
+    })
+    return LABELS.map((lb) => (map.has(lb) ? map.get(lb) : null))
+  }
+  function addFromTable({ title, unit, freq, dir, points }) {
+    if (!title || !Array.isArray(points) || !points.length) return null
+    if (cards.value.some((c) => c.title === title)) return { dup: true }
+    const last = points[points.length - 1]
+    const card = {
+      id: uid('I'),
+      title,
+      date: todayStr(),
+      state: '启用',
+      kind: 'base',
+      calcType: '',
+      unit: unit || '',
+      freq: freq || '月频',
+      source: '自定义分析表格',
+      dir: dir || currentDir.value || '黑色建材',
+      creator: ME,
+      values: alignByMonth(points),
+      latest: last.value,
+      latestDate: last.date,
+      points: points.map((p) => ({ ...p })),
+    }
+    cards.value.unshift(card)
+    persist()
+    return card
+  }
+  function updateFromTable(id, points) {
+    const c = cards.value.find((x) => x.id === id)
+    if (!c || !Array.isArray(points) || !points.length) return false
+    const next = alignByMonth(points)
+    // 只覆盖有新数据的月份，未覆盖月份保留原值
+    c.values = c.values.map((v, i) => (next[i] != null ? next[i] : v))
+    const last = points[points.length - 1]
+    c.latest = last.value
+    c.latestDate = last.date
+    c.points = points.map((p) => ({ ...p }))
+    persist()
+    return true
+  }
 
   return {
     dirs, cards, currentDir, currentItem, expanded, filters, viewMode, page, pageSize, detailId, LABELS,
     filtered, paged, creators, kindCounts, dirCount, itemsInDir, dirHasKids, isOpen, toggleExpand, selectDir, selectItem,
     persist, addDir, renameDir, removeDir, moveDir, moveItem,
     toggle, remove, moveTo, addBase, addCalc, replaceRef, updateInfo, addLatest, get,
+    addFromTable, updateFromTable,
   }
 })

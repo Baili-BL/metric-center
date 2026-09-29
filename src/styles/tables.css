@@ -4677,3 +4677,130 @@
 #luckysheet-formula-search-c {
   display: none !important;
 }
+
+/* fortune 的四个选中框 move 拖拽柄各向外溢出 4px（top:-4px 等），会吞掉相邻格边缘的点击
+   （表现为"点了没反应"、选区不动）。收到外溢 1px，框内保留拖拽热区；填充柄(fillhandle)不动 */
+.luckysheet-cs-draghandle-top { top: -1px !important; }
+.luckysheet-cs-draghandle-bottom { bottom: -1px !important; }
+.luckysheet-cs-draghandle-left { left: -1px !important; }
+.luckysheet-cs-draghandle-right { right: -1px !important; }
+
+/* —— 时间序列表格：顶栏选择指标 / 布局切换 / 批量设置 —— */
+.ts-ctrl { display: flex; align-items: center; gap: 8px; margin-right: 8px; }
+.ts-btn {
+  display: inline-flex; align-items: center; gap: 4px;
+  height: 32px; padding: 0 12px;
+  border: 1px solid var(--border); border-radius: 6px;
+  background: #fff; color: var(--text-2); font-size: 12px; cursor: pointer;
+}
+.ts-btn:hover { border-color: var(--primary); color: var(--primary); }
+.ts-cnt {
+  min-width: 16px; height: 16px; padding: 0 4px;
+  border-radius: 8px; background: var(--primary); color: #fff;
+  font-size: 11px; line-height: 16px; text-align: center;
+}
+.ts-seg { display: flex; align-items: center; height: 32px; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+.ts-seg button {
+  height: 100%; padding: 0 10px; border: 0;
+  background: #fff; color: var(--text-2); font-size: 12px; cursor: pointer; white-space: nowrap;
+}
+.ts-seg button + button { border-left: 1px solid var(--border); }
+.ts-seg button.on { background: var(--primary); color: #fff; }
+.ts-pick-search {
+  display: flex; align-items: center; gap: 6px;
+  height: 34px; padding: 0 10px; margin-bottom: 10px;
+  border: 1px solid var(--border); border-radius: 6px; color: var(--text-3);
+}
+.ts-pick-search input { flex: 1; border: 0; outline: none; font-size: 13px; color: var(--text); background: transparent; }
+.ts-pick-count { flex-shrink: 0; font-size: 12px; color: var(--text-3); white-space: nowrap; }
+.ts-pick-count b { color: var(--primary); }
+.ts-pick-list { max-height: 46vh; overflow: auto; border: 1px solid var(--border); border-radius: 6px; }
+.ts-pick-empty { padding: 32px 0; text-align: center; font-size: 13px; color: var(--text-3); }
+.ts-pick-gname {
+  position: sticky; top: 0; z-index: 1;
+  padding: 6px 12px; background: #f5f7fa;
+  font-size: 12px; color: var(--text-3);
+}
+.ts-pick-item {
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  padding: 8px 12px; border: 0; background: #fff; cursor: pointer; text-align: left;
+}
+.ts-pick-item + .ts-pick-item { border-top: 1px solid #f2f4f8; }
+.ts-pick-item:hover { background: #f7faff; }
+.ts-pick-item .ts-pick-name { flex: 1; font-size: 13px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ts-pick-item .ts-pick-meta { flex-shrink: 0; font-size: 11px; color: var(--text-3); }
+.ts-pick-item .ts-pick-tick { display: none; flex-shrink: 0; width: 16px; color: var(--primary); font-size: 13px; }
+.ts-pick-item.on .ts-pick-tick { display: inline; }
+.ts-pick-item.on .ts-pick-name { color: var(--primary); font-weight: 500; }
+.ts-dec-row { display: flex; gap: 6px; }
+.ts-dec-btn {
+  width: 40px; height: 30px;
+  border: 1px solid var(--border); border-radius: 6px;
+  background: #fff; color: var(--text-2); font-size: 13px; cursor: pointer;
+}
+.ts-dec-btn.on { border-color: var(--primary); background: var(--primary); color: #fff; }
+.ts-chk { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-2); cursor: pointer; }
+.ts-batch-tip { margin-top: 4px; font-size: 12px; color: var(--text-3); }
+
+/* —— 混合表格：插入菜单 / 日期配置 / 预览 —— */
+.mx-drop { position: relative; }
+.mx-caret { font-size: 10px; opacity: 0.7; margin-left: 2px; }
+.mx-menu {
+  position: absolute; top: 34px; left: 0; z-index: 60;
+  min-width: 168px; padding: 4px;
+  background: #fff; border: 1px solid var(--border); border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
+}
+.mx-menu button {
+  display: block; width: 100%; padding: 8px 10px;
+  border: 0; border-radius: 6px; background: transparent;
+  color: var(--text); font-size: 13px; text-align: left; cursor: pointer; white-space: nowrap;
+}
+.mx-menu button:hover { background: #f2f7ff; color: var(--primary); }
+.mx-libtabs { display: flex; align-items: center; gap: 6px; }
+.mx-libtabs > button {
+  height: 30px; padding: 0 12px; border: 1px solid var(--border); border-radius: 6px;
+  background: #fff; color: var(--text-2); font-size: 12px; cursor: pointer; white-space: nowrap;
+}
+.mx-libtabs > button.on { border-color: var(--primary); background: var(--primary); color: #fff; }
+.mx-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.mx-select {
+  height: 32px; padding: 0 8px; border: 1px solid var(--border); border-radius: 6px;
+  background: #fff; color: var(--text); font-size: 13px; outline: none;
+}
+.mx-num { width: 64px; height: 32px; padding: 0 8px; border: 1px solid var(--border); border-radius: 6px; font-size: 13px; outline: none; }
+.mx-ref {
+  flex: 1; min-width: 90px; height: 32px; padding: 0 10px;
+  border: 1px solid var(--border); border-radius: 6px; font-size: 13px; outline: none;
+}
+.mx-ref:focus, .mx-num:focus, .mx-select:focus { border-color: var(--primary); }
+.mx-unit { font-size: 12px; color: var(--text-3); white-space: nowrap; }
+.mx-hint { margin-top: 6px; font-size: 12px; color: var(--text-3); }
+.mx-preview {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  margin-top: 4px; padding: 10px 12px;
+  background: #f5f9ff; border: 1px solid #dbe9ff; border-radius: 8px;
+  font-size: 13px; color: var(--text);
+}
+.mx-pv-k { font-size: 12px; color: var(--text-3); }
+.mx-preview b { color: var(--primary); font-size: 14px; }
+.mx-pv-note { font-size: 12px; color: var(--text-3); }
+.mx-pv-err { font-size: 12px; color: #d4380d; }
+
+/* —— 自定义分析表格：已生成指标列表 —— */
+.cus-ind-item {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 12px; border-top: 1px solid #f2f4f8;
+}
+.cus-ind-item:hover { background: #f7faff; }
+.cus-ind-name {
+  flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 13px; color: var(--text);
+}
+.cus-ind-meta { flex-shrink: 0; font-size: 11px; color: var(--text-3); }
+.cus-ind-go {
+  flex-shrink: 0; padding: 2px 8px;
+  border: 1px solid var(--border); border-radius: 5px;
+  background: #fff; color: var(--primary); font-size: 11px; cursor: pointer;
+}
+.cus-ind-go:hover { border-color: var(--primary); }
