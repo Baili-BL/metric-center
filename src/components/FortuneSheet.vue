@@ -4855,6 +4855,22 @@ function onDocFormulaKeydown(e) {
   if (e.key !== 'Enter' || e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return
   hideFuncTip()
   hideFuncSug()
+  // 公式处于「空参数」位置（光标前是 ( 或 ,）时 Enter 不提交——
+  // 防止手滑把 =SUM( / =SUM(A1, 提交成 =SUM() / =SUM(A1, )，Excel 同样会拦
+  {
+    const act = activeFormulaEditor()
+    if (act && act.box.offsetParent !== null) {
+      const text = (act.ed.innerText || '').trim()
+      if (text.startsWith('=')) {
+        const off = funcCaretOffset(act.ed)
+        const prev = off > 0 ? (act.ed.innerText || '').slice(0, off).replace(/\s+$/, '').slice(-1) : ''
+        if (prev === '(' || prev === ',') {
+          e.preventDefault(); e.stopPropagation()
+          return
+        }
+      }
+    }
+  }
   if (!fwSawFullwidthEquals) return
   const editor = document.getElementById('luckysheet-rich-text-editor')
   if (!editor) return
