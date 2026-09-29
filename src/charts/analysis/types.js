@@ -179,12 +179,16 @@ export function normalizeAnno(a) {
   if (!a) return defaultAnno()
   const cfg = { ...defaultAnnoCfg(), ...(a.cfg || {}) }
   if (!a.cfg && a.dim != null) cfg.mode = 'manual'
+  let dims
+  if (Array.isArray(a.dims) && a.dims.length) dims = a.dims.slice()
+  else if (Array.isArray(a.dim) && a.dim.length) dims = a.dim.slice()
+  else if (a.dim != null && a.dim !== '') dims = [a.dim]
   return {
     id: a.id || warnUid(),
     name: a.name || '标注1',
     text: a.text || '',
-    dim: a.dim ?? null,
-    dims: Array.isArray(a.dims) ? a.dims.slice() : undefined,
+    dim: dims?.length ? dims[0] : (a.dim ?? null),
+    dims,
     series: a.series || '',
     visible: a.visible !== false,
     cfg,

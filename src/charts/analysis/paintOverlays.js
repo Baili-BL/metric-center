@@ -40,8 +40,44 @@ function yExtent(seriesList) {
 
 function annoDimsOf(a) {
   if (Array.isArray(a.dims) && a.dims.length) return a.dims
+  if (Array.isArray(a.dim) && a.dim.length) return a.dim
   if (a.dim != null && a.dim !== '') return [a.dim]
   return []
+}
+
+/** 相邻维度下标合并成连续段（对齐 ai-lab annoIndexRanges） */
+function annoIndexRanges(a, labels) {
+  const seen = Object.create(null)
+  const idxs = []
+  annoDimsOf(a).forEach((d) => {
+    const i = labels.indexOf(d)
+    if (i < 0 || seen[i]) return
+    seen[i] = true
+    idxs.push(i)
+  })
+  idxs.sort((x, y) => x - y)
+  const ranges = []
+  idxs.forEach((i) => {
+    const last = ranges[ranges.length - 1]
+    if (!last || i !== last.end + 1) ranges.push({ start: i, end: i })
+    else last.end = i
+  })
+  return ranges
+}
+
+/** 每段：中点类目 + 共用说明文案（名称/描述合并） */
+function annoBandMeta(a, labels) {
+  const text = a.text || a.name || '手工标注'
+  return annoIndexRanges(a, labels).map((rg) => {
+    const mid = Math.round((rg.start + rg.end) / 2)
+    return {
+      start: rg.start,
+      end: rg.end,
+      mid,
+      x: labels[mid],
+      annoText: text,
+    }
+  })
 }
 
 function annoThresholdValue(sr, cfg) {
@@ -321,6 +357,7 @@ function buildManualAnnoChildren(a, seriesList, labels, opts = {}) {
   if (!dims.length) return []
   const sr = findSeries(seriesList, a.series)
   const out = []
+  const bands = annoBandMeta(a, labels)
   const pointRows = []
   dims.forEach((d) => {
     const idx = labels.indexOf(d)
@@ -335,27 +372,15 @@ function buildManualAnnoChildren(a, seriesList, labels, opts = {}) {
   })
 
   if (!isUnsetColor(cfg.dimBg)) {
-    // 维度背景带：主图 x 轴是类目(band)轴，rangeX 在本项目的视图配置下不渲染
-    // （即使 spec 正确、数据正确，x1/x2 会被 G2 建成独立 scale 后静默失败），
-    // 改用 interval：band 轴上天然占满整列宽度，且与 x 轴逐列对齐。
-    // y 用独立 scale 锁死在 [0,1] + 值区间 [0,1] → 纵向铺满绘图区；
-    // independent 保证不污染主图 y 轴值域；axis:{y:false} 只关它自己的轴，
-    // 不会像 axis:false 那样把共享的 x/y 轴一起关掉。
-    // size 给「整格宽」像素（paint.js 的 bandStepPxOf）：band 轴的列间隙（柱图尤其宽）会把
-    // 连续维度切成一缕缕的带子，占满整格后相邻列自然连成一片。
-    // 宽度按容器估算（实测误差 ±0.3px）：恰好相接时 canvas 在边界处自然融合，看不到缝。
+    /* 维度背景：同一标注内连续维在视觉上连成一片（bandStep 占满格缝）；
+       数据仍铺全部分类目，仅选中列 opacity=0.18，避免改写共享 band domain。 */
     const bandStep = Number(opts.bandStepPx) || 0
     const wantDims = dims.filter((d) => labels.indexOf(d) >= 0)
     if (wantDims.length && labels.length) {
-      // 数据铺「全部列」，只把未选中的列设成全透明（fillOpacity 0）：这样色带的 x 数据域
-      // 与主图完全一致（同一批类目）。paint.js 会把它垫到 children 最前（画在柱体/折线之下，
-      // 否则半透明色带罩在柱子上会把柱色洗淡、并被柱子切断成一截一截）。
-      // 若只给选中列数据，垫底会改变共享 band 轴的 domain → 色带整体跑到最左侧（已踩过）。
       const on = new Set(wantDims)
       out.push({
         type: 'interval',
         data: labels.map((d) => ({ x: d, y: [0, 1] })),
-        // __bg：给 paint.js 用来把背景带垫到 children 最前
         __bg: true,
         encode: { x: 'x', y: 'y', ...(bandStep > 0 ? { size: bandStep } : {}) },
         scale: { y: { type: 'linear', domain: [0, 1], independent: true } },
@@ -371,12 +396,17 @@ function buildManualAnnoChildren(a, seriesList, labels, opts = {}) {
     }
   }
 
-  if (cfg.showNote !== false && pointRows.length) {
-    // 说明：G2 5 独立 text 标记在本项目视图配置下不渲染（坐标退化到画布左上角后被裁剪），
-    // 改用不可见 point 锚点 + labels 管道挂文字（与标识线标签同管道，已验证可用）
+  /* 说明/名称：按连续维段合并，每段只在中点画一条（对齐 ai-lab） */
+  if (cfg.showNote !== false && bands.length) {
+    const [, yTop] = yExtent(seriesList)
+    const noteRows = bands.map((b) => ({
+      x: b.x,
+      value: yTop,
+      annoText: b.annoText,
+    }))
     out.push({
       type: 'point',
-      data: pointRows,
+      data: noteRows,
       encode: { x: 'x', y: 'value' },
       style: {
         r: 2,
@@ -390,13 +420,11 @@ function buildManualAnnoChildren(a, seriesList, labels, opts = {}) {
       labels: [{
         text: (d) => d.annoText,
         position: 'top',
-        // 上移到位：既要避开数据点标记（r=3），又要让白底芯片不压住点
-        dy: -11,
-        // 白色背景芯片：文字压在序列/柱上仍可读
+        dy: -8,
         background: {
           fill: '#ffffff',
           opacity: 0.9,
-          padding: [1, 4],
+          padding: [2, 6],
           radius: 2,
         },
         style: {
@@ -405,6 +433,7 @@ function buildManualAnnoChildren(a, seriesList, labels, opts = {}) {
           fontWeight: 500,
           lineHeight: 1,
           textAlign: 'center',
+          textBaseline: 'bottom',
           pointerEvents: 'none',
         },
       }],

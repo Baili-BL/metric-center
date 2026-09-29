@@ -14,6 +14,7 @@ import {
   sectionValue,
   usesCrossSectionTime,
 } from '../charts/types'
+import { PALETTE } from './hash'
 
 function xEsc(s) {
   return String(s == null ? '' : s)
@@ -109,10 +110,14 @@ export function prepareChartExportPack(state, labels, series) {
     if (isPie(type)) {
       return {
         type: 'pie',
+        pieStyle: state.pieStyle === 'donut' ? 'donut' : 'pie',
+        pieRadius: state.pieRadius,
         labels: srcSeries.map((s) => seriesName(s)),
         series: [{
           name: '取值',
           color: srcSeries[0]?.color || '#c8102e',
+          /* 扇区色按指标逐点写入 c:dPt，不能只留系列级单色 */
+          pointColors: srcSeries.map((s, i) => s.color || PALETTE[i % PALETTE.length]),
           values: srcSeries.map((s) => sectionValue(s.values || [], range)),
           fmt: srcSeries[0]?.fmt,
         }],
@@ -264,13 +269,37 @@ function buildChartXml(pack, state, totalRows) {
     return `<c:val><c:numRef><c:f>'明细数据'!$${colL}$2:$${colL}$${totalRows + 1}</c:f>${numCache(idx)}</c:numRef></c:val>`
   }
 
+  function piePointXml(idx) {
+    const colors = series[idx]?.pointColors || []
+    if (!colors.length) return ''
+    return colors.map((c, i) => {
+      const col = hexColor(c)
+      return `<c:dPt><c:idx val="${i}"/><c:spPr><a:solidFill><a:srgbClr val="${col}"/></a:solidFill>`
+        + '<a:ln w="12700"><a:solidFill><a:srgbClr val="FFFFFF"/></a:solidFill></a:ln></c:spPr></c:dPt>'
+    }).join('')
+  }
+
+  function serPieHead(idx) {
+    const colL = colLetter(idx + 1)
+    /* 饼/环不写系列级填充，颜色一律走 dPt，避免整图被刷成同色 */
+    return `<c:idx val="${idx}"/><c:order val="${idx}"/>`
+      + `<c:tx><c:strRef><c:f>'明细数据'!$${colL}$1</c:f></c:strRef></c:tx>`
+  }
+
   let plotInner = ''
   if (pie) {
-    plotInner = '<c:pieChart><c:varyColors val="1"/>'
+    const donut = (pack.pieStyle || state.pieStyle) === 'donut'
+    const tag = donut ? 'doughnutChart' : 'pieChart'
+    /* 与 G2 一致：内径 ≈ 外径 × 0.52；Excel holeSize 为整饼直径百分比 10–90 */
+    const outerR = Math.max(0.35, Math.min(1, (Number(pack.pieRadius ?? state.pieRadius) || 92) / 100))
+    const innerR = donut ? Math.max(0, Math.min(outerR - 0.1, outerR * 0.52)) : 0
+    const holeSize = Math.round(Math.max(10, Math.min(90, (innerR / Math.max(outerR, 0.01)) * 100))) || 50
+    plotInner = `<c:${tag}><c:varyColors val="0"/>`
     series.forEach((_, idx) => {
-      plotInner += `<c:ser>${serCommon(idx)}${catRef()}${valRef(idx)}</c:ser>`
+      plotInner += `<c:ser>${serPieHead(idx)}${piePointXml(idx)}${catRef()}${valRef(idx)}</c:ser>`
     })
-    plotInner += '</c:pieChart>'
+    if (donut) plotInner += `<c:holeSize val="${holeSize}"/>`
+    plotInner += `</c:${tag}>`
   } else if (scatter) {
     plotInner = '<c:scatterChart><c:scatterStyle val="marker"/>'
     series.forEach((_, idx) => {
