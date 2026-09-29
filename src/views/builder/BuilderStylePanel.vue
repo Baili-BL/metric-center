@@ -1,6 +1,7 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import Icon from '../../components/Icon.vue'
+import ColorPop from '../../components/ColorPop.vue'
 import RichNoteDialog from '../../components/RichNoteDialog.vue'
 import {
   BAR_VIS_TYPES,
@@ -43,6 +44,13 @@ const srFieldOpen = ref(false)
 const lgContentOpen = ref(false)
 const axisTab = ref('x')
 const srIdx = ref(0)
+const colorOpen = ref(false)
+const colorLeft = ref(0)
+const colorTop = ref(0)
+const colorOrigin = ref('#1f2329')
+const colorTarget = ref(null)
+const colorKey = ref('')
+const colorClearable = ref(false)
 const openMap = reactive({
   title: false,
   note: false,
@@ -215,6 +223,33 @@ function toggleLegendItem(name) {
   else cur.push(name)
   props.state.legendItems = cur.length === all.length ? null : cur
 }
+
+/** 统一使用 ColorPop（与表格/字段色点一致） */
+function openColor(target, key, e, opts = {}) {
+  if (!target || !key) return
+  const r = e.currentTarget.getBoundingClientRect()
+  const width = 284
+  const height = 420
+  colorLeft.value = Math.min(Math.max(8, r.left), window.innerWidth - width - 8)
+  let top = r.bottom + 6
+  if (top + height > window.innerHeight - 8) top = Math.max(8, r.top - height - 6)
+  colorTop.value = Math.round(top)
+  colorTarget.value = target
+  colorKey.value = key
+  colorClearable.value = !!opts.clearable
+  colorOrigin.value = target[key] || opts.fallback || '#1f2329'
+  colorOpen.value = true
+}
+
+function onColorPick(color) {
+  if (!colorTarget.value || !colorKey.value) return
+  if (colorClearable.value && !color) {
+    colorTarget.value[colorKey.value] = ''
+    return
+  }
+  colorTarget.value[colorKey.value] = color || colorOrigin.value
+}
+
 function onDoc(e) {
   if (!e.target.closest?.('.dash-select')) { dashOpen.value = false; srDashOpen.value = false }
   if (!e.target.closest?.('.mk-select')) { mkOpen.value = false; srMkOpen.value = false }
@@ -258,7 +293,7 @@ onBeforeUnmount(() => document.removeEventListener('click', onDoc))
         <div class="cfg-row">
           <span class="r-label">文本</span>
           <div class="fmt-bar">
-            <label class="fmt-color color-well" :style="{ '--swatch': state.titleColor }">A<input type="color" v-model="state.titleColor"></label>
+            <button type="button" class="fmt-color color-well" :style="{ '--swatch': state.titleColor }" @click.stop="openColor(state, 'titleColor', $event)">A</button>
             <input class="cfg-input fmt-size" type="number" v-model.number="state.titleSize" min="12" max="30">
             <button type="button" class="fmt-btn" :class="{ active: state.titleBold }" @click="state.titleBold = !state.titleBold"><b>B</b></button>
             <button type="button" class="fmt-btn" :class="{ active: state.titleItalic }" @click="state.titleItalic = !state.titleItalic"><i>I</i></button>
@@ -278,7 +313,7 @@ onBeforeUnmount(() => document.removeEventListener('click', onDoc))
             <div class="cfg-row">
               <span class="r-label">分割线</span>
               <div class="fmt-bar">
-                <label class="fmt-swatch color-well" :style="{ background: state.dividerColor }"><input type="color" v-model="state.dividerColor"></label>
+                <button type="button" class="fmt-swatch color-well" :style="{ background: state.dividerColor }" @click.stop="openColor(state, 'dividerColor', $event)" />
                 <input class="cfg-input fmt-size" type="number" v-model.number="state.dividerWidth" min="1" max="4">
               </div>
             </div>
@@ -422,9 +457,12 @@ onBeforeUnmount(() => document.removeEventListener('click', onDoc))
             <div class="cfg-row"><span class="r-label">区块名称</span><input class="cfg-input" v-model="state.pieOthersName" placeholder="其他"></div>
             <div class="cfg-row">
               <span class="r-label">区块颜色</span>
-              <label class="fmt-swatch color-well" :style="{ background: state.pieOthersColor || 'conic-gradient(#eee 25%,#fff 0 50%,#eee 0 75%,#fff 0)/8px 8px' }">
-                <input type="color" :value="state.pieOthersColor || '#c4c8cf'" @input="state.pieOthersColor = $event.target.value">
-              </label>
+              <button
+                type="button"
+                class="fmt-swatch color-well"
+                :style="{ background: state.pieOthersColor || 'conic-gradient(#eee 25%,#fff 0 50%,#eee 0 75%,#fff 0)/8px 8px' }"
+                @click.stop="openColor(state, 'pieOthersColor', $event, { clearable: true, fallback: '#c4c8cf' })"
+              />
             </div>
           </div>
         </template>
@@ -543,7 +581,7 @@ onBeforeUnmount(() => document.removeEventListener('click', onDoc))
               <div class="cfg-row">
                 <span class="r-label">文本</span>
                 <div class="fmt-bar">
-                  <label class="fmt-color color-well" :style="{ '--swatch': curAx.titleColor }">A<input type="color" v-model="curAx.titleColor"></label>
+                  <button type="button" class="fmt-color color-well" :style="{ '--swatch': curAx.titleColor }" @click.stop="openColor(curAx, 'titleColor', $event)">A</button>
                   <select class="cfg-input fmt-size" v-model.number="curAx.titleSize">
                     <option v-for="n in FONT_SIZES" :key="n" :value="n">{{ n }}</option>
                   </select>
@@ -575,7 +613,7 @@ onBeforeUnmount(() => document.removeEventListener('click', onDoc))
               <div class="cfg-row">
                 <span class="r-label">文本</span>
                 <div class="fmt-bar">
-                  <label class="fmt-color color-well" :style="{ '--swatch': curAx.labelColor }">A<input type="color" v-model="curAx.labelColor"></label>
+                  <button type="button" class="fmt-color color-well" :style="{ '--swatch': curAx.labelColor }" @click.stop="openColor(curAx, 'labelColor', $event)">A</button>
                   <select class="cfg-input fmt-size" v-model.number="curAx.labelSize">
                     <option v-for="n in FONT_SIZES" :key="n" :value="n">{{ n }}</option>
                   </select>
@@ -598,7 +636,7 @@ onBeforeUnmount(() => document.removeEventListener('click', onDoc))
                     <option value="dot">· · ·</option>
                   </select>
                   <input class="cfg-input fmt-size" type="number" min="1" max="4" v-model.number="curAx.lineWidth">
-                  <label class="fmt-swatch color-well" :style="{ background: curAx.lineColor }"><input type="color" v-model="curAx.lineColor"></label>
+                  <button type="button" class="fmt-swatch color-well" :style="{ background: curAx.lineColor }" @click.stop="openColor(curAx, 'lineColor', $event)" />
                 </div>
               </div>
             </div>
@@ -615,7 +653,7 @@ onBeforeUnmount(() => document.removeEventListener('click', onDoc))
                     <option value="dot">· · ·</option>
                   </select>
                   <input class="cfg-input fmt-size" type="number" min="1" max="4" v-model.number="curAx.gridWidth">
-                  <label class="fmt-swatch color-well" :style="{ background: curAx.gridColor }"><input type="color" v-model="curAx.gridColor"></label>
+                  <button type="button" class="fmt-swatch color-well" :style="{ background: curAx.gridColor }" @click.stop="openColor(curAx, 'gridColor', $event)" />
                 </div>
               </div>
             </div>
@@ -708,7 +746,7 @@ onBeforeUnmount(() => document.removeEventListener('click', onDoc))
         <div class="cfg-row">
           <span class="r-label">文本</span>
           <div class="fmt-bar">
-            <label class="fmt-color color-well" :style="{ '--swatch': state.legendColor }">A<input type="color" v-model="state.legendColor"></label>
+            <button type="button" class="fmt-color color-well" :style="{ '--swatch': state.legendColor }" @click.stop="openColor(state, 'legendColor', $event)">A</button>
             <select class="cfg-input fmt-size" v-model.number="state.legendSize">
               <option v-for="n in FONT_SIZES" :key="n" :value="n">{{ n }}</option>
             </select>
@@ -744,7 +782,7 @@ onBeforeUnmount(() => document.removeEventListener('click', onDoc))
         <div class="cfg-row">
           <span class="r-label">文本</span>
           <div class="fmt-bar">
-            <label class="fmt-color color-well" :style="{ '--swatch': state.labelColor }">A<input type="color" v-model="state.labelColor"></label>
+            <button type="button" class="fmt-color color-well" :style="{ '--swatch': state.labelColor }" @click.stop="openColor(state, 'labelColor', $event)">A</button>
             <select class="cfg-input fmt-size" v-model.number="state.labelSize">
               <option v-for="n in FONT_SIZES" :key="n" :value="n">{{ n }}</option>
             </select>
@@ -784,12 +822,12 @@ onBeforeUnmount(() => document.removeEventListener('click', onDoc))
           </div>
           <div class="cfg-row">
             <span class="r-label">背景色</span>
-            <label class="fmt-swatch color-well" :style="{ background: state.tooltipBg }"><input type="color" v-model="state.tooltipBg"></label>
+            <button type="button" class="fmt-swatch color-well" :style="{ background: state.tooltipBg }" @click.stop="openColor(state, 'tooltipBg', $event)" />
           </div>
           <div class="cfg-row">
             <span class="r-label">文本</span>
             <div class="fmt-bar">
-              <label class="fmt-color color-well" :style="{ '--swatch': state.tooltipColor }">A<input type="color" v-model="state.tooltipColor"></label>
+              <button type="button" class="fmt-color color-well" :style="{ '--swatch': state.tooltipColor }" @click.stop="openColor(state, 'tooltipColor', $event)">A</button>
               <select class="cfg-input fmt-size" v-model.number="state.tooltipSize">
                 <option v-for="n in FONT_SIZES" :key="n" :value="n">{{ n }}</option>
               </select>
@@ -817,7 +855,7 @@ onBeforeUnmount(() => document.removeEventListener('click', onDoc))
             <div class="cfg-row">
               <span class="r-label">名称</span>
               <div class="fmt-bar">
-                <label class="fmt-color color-well" :style="{ '--swatch': state.pieTotalNameColor }">A<input type="color" v-model="state.pieTotalNameColor"></label>
+                <button type="button" class="fmt-color color-well" :style="{ '--swatch': state.pieTotalNameColor }" @click.stop="openColor(state, 'pieTotalNameColor', $event)">A</button>
                 <select class="cfg-input fmt-size" v-model.number="state.pieTotalNameSize">
                   <option v-for="n in FONT_SIZES" :key="n" :value="n">{{ n }}</option>
                 </select>
@@ -828,7 +866,7 @@ onBeforeUnmount(() => document.removeEventListener('click', onDoc))
             <div class="cfg-row">
               <span class="r-label">数值</span>
               <div class="fmt-bar">
-                <label class="fmt-color color-well" :style="{ '--swatch': state.pieTotalValueColor }">A<input type="color" v-model="state.pieTotalValueColor"></label>
+                <button type="button" class="fmt-color color-well" :style="{ '--swatch': state.pieTotalValueColor }" @click.stop="openColor(state, 'pieTotalValueColor', $event)">A</button>
                 <select class="cfg-input fmt-size" v-model.number="state.pieTotalValueSize">
                   <option v-for="n in FONT_SIZES" :key="n" :value="n">{{ n }}</option>
                 </select>
@@ -866,12 +904,17 @@ onBeforeUnmount(() => document.removeEventListener('click', onDoc))
         <template v-if="curSeries">
           <div class="plot-inline">
             <div class="plot-label-inline">颜色</div>
-            <label class="fmt-swatch color-well" :style="{ background: curSeries.color }"><input type="color" v-model="curSeries.color"></label>
+            <button type="button" class="fmt-swatch color-well" :style="{ background: curSeries.color }" @click.stop="openColor(curSeries, 'color', $event)" />
           </div>
           <template v-if="colPlot || isBar">
             <div class="plot-inline">
               <div class="plot-label-inline">边框颜色</div>
-              <label class="fmt-swatch color-well" :style="{ background: curSeries.barStroke || '#1f2329' }"><input type="color" :value="curSeries.barStroke || '#1f2329'" @input="curSeries.barStroke = $event.target.value"></label>
+              <button
+                type="button"
+                class="fmt-swatch color-well"
+                :style="{ background: curSeries.barStroke || '#1f2329' }"
+                @click.stop="openColor(curSeries, 'barStroke', $event, { clearable: true, fallback: '#1f2329' })"
+              />
             </div>
             <div class="plot-inline">
               <div class="plot-label-inline">边框宽度</div>
@@ -936,7 +979,7 @@ onBeforeUnmount(() => document.removeEventListener('click', onDoc))
               <div class="cfg-row">
                 <span class="r-label">文本</span>
                 <div class="fmt-bar">
-                  <label class="fmt-color color-well" :style="{ '--swatch': curSeries.labelColor }">A<input type="color" v-model="curSeries.labelColor"></label>
+                  <button type="button" class="fmt-color color-well" :style="{ '--swatch': curSeries.labelColor }" @click.stop="openColor(curSeries, 'labelColor', $event)">A</button>
                   <select class="cfg-input fmt-size" v-model.number="curSeries.labelSize">
                     <option v-for="n in FONT_SIZES" :key="n" :value="n">{{ n }}</option>
                   </select>
@@ -966,12 +1009,12 @@ onBeforeUnmount(() => document.removeEventListener('click', onDoc))
               </div>
               <div class="cfg-row">
                 <span class="r-label">背景填充</span>
-                <label class="fmt-swatch color-well" :style="{ background: curSeries.minMaxFill }"><input type="color" v-model="curSeries.minMaxFill"></label>
+                <button type="button" class="fmt-swatch color-well" :style="{ background: curSeries.minMaxFill }" @click.stop="openColor(curSeries, 'minMaxFill', $event)" />
               </div>
               <div class="cfg-row">
                 <span class="r-label">文本</span>
                 <div class="fmt-bar">
-                  <label class="fmt-color color-well" :style="{ '--swatch': curSeries.minMaxColor }">A<input type="color" v-model="curSeries.minMaxColor"></label>
+                  <button type="button" class="fmt-color color-well" :style="{ '--swatch': curSeries.minMaxColor }" @click.stop="openColor(curSeries, 'minMaxColor', $event)">A</button>
                   <select class="cfg-input fmt-size" v-model.number="curSeries.minMaxSize">
                     <option v-for="n in FONT_SIZES" :key="n" :value="n">{{ n }}</option>
                   </select>
@@ -1029,5 +1072,16 @@ onBeforeUnmount(() => document.removeEventListener('click', onDoc))
 
     <RichNoteDialog v-model:visible="noteOpen" title="备注内容" :html="state.remark || ''" @ok="(h) => { state.remark = h }" />
     <RichNoteDialog v-model:visible="footOpen" title="尾注内容" :html="state.footnote || ''" placeholder="请输入尾注" @ok="(h) => { state.footnote = h }" />
+    <Teleport to="body">
+      <ColorPop
+        :show="colorOpen"
+        :left="colorLeft"
+        :top="colorTop"
+        :origin="colorOrigin"
+        :clearable="colorClearable"
+        @update:show="colorOpen = $event"
+        @pick="onColorPick"
+      />
+    </Teleport>
   </div>
 </template>

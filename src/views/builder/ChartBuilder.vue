@@ -153,7 +153,6 @@ const fcfgSeries = computed(() => (fcfgIdx.value >= 0 ? state.series[fcfgIdx.val
 const fmtSeries = computed(() => (fmtIdx.value >= 0 ? state.series[fmtIdx.value] : null))
 const canPaint = computed(() => (isCrossScatter(state.type) ? state.series.length >= 2 : state.series.length > 0))
 const hideDimChip = computed(() => usesCrossSectionTime(state.type) || isCrossScatter(state.type) || isSeasonal(state.type))
-const paletteColors = computed(() => PALETTES[state.paletteIdx]?.colors || PALETTES[0].colors)
 const hideDatePreset = computed(() => usesCrossSectionTime(state.type) || isSeasonal(state.type))
 const crossBarRange = computed(() => resolveCrossBarRange(state.crossBar, rawLabels.value))
 const crossBarHint = computed(() => crossBarTimeLabel(state.crossBar, rawLabels.value))
@@ -1037,7 +1036,6 @@ const isPreview = computed(() => props.mode === 'preview' || props.mode === 'exp
                 :index="x.i"
                 :show-axis="false"
                 combo
-                :palette="paletteColors"
                 @remove="removeSeries"
                 @configure="openFcfg"
                 @color="onFieldColor"
@@ -1055,7 +1053,6 @@ const isPreview = computed(() => props.mode === 'preview' || props.mode === 'exp
                 :index="x.i"
                 :show-axis="false"
                 combo
-                :palette="paletteColors"
                 @remove="removeSeries"
                 @configure="openFcfg"
                 @color="onFieldColor"
@@ -1077,7 +1074,6 @@ const isPreview = computed(() => props.mode === 'preview' || props.mode === 'exp
                 :series="s"
                 :index="i"
                 :show-axis="!isPie(state.type)"
-                :palette="paletteColors"
                 @remove="removeSeries"
                 @configure="openFcfg"
                 @color="onFieldColor"

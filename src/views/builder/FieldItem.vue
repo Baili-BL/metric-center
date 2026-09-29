@@ -19,8 +19,6 @@ const props = defineProps({
   showAxis: { type: Boolean, default: true },
   combo: { type: Boolean, default: false },
   icon: { type: String, default: '' },
-  /** 传入调色板色板时，颜色选择限定在调色板内（与样式面板配色统一） */
-  palette: { type: Array, default: null },
 })
 const emit = defineEmits(['remove', 'configure', 'color', 'mark', 'fmt', 'null', 'sort'])
 
@@ -109,10 +107,6 @@ function openColor(e) {
 
 function onFieldColor(color) {
   emit('color', props.index, color || props.series.color)
-  markOpen.value = false
-  menuOpen.value = !menuOpen.value
-  openSub.value = ''
-  if (menuOpen.value) nextTick(placeMenu)
 }
 
 function toggleMark(e) {
@@ -136,17 +130,9 @@ function onDoc(e) {
   if (menuEl.value?.contains(e.target)) return
   if (markEl.value?.contains(e.target)) return
   if (e.target.closest?.('.cp')) return
-  if (e.target.closest?.('.fld-palette-pop')) return
   colorOpen.value = false
   closeAll()
 }
-
-function pickPalette(hex) {
-  colorOpen.value = false
-  emit('color', props.index, hex)
-}
-
-const isCurColor = (hex) => String(hex).toLowerCase() === String(props.series.color || '').toLowerCase()
 
 function onWin() {
   if (menuOpen.value) placeMenu()
@@ -205,28 +191,7 @@ onBeforeUnmount(() => {
   </div>
 
   <Teleport to="body">
-    <!-- 统一配色：字段颜色限定使用当前调色板 -->
-    <div
-      v-if="palette && colorOpen"
-      class="fld-palette-pop"
-      :style="{ left: colorLeft + 'px', top: colorTop + 'px' }"
-    >
-      <div class="fpp-title">配色</div>
-      <div class="fpp-grid">
-        <button
-          v-for="c in palette"
-          :key="c"
-          type="button"
-          class="fpp-swatch"
-          :class="{ active: isCurColor(c) }"
-          :style="{ background: c }"
-          :title="c"
-          @click.stop="pickPalette(c)"
-        />
-      </div>
-    </div>
     <ColorPop
-      v-if="!palette"
       :show="colorOpen"
       :left="colorLeft"
       :top="colorTop"
