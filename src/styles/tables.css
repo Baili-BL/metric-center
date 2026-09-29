@@ -3992,12 +3992,12 @@
   color: #bbbfc4;
   cursor: not-allowed;
 }
-/* —— 底部工作表 Tab 栏（对齐飞书截图） —— */
+/* —— 底部工作表 Tab 栏（对齐设计稿：灰底 + 分隔线 + 激活白底绿字 + 号靠右） —— */
 .fortune-wrap .luckysheet-sheet-area {
   height: 32px !important;
   padding: 0 8px !important;
-  background: #fff !important;
-  border-top: 1px solid #dee0e3 !important;
+  background: #eeeeee !important;
+  border-top: 1px solid #d9d9d9 !important;
   border-bottom: 0 !important;
   color: #1f2329;
   align-items: center !important;
@@ -4043,7 +4043,7 @@
   top: 6px;
   bottom: 6px;
   width: 1px;
-  background: #dee0e3;
+  background: #d9d9d9;
 }
 .fortune-wrap .sheet-list-container .fortune-sheettab-button {
   width: 28px !important;
@@ -4101,7 +4101,7 @@
   top: 6px;
   bottom: 6px;
   width: 1px;
-  background: #dee0e3;
+  background: #d9d9d9;
 }
 .fortune-wrap #luckysheet-sheet-content > .fortune-sheettab-button svg {
   color: #1f2329;
@@ -4140,12 +4140,12 @@
   display: inline-flex;
   align-items: center !important;
   box-sizing: border-box !important;
-  height: 28px !important;
+  height: 32px !important;
   min-width: 0 !important;
-  margin: 0 2px !important;
-  padding: 0 12px !important;
+  margin: 0 !important;
+  padding: 0 14px !important;
   border: 0 !important;
-  border-radius: 4px !important;
+  border-radius: 0 !important;
   background: transparent !important;
   color: #1f2329 !important;
   font-size: 14px !important;
@@ -4165,46 +4165,43 @@
   display: none !important;
 }
 
-/* Tab 竖分割线（贴在选中项旁时隐藏） */
+/* Tab 竖分割线（分隔线画在当前项左缘，z-index 高于激活白卡保证两侧可见） */
 .fortune-wrap .luckysheet-sheet-area div.luckysheet-sheets-item + div.luckysheet-sheets-item::before {
   content: '';
   position: absolute;
-  left: -2px;
+  left: 0;
   top: 6px;
   bottom: 6px;
   width: 1px;
-  background: #dee0e3;
+  background: #d9d9d9;
   pointer-events: none;
-  z-index: 1;
-}
-.fortune-wrap .luckysheet-sheet-area div.luckysheet-sheets-item-active + div.luckysheet-sheets-item::before,
-.fortune-wrap .luckysheet-sheet-area div.luckysheet-sheets-item + div.luckysheet-sheets-item-active::before {
-  display: none;
+  z-index: 3;
 }
 .fortune-wrap .luckysheet-sheet-area div.luckysheet-sheets-item:hover {
-  background: rgba(31, 35, 41, 0.04) !important;
+  background: rgba(0, 0, 0, 0.05) !important;
   color: #1f2329 !important;
 }
 
-/* 选中：圆角灰底 + 细边框 + 蓝字（胶囊 Tab） */
+/* 选中：白底通栏卡 + 绿字（无圆角、与栏同高） */
 .fortune-wrap .luckysheet-sheet-area div.luckysheet-sheets-item-active,
 .fortune-wrap .luckysheet-sheet-area div.luckysheet-sheets-item-active:hover {
-  height: 28px !important;
+  height: 32px !important;
   line-height: 22px !important;
-  padding: 0 12px !important;
-  margin: 0 2px !important;
-  background: #f5f6f7 !important;
-  border: 1px solid #dee0e3 !important;
-  border-radius: 4px !important;
+  padding: 0 14px !important;
+  margin: 0 !important;
+  background: #ffffff !important;
+  border: 0 !important;
+  border-radius: 0 !important;
   box-shadow: none !important;
-  color: #336df4 !important;
+  color: #007e4e !important;
+  font-weight: 600 !important;
   cursor: default;
   z-index: 2;
 }
 .fortune-wrap .luckysheet-sheet-area div.luckysheet-sheets-item-active .luckysheet-sheets-item-name {
-  color: #336df4 !important;
+  color: #007e4e !important;
   font-size: 14px !important;
-  font-weight: 400 !important;
+  font-weight: 600 !important;
 }
 .fortune-wrap .luckysheet-sheets-item-name {
   padding: 0 !important;
@@ -4524,4 +4521,159 @@
   font-weight: 600;
   line-height: 16px;
   height: 16px;
+}
+
+/* ---------------- 函数语法提示卡（编辑公式时浮出） ---------------- */
+.fs-func-tip {
+  position: fixed;
+  z-index: 2999;
+  width: 302px;
+  max-width: calc(100vw - 16px);
+  background: #fff;
+  border: 1px solid #dee0e3;
+  border-radius: 6px;
+  box-shadow: 0 6px 24px rgba(31, 35, 41, 0.1);
+  color: #1f2329;
+  font-size: 12px;
+  line-height: 18px;
+  user-select: none;
+}
+.fs-func-tip.above {
+  transform: translateY(-100%);
+}
+.fs-func-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 8px 10px 12px;
+}
+.fs-func-sig {
+  font-weight: 500;
+  color: #2b2f36;
+  white-space: nowrap;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.fs-func-sig::-webkit-scrollbar {
+  display: none;
+}
+.fs-func-name {
+  color: #1f2329;
+}
+.fs-func-comma {
+  white-space: pre;
+}
+.fs-func-sig .hl {
+  background: rgba(255, 198, 10, 0.3);
+  border-radius: 2px;
+}
+.fs-func-toggle {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: #646a73;
+  cursor: pointer;
+  padding: 0;
+}
+.fs-func-toggle:hover {
+  background: rgba(31, 35, 41, 0.06);
+}
+.fs-func-toggle .fs-caret {
+  display: block;
+  width: 0;
+  height: 0;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-top: 5px solid currentColor;
+  border-bottom: 0;
+  transition: transform 0.15s ease;
+}
+.fs-func-toggle.open .fs-caret {
+  transform: rotate(180deg);
+}
+.fs-func-body {
+  border-top: 1px solid #dee0e3;
+  max-height: 184px;
+  overflow-y: auto;
+  padding: 4px 12px 8px;
+}
+.fs-func-row {
+  margin-top: 6px;
+}
+.fs-func-row.cur .fs-func-label {
+  color: #1f2329;
+}
+.fs-func-label {
+  display: inline-block;
+  color: #8f959e;
+  font-weight: 500;
+}
+.fs-func-text {
+  word-break: break-all;
+  color: #2b2f36;
+}
+.fs-func-close {
+  display: block;
+  font-size: 15px;
+  line-height: 18px;
+  color: #646a73;
+}
+/* —— 函数名补全列表 —— */
+.fs-func-sug {
+  position: fixed;
+  z-index: 2999;
+  width: 240px;
+  max-width: calc(100vw - 16px);
+  background: #fff;
+  border: 1px solid #dee0e3;
+  border-radius: 6px;
+  box-shadow: 0 6px 24px rgba(31, 35, 41, 0.1);
+  color: #1f2329;
+  font-size: 12px;
+  line-height: 18px;
+  max-height: 320px;
+  overflow-y: auto;
+  padding: 4px 0;
+  user-select: none;
+}
+.fs-func-sug.above {
+  transform: translateY(-100%);
+}
+.fs-func-sug-item {
+  padding: 5px 12px;
+  cursor: pointer;
+}
+.fs-func-sug-item.cur {
+  background: #f2f3f5;
+}
+.fs-func-sug-name {
+  font-weight: 500;
+  color: #2b2f36;
+}
+.fs-func-sug-desc {
+  margin-top: 2px;
+  color: #8f959e;
+  word-break: break-all;
+}
+/* fortune 原生函数帮助面板与我们自己的函数提示卡重复，隐藏避免叠罗汉 */
+#luckysheet-formula-help-c {
+  display: none !important;
+}
+
+/* 选中框内圈的 1px 白色描边会在蓝框和浅蓝填充之间留出一圈白缝（缩放/高分屏下尤其明显），透明化处理 */
+.luckysheet-cs-inner-border {
+  border-color: transparent !important;
+}
+
+/* fortune 原生函数搜索列表（functionCandidates 驱动，按"包含"匹配会出现 ISODD/COSH 之类乱序项）
+   与自研函数补全列表重复，隐藏只保留自研层 */
+#luckysheet-formula-search-c {
+  display: none !important;
 }

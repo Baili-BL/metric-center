@@ -726,22 +726,134 @@ function sheetBarKey(sheet) {
   return String(sheet?.id || sheet?.name || 'sheet-1')
 }
 function barRulesOf(sheet) {
+  // 活 sheet 上的权威值优先（撤销/重做会整体回滚 config），本地 Map 仅作兜底
+  const cfg = sheet?.config?.fs_data_bars
+  if (Array.isArray(cfg)) return cfg
+  const root = sheet?.fs_data_bars
+  if (Array.isArray(root)) return root
   const key = sheetBarKey(sheet)
   if (dataBarStore.has(key)) return dataBarStore.get(key) || []
-  return sheet?.config?.fs_data_bars || sheet?.fs_data_bars || []
+  return []
 }
-function saveBarRules(sheet, next) {
-  const key = sheetBarKey(sheet)
-  dataBarStore.set(key, next)
-  const api = instRef.current
-  if (!api?.applyOp || !sheet?.id) return
+
+// ---- 撤销桥 -------------------------------------------------------------
+// fortune-sheet 的 api.applyOp 内部走 noHistory，改动不进撤销栈（边框、
+// 条件格式、数据条、下拉列表、sheet 标签操作等全部撤不了）。这里在调用
+// 前算出「反向补丁」，调用后把 {patches, inversePatches} 推进 Workbook
+// 内部的 undoList，结构与包内 setContextWithProduce 生成的历史条目一致，
+// 从而让 Cmd+Z / 工具栏撤销按钮 / 重做全链路生效。
+function reactStateBy(matcher) {
+  const box = hostRef.value?.querySelector?.('.fortune-box')
+  if (!box) return null
   try {
-    api.applyOp([
-      { op: 'replace', id: sheet.id, path: ['config', 'fs_data_bars'], value: next },
-      { op: 'replace', id: sheet.id, path: ['fs_data_bars'], value: next },
-    ])
-  } catch { /* Fortune 可能丢掉自定义字段，本地 Map 仍保留 */ }
+    const key = Object.keys(box).find((k) => k.startsWith('__reactContainer'))
+    if (!key) return null
+    const seen = new Set()
+    const stack = [box[key]]
+    while (stack.length) {
+      const f = stack.pop()
+      if (!f || seen.has(f)) continue
+      seen.add(f)
+      let hook = f.memoizedState
+      for (let i = 0; i < 60 && hook; i += 1) {
+        // useState 的值在 memoizedState 上；useRef 的值包在 .current 里
+        const st = hook.memoizedState?.current ?? hook.memoizedState
+        if (st && typeof st === 'object' && matcher(st)) return st
+        hook = hook.next
+      }
+      if (f.child) stack.push(f.child)
+      if (f.sibling) stack.push(f.sibling)
+    }
+  } catch { /* */ }
+  return null
 }
+
+function buildUndoStep(ctx, ops) {
+  const deep = (v) => (v == null ? v : JSON.parse(JSON.stringify(v)))
+  const patches = []
+  const inversePatches = []
+  for (const op of ops || []) {
+    if (!op || !['add', 'remove', 'replace'].includes(op.op)) continue
+    // hide / filter_select 在包内 applyOp 里有切表等副作用，不并入撤销
+    if (op.path?.[0] === 'hide' || op.path?.[0] === 'filter_select') continue
+    let root = ctx
+    let path = null
+    if (op.id != null) {
+      const idx = ctx.luckysheetfile.findIndex((s) => s.id === op.id)
+      if (idx < 0) continue
+      root = ctx.luckysheetfile[idx]
+      path = ['luckysheetfile', idx, ...op.path]
+    } else {
+      path = [...op.path]
+    }
+    let cur = root
+    let exists = true
+    for (const seg of op.path) {
+      if (cur == null || typeof cur !== 'object' || !(seg in cur)) {
+        exists = false
+        cur = undefined
+        break
+      }
+      cur = cur[seg]
+    }
+    if (op.op === 'remove') {
+      patches.push({ op: 'remove', path })
+      if (exists) inversePatches.push({ op: 'add', path, value: deep(cur) })
+    } else {
+      patches.push({ op: op.op, path, value: deep(op.value) })
+      inversePatches.push(exists
+        ? { op: 'replace', path, value: deep(cur) }
+        : { op: 'remove', path })
+    }
+  }
+  return { patches, inversePatches, options: {} }
+}
+
+function applyOpUndoable(ops) {
+  const api = instRef.current
+  if (!api?.applyOp) return false
+  const cache = reactStateBy((st) => Array.isArray(st.undoList) && Array.isArray(st.redoList))
+  const ctx = cache ? reactStateBy((st) => Array.isArray(st.luckysheetfile)) : null
+  let step = null
+  if (ctx) {
+    try { step = buildUndoStep(ctx, ops) } catch { step = null }
+  }
+  try {
+    api.applyOp(ops)
+  } catch {
+    return false
+  }
+  if (cache && step && (step.patches.length || step.inversePatches.length)) {
+    cache.undoList.push(step)
+    cache.redoList.length = 0
+  }
+  return true
+}
+
+/** onChange 后同步数据条缓存：撤销/重做会整体回滚 sheet 上的规则 */
+function syncBarStore() {
+  const sheet = (() => {
+    try { return instRef.current?.getSheet?.() } catch { return null }
+  })()
+  if (!sheet?.id) return
+  const key = sheetBarKey(sheet)
+  const cfg = sheet.config?.fs_data_bars
+  const root = sheet.fs_data_bars
+  const next = Array.isArray(cfg) ? cfg : (Array.isArray(root) ? root : null)
+  if (next) dataBarStore.set(key, next)
+  else dataBarStore.delete(key)
+}
+
+function toggleFold() {
+  folded.value = !folded.value
+  nextTick(() => requestAnimationFrame(() => {
+    placeFontBar(hostRef.value)
+    placeAlignBar(hostRef.value)
+    placeFmtBar(hostRef.value)
+    placeDataBar(hostRef.value)
+  }))
+}
+
 function scheduleDataBars() {
   clearTimeout(barDrawTimer)
   barDrawTimer = window.setTimeout(() => {
@@ -1206,7 +1318,7 @@ function sortFromFilter(asc) {
   filterPop.show = false
   const api = instRef.current
   const sheet = api?.getSheet?.()
-  if (!api?.setCellValue || !sheet) return
+  if (!api?.setCellValuesByRange || !sheet) return
   const rows = []
   let maxC = filterPop.col
   for (let r = filterPop.r0; r <= filterPop.r1; r += 1) {
@@ -1226,12 +1338,14 @@ function sortFromFilter(asc) {
     if (av > bv) return asc ? 1 : -1
     return 0
   })
-  rows.forEach((line, i) => {
-    for (let c = 0; c <= maxC; c += 1) {
-      const cell = line[c]
-      api.setCellValue(filterPop.r0 + i, c, cell == null ? '' : { ...cell }, { id: sheet.id })
-    }
-  })
+  // 一次写回 = 一步撤销（逐格 setCellValue 会产生行×列个撤销步骤）
+  const matrix = rows.map((line) => Array.from({ length: maxC + 1 }, (_, c) => {
+    const cell = line[c]
+    return cell == null ? '' : { ...cell }
+  }))
+  try {
+    api.setCellValuesByRange(matrix, { row: [filterPop.r0, filterPop.r1], column: [0, maxC] }, { id: sheet.id })
+  } catch { /* */ }
 }
 
 function clickData(label) {
@@ -1254,7 +1368,7 @@ function applySort(asc) {
   const api = instRef.current
   const sel = api?.getSelection?.()?.[0]
   const sheet = api?.getSheet?.()
-  if (!api?.setCellValue || !sel || !sheet) return
+  if (!api?.setCellValuesByRange || !sel || !sheet) return
   const r0 = sel.row?.[0] ?? 0
   const r1 = sel.row?.[1] ?? r0
   const c0 = sel.column?.[0] ?? 0
@@ -1277,11 +1391,11 @@ function applySort(asc) {
     if (av > bv) return asc ? 1 : -1
     return 0
   })
-  rows.forEach((cells, i) => {
-    cells.forEach((cell, j) => {
-      api.setCellValue(r0 + i, c0 + j, cell == null ? '' : { ...cell }, { id: sheet.id })
-    })
-  })
+  // 一次写回 = 一步撤销（逐格 setCellValue 会产生行×列个撤销步骤）
+  const matrix = rows.map((cells) => cells.map((cell) => (cell == null ? '' : { ...cell })))
+  try {
+    api.setCellValuesByRange(matrix, { row: [r0, r1], column: [c0, c1] }, { id: sheet.id })
+  } catch { /* */ }
 }
 
 function applyFontName(name, key) {
@@ -1651,26 +1765,6 @@ function applyCellColor(color) {
   scheduleDataBars()
 }
 
-function isPlainNumberText(raw) {
-  const s = String(raw ?? '').trim().replace(/,/g, '')
-  if (!s) return false
-  return /^-?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?$/.test(s)
-}
-
-/** 货币/百分比等数值格式只作用于数字单元格，纯文本与混合字符串跳过 */
-function isNumericFormatTarget(cell) {
-  if (cell == null) return true
-  if (typeof cell === 'number') return Number.isFinite(cell)
-  if (typeof cell === 'string') return isPlainNumberText(cell)
-  if (cell.ct?.t === 's' || cell.ct?.t === 'inlineStr' || cell.ct?.fa === '@') return false
-  if (Array.isArray(cell.ct?.s) || cell.ct?.s) return false
-  const v = cell.v
-  if (v == null || v === '') return true
-  if (typeof v === 'number') return Number.isFinite(v)
-  if (typeof v === 'string') return isPlainNumberText(v)
-  return false
-}
-
 function applyNumFmt(item) {
   if (!item?.fa) {
     pop.show = false
@@ -1680,22 +1774,8 @@ function applyNumFmt(item) {
   const api = instRef.current
   const sel = api?.getSelection?.()?.[0]
   if (api?.setCellFormatByRange && sel?.row && sel?.column) {
-    const numericFmt = item.t === 'n' || item.t === 'd'
-    if (!numericFmt || item.fa === '@' || item.fa === 'General') {
-      api.setCellFormatByRange('ct', { fa: item.fa, t: item.t }, { row: sel.row, column: sel.column })
-    } else {
-      const sheets = api.getAllSheets?.() || []
-      const sheet = sheets.find((s) => s.status === 1) || sheets[0]
-      const [r0, r1] = sel.row
-      const [c0, c1] = sel.column
-      for (let r = r0; r <= r1; r += 1) {
-        for (let c = c0; c <= c1; c += 1) {
-          const cell = sheet?.data?.[r]?.[c]
-          if (!isNumericFormatTarget(cell)) continue
-          api.setCellFormatByRange('ct', { fa: item.fa, t: item.t }, { row: [r, r], column: [c, c] })
-        }
-      }
-    }
+    // 单次整块调用：一次调用 = 一步撤销（此前逐格循环会产生 N 步）
+    api.setCellFormatByRange('ct', { fa: item.fa, t: item.t }, { row: sel.row, column: sel.column })
   }
   const box = hostRef.value?.querySelector('[data-tips="格式"]')?.closest('.fortune-toobar-combo-container')
   const label = box?.querySelector('.fortune-toolbar-combo-text')
@@ -1809,7 +1889,7 @@ function applyBorder(type) {
   }
   const api = instRef.current
   const live = api?.getSheet?.()
-  if (!api?.applyOp || !live?.id) return
+  if (!live?.id) return
   const sel = (api.getSelection?.() || []).map((s) => ({
     row: [s.row?.[0] ?? 0, s.row?.[1] ?? s.row?.[0] ?? 0],
     column: [s.column?.[0] ?? 0, s.column?.[1] ?? s.column?.[0] ?? 0],
@@ -1828,7 +1908,7 @@ function applyBorder(type) {
     luckysheet_select_save: sel.length ? sel : [{ row: [0, 0], column: [0, 0] }],
     allowEdit: true,
   }, type, borderState.color, borderState.style)
-  api.applyOp([
+  applyOpUndoable([
     { op: 'replace', id: live.id, path: ['config'], value: config },
     { op: 'replace', path: ['config'], value: config },
   ])
@@ -1896,13 +1976,15 @@ function refreshCfFlags() {
   cfState.hasSel = all.some((rule) => (rule.cellrange || []).some((range) => sel.some((s) => rangesOverlap(range, s))))
 }
 
-function patchCf(next) {
+function patchCf(next, undoable = true) {
   const api = instRef.current
   const live = api?.getSheet?.()
   if (!api?.applyOp || !live?.id) return
-  api.applyOp([
+  const ops = [
     { op: 'replace', id: live.id, path: ['luckysheet_conditionformat_save'], value: next },
-  ])
+  ]
+  if (undoable) applyOpUndoable(ops)
+  else api.applyOp(ops)
   refreshCfFlags()
 }
 
@@ -1961,23 +2043,26 @@ function onCfItem(item, e) {
   if (item.id === 'clearSel') {
     pop.show = false
     const sel = cfSelection()
-    patchCf(cfRules().filter((rule) => !(rule.cellrange || []).some((range) => sel.some((s) => rangesOverlap(range, s)))))
+    const covered = (rule) => (rule.cellrange || []).some((range) => sel.some((s) => rangesOverlap(range, s)))
+    const removedNative = cfRules().filter(covered)
     const sheet = cfSheet()
-    if (sheet) {
-      saveBarRules(sheet, barRulesOf(sheet).filter((rule) => !(rule.cellrange || []).some((range) => sel.some((s) => rangesOverlap(range, s)))))
-      scheduleDataBars()
-    }
+    const removedBars = sheet ? barRulesOf(sheet).filter(covered) : []
+    removeCfRulesUndoable(
+      cfRules().filter((rule) => !removedNative.includes(rule)),
+      sheet ? barRulesOf(sheet).filter((rule) => !removedBars.includes(rule)) : null,
+      [...removedNative.filter(isCfVisualRule), ...removedBars],
+    )
     markActiveTools()
     return
   }
   if (item.id === 'clearSheet') {
     pop.show = false
-    patchCf([])
     const sheet = cfSheet()
-    if (sheet) {
-      saveBarRules(sheet, [])
-      scheduleDataBars()
-    }
+    removeCfRulesUndoable(
+      [],
+      sheet ? [] : null,
+      [...cfRules().filter(isCfVisualRule), ...(sheet ? barRulesOf(sheet) : [])],
+    )
     markActiveTools()
     return
   }
@@ -2280,21 +2365,18 @@ function removeCfRule(rule) {
   if (!rule) return
   const ranges = rule.cellrange || []
   const sheet = cfSheet()
-  const api = instRef.current
   if (rule._src === 'bar') {
-    if (sheet) saveBarRules(sheet, barRulesOf(sheet).filter((_, i) => i !== rule._idx))
+    if (sheet) {
+      removeCfRulesUndoable(null, barRulesOf(sheet).filter((_, i) => i !== rule._idx), [rule])
+    }
   } else {
-    patchCf(cfRules().filter((_, i) => i !== rule._idx))
-    if (sheet && rule.type === 'icons') {
-      saveBarRules(sheet, barRulesOf(sheet).filter((r) => !(r.cellrange || []).some((range) => ranges.some((s) => rangesOverlap(range, s)))))
-    }
-    if (api && sheet && rule.type === 'colorGradation' && ranges.length) {
-      const pack = cfNumericCells(ranges)
-      if (pack) clearCfVisual(api, sheet, pack.cells)
-    }
+    const nextNative = cfRules().filter((_, i) => i !== rule._idx)
+    const wipe = isCfVisualRule(rule) ? [rule] : []
+    const nextBars = sheet && rule.type === 'icons'
+      ? barRulesOf(sheet).filter((r) => !(r.cellrange || []).some((range) => ranges.some((s) => rangesOverlap(range, s))))
+      : null
+    removeCfRulesUndoable(nextNative, nextBars, wipe)
   }
-  refreshCfFlags()
-  scheduleDataBars()
   markActiveTools()
 }
 
@@ -2499,52 +2581,103 @@ function cfPlainText(prev, n) {
     .replace(/,/g, '')
     || String(n)
 }
-function clearCfVisual(api, sheet, cells) {
-  cells.forEach(({ r, c, n, cell }) => {
-    const prev = cell && typeof cell === 'object' ? cell : { v: n }
-    const text = cfPlainText(prev, n)
-    const num = Number(text)
-    const value = Number.isFinite(num) ? num : n
-    api.setCellValue(r, c, {
-      ...prev,
-      v: value,
-      m: String(value),
-      bg: null,
-      fsBarColor: undefined,
-      fc: prev.fsBarColor || (isWhiteFont(prev.fc) ? '#1f2329' : prev.fc),
-      ht: prev.ht === 2 ? 1 : prev.ht,
-      ct: { fa: prev.ct?.fa && prev.ct.fa !== 'General' ? prev.ct.fa : 'General', t: 'n' },
-    }, { id: sheet.id })
-  })
+/** 计算数据条规则的批量 ops：sel 范围内互斥替换，add 为新增规则；同时同步本地缓存 */
+function barRuleOpsOf(sheet, sel, add) {
+  const kept = barRulesOf(sheet).filter((rule) => !(rule.cellrange || []).some((range) => sel.some((s) => rangesOverlap(range, s))))
+  const next = add ? [...kept, { format: add.format, cellrange: sel }] : kept
+  if (sheet) dataBarStore.set(sheetBarKey(sheet), next)
+  return {
+    rules: next,
+    ops: sheet ? [
+      { op: 'replace', id: sheet.id, path: ['config', 'fs_data_bars'], value: next },
+      { op: 'replace', id: sheet.id, path: ['fs_data_bars'], value: next },
+    ] : [],
+  }
 }
-function paintColorScale(format, ranges) {
-  const sel = ranges || cfSelection()
-  const pack = cfNumericCells(sel)
-  if (!pack || !format?.length) return
-  const { api, sheet, cells } = pack
-  saveBarRules(sheet, barRulesOf(sheet).filter((rule) => !(rule.cellrange || []).some((range) => sel.some((s) => rangesOverlap(range, s)))))
+
+/** 与 clearCfVisual 相同的清除语义，返回清除后的单元格（不落盘） */
+function clearedCellOf(cell, n) {
+  const prev = cell && typeof cell === 'object' ? cell : { v: n, m: String(n) }
+  const text = cfPlainText(prev, n)
+  const num = Number(text)
+  const value = Number.isFinite(num) ? num : n
+  return {
+    ...prev,
+    v: value,
+    m: String(value),
+    bg: null,
+    fsBarColor: undefined,
+    fc: prev.fsBarColor || (isWhiteFont(prev.fc) ? '#1f2329' : prev.fc),
+    ht: prev.ht === 2 ? 1 : prev.ht,
+    ct: { fa: prev.ct?.fa && prev.ct.fa !== 'General' ? prev.ct.fa : 'General', t: 'n' },
+  }
+}
+
+/** 格子里是否带有条件格式画上的视觉痕迹（色阶 bg / 数据条 fsBarColor / 图标字符） */
+function cfCellHasVisual(cell) {
+  if (!cell || typeof cell !== 'object') return false
+  if (cell.fsBarColor != null || cell.bg != null) return true
+  if (cell.ct?.t === 'inlineStr') return true
+  return typeof cell.m === 'string' && /[↑→↓↗↘▲▼▬●⬤◆✓✕!⚑★☆▂▃▄█▁◕◑◔○▣□]/.test(cell.m)
+}
+
+/** 会往单元格写视觉痕迹的规则类型（其余类型由 fortune 原生渲染，删规则即消失） */
+function isCfVisualRule(rule) {
+  return rule?.type === 'colorGradation' || rule?.type === 'dataBar' || rule?.type === 'icons'
+}
+
+/** 删除规则时同时还原被画过的单元格；规则与单元格合并为一步可撤销操作（wipeRules 为被删的规则） */
+function removeCfRulesUndoable(nextNative, nextBars, wipeRules) {
+  const api = instRef.current
+  const sheet = api?.getSheet?.()
+  if (!api?.applyOp || !sheet?.id) return
+  const ops = []
+  if (nextNative) ops.push({ op: 'replace', id: sheet.id, path: ['luckysheet_conditionformat_save'], value: nextNative })
+  if (nextBars) {
+    dataBarStore.set(sheetBarKey(sheet), nextBars)
+    ops.push(
+      { op: 'replace', id: sheet.id, path: ['config', 'fs_data_bars'], value: nextBars },
+      { op: 'replace', id: sheet.id, path: ['fs_data_bars'], value: nextBars },
+    )
+  }
+  const wipeRanges = (wipeRules || []).flatMap((rule) => rule?.cellrange || [])
+  if (wipeRanges.length) {
+    const hadIcon = (wipeRules || []).some((rule) => rule?.type === 'icons')
+    const seen = new Set()
+    const pack = cfNumericCells(wipeRanges)
+    pack?.cells.forEach(({ r, c, n, cell }) => {
+      const key = `${r}_${c}`
+      const visual = cfCellHasVisual(cell) || (hadIcon && cell && typeof cell === 'object' && cell.ht === 2)
+      if (seen.has(key) || !visual) return
+      seen.add(key)
+      ops.push({ op: 'replace', id: sheet.id, path: ['data', r, c], value: clearedCellOf(cell, n) })
+    })
+  }
+  if (ops.length) applyOpUndoable(ops)
+  refreshCfFlags()
   scheduleDataBars()
-  clearCfVisual(api, sheet, cells)
-  const live = cells.map(({ r, c }) => {
-    const cell = api.getSheet()?.data?.[r]?.[c]
-    const raw = cell && typeof cell === 'object' ? (cell.v ?? cell.m) : cell
-    const n = typeof raw === 'number' ? raw : Number(String(raw ?? '').replace(/,/g, ''))
-    return { r, c, n: Number.isFinite(n) ? n : 0, cell }
-  })
-  const min = Math.min(...live.map((x) => x.n))
-  const max = Math.max(...live.map((x) => x.n))
-  live.forEach(({ r, c, n, cell }) => {
-    const t = max === min ? 0.5 : (n - min) / (max - min)
-    const prev = cell && typeof cell === 'object' ? cell : { v: n, m: String(n) }
-    api.setCellValue(r, c, {
-      ...prev,
-      v: n,
-      m: String(n),
-      bg: scaleColor(format, t),
-      ct: { fa: prev.ct?.fa || 'General', t: 'n' },
-    }, { id: sheet.id })
+}
+
+/** 色阶：清除旧视觉 + 上色的单元格补丁（配合 applyOpUndoable 一次撤销） */
+function buildColorScaleOps(format, sel) {  const pack = cfNumericCells(sel)
+  if (!pack || !format?.length) return null
+  const { sheet, cells } = pack
+  const cleared = cells
+    .filter(({ r }) => Array.isArray(sheet.data?.[r]))
+    .map(({ r, c, n, cell }) => ({ r, c, cl: clearedCellOf(cell, n) }))
+  if (!cleared.length) return null
+  const ns = cleared.map(({ cl }) => (Number.isFinite(cl.v) ? cl.v : 0))
+  const min = Math.min(...ns)
+  const max = Math.max(...ns)
+  return cleared.map(({ r, c, cl }, i) => {
+    const t = max === min ? 0.5 : (ns[i] - min) / (max - min)
+    return {
+      op: 'replace', id: sheet.id, path: ['data', r, c],
+      value: { ...cl, bg: scaleColor(format, t) },
+    }
   })
 }
+
 function barColor(color, alpha) {
   const hex = String(color || '#638ec6').trim()
   const m = hex.match(/^#([0-9a-f]{6})$/i)
@@ -2768,68 +2901,60 @@ function drawDataBars() {
     requestAnimationFrame(() => { barHideBusy = false })
   }
 }
-function paintDataBar(format, ranges) {
-  const sel = ranges || cfSelection()
+/** 数据条：清除旧视觉 + 写入条样式的单元格补丁（一次撤销） */
+function buildDataBarOps(format, sel) {
   const pack = cfNumericCells(sel)
-  if (!pack) return
-  const { api, sheet } = pack
-  const native = cfRules().filter((rule) => rule.type !== 'dataBar' && rule.type !== 'colorGradation' && rule.type !== 'icons')
-  if (native.length !== cfRules().length) patchCf(native)
-  clearCfVisual(api, sheet, pack.cells)
-  const refreshed = cfNumericCells(sel)
-  if (!refreshed) return
-  refreshed.cells.forEach(({ r, c, n, cell }) => {
-    const prev = cell && typeof cell === 'object' ? cell : { v: n, m: String(n) }
-    const color = barTextColor(prev)
-    const hide = cellBgColor(prev)
-    const next = {
-      ...prev,
-      v: n,
-      m: prev.m != null && prev.m !== '' ? prev.m : String(n),
-      bg: prev.bg ?? null,
-      ht: prev.ht ?? 2,
-      fsBarColor: color,
-      fc: hide,
-      ct: prev.ct ? { ...prev.ct } : { fa: 'General', t: 'n' },
-    }
-    api.setCellValue(r, c, next, { id: sheet.id })
-  })
-  const prev = barRulesOf(sheet).filter((rule) => !(rule.cellrange || []).some((range) => sel.some((s) => rangesOverlap(range, s))))
-  saveBarRules(sheet, [...prev, { format, cellrange: sel }])
-  scheduleDataBars()
-  refreshCfFlags()
+  if (!pack) return null
+  const { sheet, cells } = pack
+  const cleared = cells
+    .filter(({ r }) => Array.isArray(sheet.data?.[r]))
+    .map(({ r, c, n, cell }) => ({ r, c, cl: clearedCellOf(cell, n) }))
+  if (!cleared.length) return null
+  return cleared.map(({ r, c, cl }) => ({
+    op: 'replace', id: sheet.id, path: ['data', r, c],
+    value: {
+      ...cl,
+      m: cl.m != null && cl.m !== '' ? cl.m : String(cl.v),
+      bg: cl.bg ?? null,
+      ht: cl.ht ?? 2,
+      fsBarColor: barTextColor(cl),
+      fc: cellBgColor(cl),
+      ct: cl.ct ? { ...cl.ct } : { fa: 'General', t: 'n' },
+    },
+  }))
 }
-function paintIcons(item, ranges) {
-  const sel = ranges || cfSelection()
+/** 图标集：清除旧字形 + 右对齐的单元格补丁（一次撤销） */
+function buildIconOps(item, sel) {
   const pack = cfNumericCells(sel)
-  if (!pack) return
-  const { api, sheet, cells } = pack
-  // 图标集与数据条互斥
-  saveBarRules(sheet, barRulesOf(sheet).filter((rule) => !(rule.cellrange || []).some((range) => sel.some((s) => rangesOverlap(range, s)))))
-  // 清掉以前写进单元格的 unicode 图标，保留数值与数字格式；数值右对齐给左侧图标让位
+  if (!pack) return null
+  const { sheet, cells } = pack
+  const ops = []
   cells.forEach(({ r, c, n, cell }) => {
+    if (!Array.isArray(sheet.data?.[r])) return
     if (!cell || typeof cell !== 'object') {
       if (Number.isFinite(n)) {
-        api.setCellValue(r, c, { v: n, m: String(n), ht: 2, ct: { fa: 'General', t: 'n' } }, { id: sheet.id })
+        ops.push({ op: 'replace', id: sheet.id, path: ['data', r, c], value: { v: n, m: String(n), ht: 2, ct: { fa: 'General', t: 'n' } } })
       }
       return
     }
     const m = String(cell.m ?? '')
     const hasGlyph = cell.ct?.t === 'inlineStr' || /[↑→↓↗↘▲▼▬●⬤◆✓✕!⚑★☆▂▃▄█▁◕◑◔○▣□]/.test(m)
     const fa = (!hasGlyph && cell.ct?.fa) ? cell.ct.fa : (cell.ct?.fa && cell.ct.t !== 'inlineStr' ? cell.ct.fa : 'General')
-    const next = {
-      ...cell,
-      v: cell.v ?? n,
-      m: hasGlyph
-        ? (fa.includes('%') && Number.isFinite(n) ? `${Math.round(n * 1000) / 10}%`.replace(/\.0%/, '%') : String(n))
-        : (cell.m ?? String(n)),
-      ht: 2,
-      bg: cell.bg ?? null,
-      ct: cell.ct && cell.ct.t !== 'inlineStr' ? { ...cell.ct } : { fa, t: 'n' },
-    }
-    api.setCellValue(r, c, next, { id: sheet.id })
+    ops.push({
+      op: 'replace', id: sheet.id, path: ['data', r, c],
+      value: {
+        ...cell,
+        v: cell.v ?? n,
+        m: hasGlyph
+          ? (fa.includes('%') && Number.isFinite(n) ? `${Math.round(n * 1000) / 10}%`.replace(/\.0%/, '%') : String(n))
+          : (cell.m ?? String(n)),
+        ht: 2,
+        bg: cell.bg ?? null,
+        ct: cell.ct && cell.ct.t !== 'inlineStr' ? { ...cell.ct } : { fa, t: 'n' },
+      },
+    })
   })
-  scheduleDataBars()
+  return ops.length ? ops : null
 }
 function iconRules() {
   return cfRules().filter((rule) => rule.type === 'icons')
@@ -2904,14 +3029,40 @@ function applyPreset(item, ranges) {
   pop.show = false
   cfState.fly = ''
   const cellrange = ranges || cfSelection()
-  if (item.type === 'colorGradation') paintColorScale(item.format, cellrange)
-  else if (item.type === 'dataBar') {
-    paintDataBar(item.format, cellrange)
+  const sheet = cfSheet()
+  // 高亮规则类：仍走 patchCf（规则本身就是单步可撤销）
+  if (item.type !== 'colorGradation' && item.type !== 'dataBar' && item.type !== 'icons') {
+    patchCf([
+      ...cfRules().filter((rule) => rule.type !== 'dataBar' && rule.type !== 'colorGradation' && rule.type !== 'icons'),
+      {
+        type: item.type,
+        cellrange,
+        format: item.format,
+        ...(item.marks ? { marks: item.marks } : {}),
+      },
+    ])
     markActiveTools()
     return
+  }
+  // 色阶 / 数据条 / 图标集：单元格补丁 + 规则补丁合并为一次 applyOpUndoable
+  let cellOps = null
+  let ruleAdd = null
+  let cfValue = null
+  if (item.type === 'colorGradation') {
+    cellOps = buildColorScaleOps(item.format, cellrange)
+    cfValue = [
+      ...cfRules().filter((rule) => rule.type !== 'dataBar' && rule.type !== 'colorGradation' && rule.type !== 'icons'),
+      { type: item.type, cellrange, format: item.format, ...(item.marks ? { marks: item.marks } : {}) },
+    ]
+  } else if (item.type === 'dataBar') {
+    cellOps = buildDataBarOps(item.format, cellrange)
+    ruleAdd = item
+    // 数据条与色阶/图标集互斥：顺带清掉旧规则
+    const native = cfRules().filter((rule) => rule.type !== 'dataBar' && rule.type !== 'colorGradation' && rule.type !== 'icons')
+    if (native.length !== cfRules().length) cfValue = native
   } else if (item.type === 'icons') {
-    paintIcons(item, cellrange)
-    patchCf([
+    cellOps = buildIconOps(item, cellrange)
+    cfValue = [
       ...cfRules().filter((rule) => rule.type !== 'dataBar' && rule.type !== 'colorGradation' && rule.type !== 'icons'),
       {
         type: 'icons',
@@ -2922,20 +3073,17 @@ function applyPreset(item, ranges) {
         glyphs: cfIconGlyphs(item),
         iconId: item.id,
       },
-    ])
-    scheduleDataBars()
-    markActiveTools()
-    return
+    ]
   }
-  patchCf([
-    ...cfRules().filter((rule) => rule.type !== 'dataBar' && rule.type !== 'colorGradation' && rule.type !== 'icons'),
-    {
-      type: item.type,
-      cellrange,
-      format: item.format,
-      ...(item.marks ? { marks: item.marks } : {}),
-    },
-  ])
+  if (!cellOps) { markActiveTools(); return }
+  const { ops: barOps } = barRuleOpsOf(sheet, cellrange, ruleAdd)
+  let ops = [...cellOps, ...barOps]
+  if (cfValue && sheet) {
+    ops = [...ops, { op: 'replace', id: sheet.id, path: ['luckysheet_conditionformat_save'], value: cfValue }]
+  }
+  applyOpUndoable(ops)
+  scheduleDataBars()
+  refreshCfFlags()
   markActiveTools()
 }
 
@@ -3789,7 +3937,7 @@ function confirmValidation() {
   for (let r = box.r0; r <= box.r1; r += 1) {
     for (let c = box.c0; c <= box.c1; c += 1) dv[`${r}_${c}`] = { ...rule }
   }
-  api.applyOp([{ id: box.id, op: 'replace', path: ['dataVerification'], value: dv }])
+  applyOpUndoable([{ id: box.id, op: 'replace', path: ['dataVerification'], value: dv }])
   dvDlg.show = false
 }
 function clearValidation() {
@@ -3800,7 +3948,7 @@ function clearValidation() {
     for (let r = box.r0; r <= box.r1; r += 1) {
       for (let c = box.c0; c <= box.c1; c += 1) delete dv[`${r}_${c}`]
     }
-    api.applyOp([{ id: box.id, op: 'replace', path: ['dataVerification'], value: dv }])
+    applyOpUndoable([{ id: box.id, op: 'replace', path: ['dataVerification'], value: dv }])
   }
   dvDlg.show = false
 }
@@ -4041,7 +4189,7 @@ function reorderSheetTabs(fromId, toId) {
   const [item] = next.splice(fromIdx, 1)
   next.splice(toIdx, 0, item)
   try {
-    api.applyOp(next.map((s, i) => ({
+    applyOpUndoable(next.map((s, i) => ({
       op: 'replace',
       id: s.id,
       path: ['order'],
@@ -4128,7 +4276,7 @@ function setSheetTabColor(color) {
   const sheet = currentSheetTab()
   if (!api?.applyOp || !sheet?.id) return
   try {
-    api.applyOp([{ op: 'replace', id: sheet.id, path: ['color'], value: color || undefined }])
+    applyOpUndoable([{ op: 'replace', id: sheet.id, path: ['color'], value: color || undefined }])
   } catch { /* */ }
 }
 
@@ -4240,8 +4388,8 @@ function hideSheetTab() {
     return
   }
   try {
-    // path[0]==='hide' 时 applyOp 会切到下一张可见表
-    api.applyOp([
+    // path[0]==='hide' 时 applyOp 会切到下一张可见表（hide 的副作用不进撤销）
+    applyOpUndoable([
       { op: 'replace', id: sheet.id, path: ['hide'], value: 1 },
       { op: 'replace', id: sheet.id, path: ['status'], value: 0 },
     ])
@@ -4262,7 +4410,7 @@ function protectSheetTab() {
     ? { ...(config.authority || {}), sheet: 1, hintText: '此工作表已受保护' }
     : { ...(config.authority || {}), sheet: 0 }
   try {
-    api.applyOp([{ op: 'replace', id: sheet.id, path: ['config'], value: config }])
+    applyOpUndoable([{ op: 'replace', id: sheet.id, path: ['config'], value: config }])
     Message.success(on ? '已开启工作表保护' : '已取消工作表保护')
   } catch {
     Message.error('设置失败')
@@ -4495,13 +4643,13 @@ function renderBook(data) {
         if (cfState.side && cfState.panel === 'rules') refreshCfFlags()
       },
     },
-    onChange: (next) => { latest = next || latest; markActiveTools(); scheduleDataBars() },
+    onChange: (next) => { latest = next || latest; markActiveTools(); scheduleDataBars(); syncBarStore() },
   }))
   requestAnimationFrame(() => {
     watchToolbarLabels()
     bindFreezeClick()
     const native = cfRules().filter((rule) => rule.type !== 'dataBar')
-    if (native.length !== cfRules().length) patchCf(native)
+    if (native.length !== cfRules().length) patchCf(native, false)
     const sheet = instRef.current?.getSheet?.()
     if (sheet) {
       const fromSheet = sheet.config?.fs_data_bars || sheet.fs_data_bars
@@ -4630,6 +4778,384 @@ async function onImport(ev) {
   load(snap)
 }
 
+/** 中文输入法会把 = + ( ) , 等打成全角，fortune 只认半角公式。IME 插入的文本不经过 fortune 的 keydown 缓冲，
+ * 会在下次按键时被冲掉，所以 =' 开头的输入期修复靠不住；改为记录「出现过全角等号」，在 Enter 捕获阶段
+ * （fortune 处理前）把编辑器 DOM 补成完整公式——commit 会兜底读 DOM，此时已无按键重建，公式可正常求值 */
+const FW_CHAR_MAP = { '＝': '=', '＋': '+', '－': '-', '＊': '*', '／': '/', '（': '(', '）': ')', '，': ',', '：': ':', '“': '"', '”': '"', '％': '%' }
+const FW_CHAR_RE = /[＝＋－＊／（），“”：％]/g
+function fwFixed(text) {
+  return text.replace(FW_CHAR_RE, (ch) => FW_CHAR_MAP[ch] ?? ch)
+}
+let fwSawFullwidthEquals = false
+function normalizeFormulaTyping() {
+  const editor = document.getElementById('luckysheet-rich-text-editor')
+  if (!editor) return
+  const text = editor.innerText || ''
+  if (!text) {
+    fwSawFullwidthEquals = false
+    return
+  }
+  if (text.startsWith('＝')) {
+    fwSawFullwidthEquals = true
+    return
+  }
+  // '=' 开头（公式模式已建立）：内部全角字符做等长替换即可，光标不位移；普通中文内容不受影响
+  if (!text.startsWith('=')) {
+    if (text.startsWith('=') || text.length === 0) fwSawFullwidthEquals = false
+    return
+  }
+  if (!FW_CHAR_RE.test(text)) return
+  FW_CHAR_RE.lastIndex = 0
+  const sel = window.getSelection()
+  const anchor = sel?.anchorNode
+  const offset = sel?.anchorOffset
+  const inEditor = !!(anchor && editor.contains(anchor))
+  const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT)
+  const nodes = []
+  while (walker.nextNode()) nodes.push(walker.currentNode)
+  let changed = false
+  nodes.forEach((node) => {
+    const v = node.nodeValue
+    if (v && FW_CHAR_RE.test(v)) {
+      FW_CHAR_RE.lastIndex = 0
+      node.nodeValue = v.replace(FW_CHAR_RE, (ch) => FW_CHAR_MAP[ch])
+      changed = true
+    }
+  })
+  if (changed && inEditor) {
+    try { sel.collapse(anchor, offset) } catch { /* 光标节点被重建时忽略 */ }
+  }
+}
+/** Enter 捕获阶段：出现过全角等号且 DOM 里已丢失 '=' 时，补回完整公式再交给 fortune 提交 */
+function onDocFormulaKeydown(e) {
+  // 补全列表打开时接管导航/确认/关闭键
+  if (funcSug.visible && funcSug.items.length) {
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      const d = e.key === 'ArrowDown' ? 1 : -1
+      funcSug.index = (funcSug.index + d + funcSug.items.length) % funcSug.items.length
+      e.preventDefault(); e.stopPropagation(); return
+    }
+    if ((e.key === 'Enter' || e.key === 'Tab') && !e.isComposing && e.keyCode !== 229) {
+      e.preventDefault(); e.stopPropagation()
+      acceptFuncSug(funcSug.index)
+      return
+    }
+    if (e.key === 'Escape') {
+      e.preventDefault(); e.stopPropagation()
+      hideFuncSug()
+      return
+    }
+  }
+  // 签名卡显示时 Escape 只关卡片，不放行给 fortune（否则整个公式会被取消）
+  if (e.key === 'Escape' && funcTip.visible) {
+    e.preventDefault(); e.stopPropagation()
+    hideFuncTip()
+    return
+  }
+  if (e.key !== 'Enter' || e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return
+  hideFuncTip()
+  hideFuncSug()
+  if (!fwSawFullwidthEquals) return
+  const editor = document.getElementById('luckysheet-rich-text-editor')
+  if (!editor) return
+  const text = (editor.innerText || '').trim()
+  fwSawFullwidthEquals = false
+  if (!text || text.startsWith('=')) return
+  editor.innerText = fwFixed(`=${text}`)
+}
+function onDocFormulaInput(e) {
+  const t = e.target
+  if (t && (t.id === 'luckysheet-rich-text-editor' || (t.closest && t.closest('#luckysheet-rich-text-editor')))) {
+    normalizeFormulaTyping()
+    updateFuncTip()
+  }
+}
+document.addEventListener('input', onDocFormulaInput, true)
+document.addEventListener('compositionend', onDocFormulaInput, true)
+document.addEventListener('keydown', onDocFormulaKeydown, true)
+
+/* ---------------- 函数语法提示（飞书表格样式） ----------------
+ * fortune 1.0.4 无任何函数提示能力。编辑公式时解析光标所在的最内层函数，
+ * 在编辑格下方浮出签名卡：当前参数高亮；可展开看示例/摘要/参数说明。 */
+const FUNC_DOCS = {
+  SUM: { p: ['值1', '[数值2, ...]'], ex: 'SUM(A2:A100, 101)', s: '返回一组数值和/或单元格的总和。', d: ['要相加的第一个数值或范围。', '要与“值1”相加的其他数值或范围。'] },
+  AVERAGE: { p: ['值1', '[值2, ...]'], ex: 'AVERAGE(A2:A100, 101)', s: '返回一组数值的算术平均值。', d: ['要计算平均值的第一个数值或范围。', '要计算平均值的其他数值或范围。'] },
+  COUNT: { p: ['值1', '[值2, ...]'], ex: 'COUNT(A2:A100)', s: '统计一组数值中数字的个数。', d: ['要检查的第一个值或范围。', '要检查的其他值或范围。'] },
+  COUNTA: { p: ['值1', '[值2, ...]'], ex: 'COUNTA(A2:A100)', s: '统计一组数据中非空单元格的个数。', d: ['要检查的第一个值或范围。', '要检查的其他值或范围。'] },
+  COUNTBLANK: { p: ['范围'], ex: 'COUNTBLANK(A2:A100)', s: '统计给定范围内空单元格的个数。', d: ['要检查空值的范围。'] },
+  COUNTIF: { p: ['范围', '条件'], ex: 'COUNTIF(A1:A10, ">20")', s: '统计满足给定条件的单元格个数。', d: ['要检查的范围。', '要应用的条件，如 ">20"、"苹果"。'] },
+  COUNTIFS: { p: ['范围1', '条件1', '[范围2, 条件2, ...]'], ex: 'COUNTIFS(A1:A10, ">20", B1:B10, "是")', s: '统计同时满足多个条件的单元格个数。', d: ['要检查的第一个范围。', '要应用于范围1的条件。', '其他范围及对应条件。'] },
+  SUMIF: { p: ['范围', '条件', '[求和范围]'], ex: 'SUMIF(A1:A10, ">20", B1:B10)', s: '对满足条件的单元格求和。', d: ['要按条件检查的范围。', '要应用的条件。', '实际求和的范围；缺省时对“范围”本身求和。'] },
+  SUMIFS: { p: ['求和范围', '范围1', '条件1', '[范围2, 条件2, ...]'], ex: 'SUMIFS(C1:C10, A1:A10, ">20", B1:B10, "是")', s: '对同时满足多个条件的单元格求和。', d: ['实际求和的范围。', '要检查的第一个范围。', '要应用于范围1的条件。', '其他范围及对应条件。'] },
+  SUMPRODUCT: { p: ['范围1', '[范围2, ...]'], ex: 'SUMPRODUCT(A1:A10, B1:B10)', s: '将给定数组间对应元素相乘并返回乘积之和。', d: ['第一个数组或范围。', '其他数组或范围，尺寸须与第一个一致。'] },
+  AVERAGEIF: { p: ['范围', '条件', '[求平均范围]'], ex: 'AVERAGEIF(A1:A10, ">20", B1:B10)', s: '对满足条件的单元格求算术平均值。', d: ['要按条件检查的范围。', '要应用的条件。', '实际求平均的范围；缺省时对“范围”本身求平均。'] },
+  MAX: { p: ['值1', '[值2, ...]'], ex: 'MAX(A2:A100, 5)', s: '返回一组数值中的最大值。', d: ['要比较的第一个数值或范围。', '要比较的其他数值或范围。'] },
+  MIN: { p: ['值1', '[值2, ...]'], ex: 'MIN(A2:A100, 5)', s: '返回一组数值中的最小值。', d: ['要比较的第一个数值或范围。', '要比较的其他数值或范围。'] },
+  LARGE: { p: ['数据', 'n'], ex: 'LARGE(A2:A100, 3)', s: '返回数据集中第 n 大的值。', d: ['数据范围。', '要返回的名次（第几大）。'] },
+  SMALL: { p: ['数据', 'n'], ex: 'SMALL(A2:A100, 3)', s: '返回数据集中第 n 小的值。', d: ['数据范围。', '要返回的名次（第几小）。'] },
+  RANK: { p: ['值', '数据', '[是否升序]'], ex: 'RANK(A2, A2:A100)', s: '返回某值在一组数据中的排名。', d: ['要排名的值。', '数据范围。', '0 或省略为降序排名，1 为升序。'] },
+  MEDIAN: { p: ['值1', '[值2, ...]'], ex: 'MEDIAN(A2:A100)', s: '返回一组数值的中位数。', d: ['要计算中位数的数值或范围。', '其他数值或范围。'] },
+  ROUND: { p: ['值', '位数'], ex: 'ROUND(99.44, 1) → 99.4', s: '按指定位数对数值四舍五入。', d: ['要四舍五入的数值。', '保留的小数位数。'] },
+  ROUNDUP: { p: ['值', '位数'], ex: 'ROUNDUP(99.11, 1) → 99.2', s: '按指定位数向上舍入数值（远离零）。', d: ['要向上舍入的数值。', '保留的小数位数。'] },
+  ROUNDDOWN: { p: ['值', '位数'], ex: 'ROUNDDOWN(99.99, 1) → 99.9', s: '按指定位数向下舍入数值（趋近零）。', d: ['要向下舍入的数值。', '保留的小数位数。'] },
+  INT: { p: ['值'], ex: 'INT(99.99) → 99', s: '将数值向下取整为最接近的整数。', d: ['要取整的数值。'] },
+  MOD: { p: ['被除数', '除数'], ex: 'MOD(10, 3) → 1', s: '返回两数相除的余数，结果符号与除数相同。', d: ['要被除的数值。', '用来除的数值。'] },
+  ABS: { p: ['值'], ex: 'ABS(-2) → 2', s: '返回数值的绝对值。', d: ['要求绝对值的数值。'] },
+  POWER: { p: ['底数', '指数'], ex: 'POWER(2, 10) → 1024', s: '返回底数的指定次幂。', d: ['底数。', '指数。'] },
+  SQRT: { p: ['值'], ex: 'SQRT(9) → 3', s: '返回数值的正平方根。', d: ['要求平方根的非负数值。'] },
+  PRODUCT: { p: ['值1', '[值2, ...]'], ex: 'PRODUCT(A2:A100)', s: '返回一组数值的乘积。', d: ['要相乘的第一个数值或范围。', '要相乘的其他数值或范围。'] },
+  IF: { p: ['条件', '为真值', '[为假值]'], ex: 'IF(A2 > 90, "优秀", "合格")', s: '条件为真时返回一个值，否则返回另一个值。', d: ['要判断的条件表达式。', '条件为真时返回的值。', '条件为假时返回的值；省略则为 FALSE。'] },
+  IFS: { p: ['条件1', '值1', '[条件2, 值2, ...]'], ex: 'IFS(A2 > 90, "A", A2 > 80, "B")', s: '按顺序检查多个条件，返回第一个为真的条件对应的值。', d: ['第一个条件。', '条件1为真时返回的值。', '后续条件及对应返回值。'] },
+  IFERROR: { p: ['值', '备用值'], ex: 'IFERROR(A2/B2, "除数不能为0")', s: '若表达式出错则返回备用值，否则返回表达式本身的结果。', d: ['要计算的表达式。', '表达式出错时返回的值。'] },
+  AND: { p: ['逻辑1', '[逻辑2, ...]'], ex: 'AND(A2 > 1, A2 < 10)', s: '所有参数均为真时返回 TRUE。', d: ['要检查的第一个逻辑表达式。', '要检查的其他逻辑表达式。'] },
+  OR: { p: ['逻辑1', '[逻辑2, ...]'], ex: 'OR(A2 > 1, A2 < 10)', s: '任一参数为真即返回 TRUE。', d: ['要检查的第一个逻辑表达式。', '要检查的其他逻辑表达式。'] },
+  NOT: { p: ['逻辑值'], ex: 'NOT(A2 > 1)', s: '对逻辑值取反：TRUE 变 FALSE，FALSE 变 TRUE。', d: ['要取反的逻辑表达式。'] },
+  VLOOKUP: { p: ['查找值', '范围', '列序号', '[是否近似匹配]'], ex: 'VLOOKUP("苹果", A2:C10, 3, FALSE)', s: '在范围首列查找指定值，返回该值所在行指定列的内容。', d: ['要在首列中查找的值。', '查找的范围，首列为匹配列。', '要返回的范围内的列号（首列为 1）。', 'FALSE 为精确匹配（推荐），TRUE 或省略为近似匹配。'] },
+  HLOOKUP: { p: ['查找值', '范围', '行序号', '[是否近似匹配]'], ex: 'HLOOKUP("Q1", A1:F10, 3, FALSE)', s: '在范围首行查找指定值，返回该值所在列指定行的内容。', d: ['要在首行中查找的值。', '查找的范围，首行为匹配行。', '要返回的范围内的行号（首行为 1）。', 'FALSE 为精确匹配（推荐），TRUE 或省略为近似匹配。'] },
+  INDEX: { p: ['范围', '行号', '[列号]'], ex: 'INDEX(A2:C10, 2, 3)', s: '返回范围中指定行列交叉处的值。', d: ['要取值的范围。', '要返回的行号。', '要返回的列号；单列范围可省略。'] },
+  MATCH: { p: ['查找值', '范围', '[匹配类型]'], ex: 'MATCH("苹果", A2:A10, 0)', s: '返回指定值在范围中的相对位置。', d: ['要查找的值。', '要搜索的单行或单列范围。', '0 为精确匹配（推荐），1 为小于查找值的最大值，-1 为大于查找值的最小值。'] },
+  LOOKUP: { p: ['查找值', '搜索范围', '[结果范围]'], ex: 'LOOKUP("苹果", A2:A10, B2:B10)', s: '在单行或单列中查找值，返回另一行/列中相同位置的值（要求升序）。', d: ['要查找的值。', '要搜索的单行或单列范围。', '要返回结果的单行或单列范围。'] },
+  OFFSET: { p: ['参照', '行偏移', '列偏移', '[高度]', '[宽度]'], ex: 'OFFSET(A1, 2, 1)', s: '返回从指定参照偏移后的单元格或区域引用。', d: ['偏移的起始参照。', '向下偏移的行数。', '向右偏移的列数。', '返回区域的高度，缺省同参照。', '返回区域的宽度，缺省同参照。'] },
+  ROW: { p: ['[引用]'], ex: 'ROW(B3) → 3', s: '返回引用的行号；省略参数则返回公式所在单元格的行号。', d: ['要取行号的单元格或范围。'] },
+  COLUMN: { p: ['[引用]'], ex: 'COLUMN(C2) → 3', s: '返回引用的列号；省略参数则返回公式所在单元格的列号。', d: ['要取列号的单元格或范围。'] },
+  ROWS: { p: ['范围'], ex: 'ROWS(A2:A100) → 99', s: '返回范围包含的行数。', d: ['要统计的范围。'] },
+  COLUMNS: { p: ['范围'], ex: 'COLUMNS(A2:C100) → 3', s: '返回范围包含的列数。', d: ['要统计的范围。'] },
+  TODAY: { p: [], ex: 'TODAY()', s: '返回当前日期。', d: [] },
+  NOW: { p: [], ex: 'NOW()', s: '返回当前日期和时间。', d: [] },
+  YEAR: { p: ['日期'], ex: 'YEAR(DATE(2026, 9, 29)) → 2026', s: '返回日期中的年份。', d: ['要提取年份的日期。'] },
+  MONTH: { p: ['日期'], ex: 'MONTH(DATE(2026, 9, 29)) → 9', s: '返回日期中的月份（1–12）。', d: ['要提取月份的日期。'] },
+  DAY: { p: ['日期'], ex: 'DAY(DATE(2026, 9, 29)) → 29', s: '返回日期中的日（1–31）。', d: ['要提取“日”的日期。'] },
+  DATE: { p: ['年', '月', '日'], ex: 'DATE(2026, 9, 29)', s: '将年、月、日组合为日期。', d: ['年份。', '月份。', '日。'] },
+  DATEDIF: { p: ['开始日期', '结束日期', '单位'], ex: 'DATEDIF(A2, TODAY(), "M")', s: '返回两个日期之间的间隔数。', d: ['开始日期。', '结束日期。', '单位："Y"整年、"M"整月、"D"天数。'] },
+  WEEKDAY: { p: ['日期', '[类型]'], ex: 'WEEKDAY(TODAY())', s: '返回日期是星期几（数字表示）。', d: ['要检查的日期。', '1 或省略：周日=1；2：周一=1；3：周一=0。'] },
+  TEXT: { p: ['值', '格式'], ex: 'TEXT(1234.5, "0.00") → 1234.50', s: '按指定格式将数值转为文本。', d: ['要格式化的数值或日期。', '格式代码，如 "0.00"、"yyyy-mm-dd"。'] },
+  VALUE: { p: ['文本'], ex: 'VALUE("123") → 123', s: '将数字文本转为数值。', d: ['要转换的文本。'] },
+  LEN: { p: ['文本'], ex: 'LEN("北京") → 2', s: '返回文本的字符个数。', d: ['要计算长度的文本。'] },
+  LEFT: { p: ['文本', '[字符数]'], ex: 'LEFT("ABC123", 3) → "ABC"', s: '从文本左侧起返回指定个数的字符。', d: ['要截取的文本。', '要返回的字符数，缺省为 1。'] },
+  RIGHT: { p: ['文本', '[字符数]'], ex: 'RIGHT("ABC123", 3) → "123"', s: '从文本右侧起返回指定个数的字符。', d: ['要截取的文本。', '要返回的字符数，缺省为 1。'] },
+  MID: { p: ['文本', '起始位置', '字符数'], ex: 'MID("ABC123", 2, 3) → "BC1"', s: '从文本指定位置起返回指定个数的字符。', d: ['要截取的文本。', '起始位置（从 1 计）。', '要返回的字符数。'] },
+  FIND: { p: ['查找文本', '被查文本', '[起始位置]'], ex: 'FIND("B", "ABC") → 2', s: '返回一段文本在另一段文本中的位置（区分大小写）。', d: ['要查找的文本。', '被查找的文本。', '开始查找的位置，缺省为 1。'] },
+  SEARCH: { p: ['查找文本', '被查文本', '[起始位置]'], ex: 'SEARCH("b", "ABC") → 2', s: '返回一段文本在另一段文本中的位置（不区分大小写，支持通配符）。', d: ['要查找的文本。', '被查找的文本。', '开始查找的位置，缺省为 1。'] },
+  SUBSTITUTE: { p: ['文本', '旧文本', '新文本', '[替换第几处]'], ex: 'SUBSTITUTE("a-b-c", "-", "+")', s: '将文本中的指定内容替换为新内容。', d: ['要处理的文本。', '要被替换的内容。', '替换成的内容。', '只替换第几处；省略则替换全部。'] },
+  TRIM: { p: ['文本'], ex: 'TRIM(" A B ") → "A B"', s: '去掉文本首尾空格，并把中间连续空格缩为一个。', d: ['要清理的文本。'] },
+  UPPER: { p: ['文本'], ex: 'UPPER("abc") → "ABC"', s: '将文本转为全大写。', d: ['要转换的文本。'] },
+  LOWER: { p: ['文本'], ex: 'LOWER("ABC") → "abc"', s: '将文本转为全小写。', d: ['要转换的文本。'] },
+  CONCATENATE: { p: ['文本1', '[文本2, ...]'], ex: 'CONCATENATE(A2, " ", B2)', s: '将多个文本连接为一个文本。', d: ['要连接的第一段文本。', '要连接的其他文本。'] },
+  TEXTJOIN: { p: ['分隔符', '是否忽略空值', '文本1', '[文本2, ...]'], ex: 'TEXTJOIN("-", TRUE, A2:A10)', s: '用指定分隔符连接多个文本。', d: ['连接用的分隔符。', 'TRUE 忽略空单元格。', '要连接的第一段文本或范围。', '要连接的其他文本或范围。'] },
+  EXACT: { p: ['文本1', '文本2'], ex: 'EXACT(A2, B2)', s: '比较两段文本是否完全相同（区分大小写）。', d: ['第一段文本。', '第二段文本。'] },
+  STDEV: { p: ['值1', '[值2, ...]'], ex: 'STDEV(A2:A100)', s: '基于样本估算标准差。', d: ['样本的第一个数值或范围。', '样本的其他数值或范围。'] },
+  VAR: { p: ['值1', '[值2, ...]'], ex: 'VAR(A2:A100)', s: '基于样本估算方差。', d: ['样本的第一个数值或范围。', '样本的其他数值或范围。'] },
+  RANDBETWEEN: { p: ['下限', '上限'], ex: 'RANDBETWEEN(1, 100)', s: '返回两数之间的随机整数。', d: ['随机数下限。', '随机数上限。'] },
+  RAND: { p: [], ex: 'RAND()', s: '返回 0 到 1 之间的随机数。', d: [] },
+}
+const FUNC_TIP_GENERIC = { p: ['参数1', '[参数2, ...]'], ex: '', s: '', d: [] }
+
+const funcTip = reactive({
+  visible: false, name: '', parts: [], argIndex: -1, expanded: false,
+  docs: null, x: 0, y: 0, above: false, dismissed: false, lastKey: '',
+})
+
+/** 光标前文本 → 最内层函数 { name, argIndex }；不在任何函数括号内时返回 null */
+function parseFuncContext(text) {
+  const stack = []
+  const re = /([A-Za-z][A-Za-z0-9_.]*)\s*\(|[(),]/g
+  let m
+  while ((m = re.exec(text))) {
+    const t = m[0]
+    if (m[1]) stack.push({ name: m[1].toUpperCase(), arg: 0 })
+    else if (t === '(') stack.push(null)
+    else if (t === ',') {
+      const top = stack[stack.length - 1]
+      if (top && top.name) top.arg++
+    } else {
+      while (stack.length && stack[stack.length - 1] === null) stack.pop()
+      if (stack.length) stack.pop()
+    }
+  }
+  for (let i = stack.length - 1; i >= 0; i--) if (stack[i]) return stack[i]
+  return null
+}
+function funcCaretOffset(ed) {
+  const sel = window.getSelection()
+  if (!sel || !sel.rangeCount) return -1
+  const r = sel.getRangeAt(0)
+  const pre = document.createRange()
+  pre.selectNodeContents(ed)
+  try { pre.setEnd(r.endContainer, r.endOffset) } catch { return -1 }
+  return pre.toString().length
+}
+/** 当前公式编辑的活跃编辑器：选区锚在 fx 公式栏 → 用 fx，否则用单元格编辑器。
+ *  fortune 在 fx 编辑态点格子原生就能插引用（光标前一字符是 ( , = 运算符时），选区插入无需自研。 */
+function activeFormulaEditor() {
+  const sel = window.getSelection()
+  const fx = document.getElementById('luckysheet-functionbox-cell')
+  if (fx && sel?.anchorNode && fx.contains(sel.anchorNode)) {
+    return { ed: fx, box: fx.closest('.luckysheet-input-box') || fx, isFx: true }
+  }
+  const ed = document.getElementById('luckysheet-rich-text-editor')
+  const box = ed ? (ed.closest('.luckysheet-input-box') || ed.parentElement) : null
+  return ed && box ? { ed, box, isFx: false } : null
+}
+function updateFuncTip() {
+  const act = activeFormulaEditor()
+  if (!act || act.box.offsetParent === null) { hideFuncTip(); hideFuncSug(); return }
+  const text = (act.ed.innerText || '').trim()
+  if (!text.startsWith('=')) { hideFuncTip(); hideFuncSug(); return }
+  const off = funcCaretOffset(act.ed)
+  if (off < 0) { hideFuncTip(); hideFuncSug(); return }
+  const r = act.box.getBoundingClientRect()
+  // —— 状态一：函数名补全 —— 光标前是正在输入的名字（前随 = ( , 或运算符），名字后没有 '('
+  const sug = detectFuncSuggest(text.slice(0, off), text, off)
+  if (sug.items.length) {
+    const q = sug.query
+    if (funcSug.query !== q || !funcSug.visible) {
+      funcSug.index = 0
+      funcSug.query = q
+    }
+    if (funcSug.index >= sug.items.length) funcSug.index = 0
+    funcSug.items = sug.items
+    funcSug.partial = sug.partial
+    funcSug.x = r.left
+    funcSug.above = r.bottom + 320 > window.innerHeight && r.top > 320
+    funcSug.y = funcSug.above ? r.top - 6 : r.bottom + 6
+    funcSug.visible = true
+    hideFuncTip()
+    return
+  }
+  hideFuncSug()
+  // —— 状态二：签名卡 ——
+  let ctx = parseFuncContext(text.slice(0, off))
+  if (!ctx) {
+    // 光标不在任何函数括号内（如回显后停在末尾）→ 显示最外层函数，不高亮参数
+    const m = /([A-Za-z][A-Za-z0-9_.]*)\s*\(/.exec(text)
+    if (m) ctx = { name: m[1].toUpperCase(), arg: -1 }
+  }
+  if (!ctx) { hideFuncTip(); return }
+  if (funcTip.lastKey !== ctx.name) { funcTip.lastKey = ctx.name; funcTip.dismissed = false }
+  if (funcTip.dismissed) { hideFuncTip(); return }
+  const docs = FUNC_DOCS[ctx.name] || FUNC_TIP_GENERIC
+  funcTip.name = ctx.name
+  funcTip.parts = docs.p
+  funcTip.argIndex = Math.min(ctx.arg, docs.p.length - 1)
+  funcTip.docs = docs
+  funcTip.x = r.left
+  funcTip.above = r.bottom + 240 > window.innerHeight && r.top > 240
+  funcTip.y = funcTip.above ? r.top - 6 : r.bottom + 6
+  funcTip.visible = true
+}
+function hideFuncTip() {
+  if (funcTip.visible) funcTip.visible = false
+}
+function dismissFuncTip() {
+  funcTip.dismissed = true
+  funcTip.visible = false
+}
+
+/* —— 函数名自动补全 —— */
+const FUNC_COMMON = ['SUM', 'IF', 'AVERAGE', 'COUNT', 'COUNTIF', 'SUMIF', 'VLOOKUP', 'MAX', 'MIN', 'ROUND', 'IFERROR', 'COUNTIFS', 'SUMIFS']
+const funcSug = reactive({
+  visible: false, items: [], index: 0, partial: '', query: '', x: 0, y: 0, above: false,
+})
+function detectFuncSuggest(before, text, off) {
+  const m = /([A-Za-z][A-Za-z0-9_.]*)$/.exec(before)
+  if (!m) return { items: [], query: '', partial: '' }
+  const partial = m[1]
+  const prev = before.charAt(before.length - partial.length - 1)
+  // 名字必须紧跟 = ( , 或运算符之后；且名字后面没打 '('
+  if (!/[=(,+\-*/<>&^%]/.test(prev)) return { items: [], query: '', partial: '' }
+  if (text.charAt(off) === '(') return { items: [], query: '', partial: '' }
+  if (partial.length > 12 || /^[A-Za-z]{1,3}[0-9]+$/.test(partial)) return { items: [], query: '', partial: '' }
+  const q = partial.toUpperCase()
+  const rank = (k) => { const i = FUNC_COMMON.indexOf(k); return i === -1 ? 99 : i }
+  const items = Object.keys(FUNC_DOCS)
+    .filter((k) => k.startsWith(q))
+    .sort((a, b) => rank(a) - rank(b) || a.localeCompare(b))
+    .slice(0, 12)
+    .map((k) => ({ name: k, desc: FUNC_DOCS[k].s }))
+  return { items, query: q, partial }
+}
+function hideFuncSug() {
+  if (funcSug.visible) funcSug.visible = false
+}
+function acceptFuncSug(i) {
+  const item = funcSug.items[i]
+  hideFuncSug()
+  if (!item) return
+  const act = activeFormulaEditor()
+  if (!act) return
+  act.ed.focus()
+  const sel = window.getSelection()
+  if (sel && sel.modify) {
+    for (let k = 0; k < funcSug.partial.length; k++) sel.modify('extend', 'backward', 'character')
+  }
+  document.execCommand('insertText', false, item.name + '(')
+  updateFuncTip()
+}
+function onDocFuncSelChange() {
+  if (!funcTip.visible && !funcSug.visible) {
+    const act = activeFormulaEditor()
+    if (!act || !(act.ed.innerText || '').trim().startsWith('=')) return
+  }
+  updateFuncTip()
+}
+function onDocFuncScroll() {
+  if (funcTip.visible) updateFuncTip()
+}
+document.addEventListener('selectionchange', onDocFuncSelChange, true)
+document.addEventListener('scroll', onDocFuncScroll, true)
+
+/** fortune 双击进编辑态的回显链路依赖几个「一次性」全局状态，异常退出会把它们弄脏：
+ *  - selection 残留锚在隐藏编辑器里 → 包内 israngeseleciton 把下次双击误判成公式选区点击，
+ *    handleCellAreaDoubleClick / handleCellAreaMouseDown 开头直接 return，双击失效；
+ *  - doNotUpdateCell / overwriteCell / ignoreWriteCell 残留 → 回显 populate 被跳过或写空，
+ *    编辑器显示上一次的残留文本（看起来就是「只有公式前面几个字母」）。
+ * 非编辑态下按下鼠标时把这些残留清掉，让每次双击都从干净状态开始。编辑态中不动，
+ * 否则会破坏「编辑公式时点格子加引用」的合法操作。 */
+function cleanEditResidue() {
+  if (cfState.pickingRange) return
+  const ctx = reactStateBy((st) => Array.isArray(st.luckysheetfile))
+  if (!ctx) return
+  if (ctx.luckysheetCellUpdate?.length) return
+  hideFuncTip()
+  hideFuncSug()
+  const fc = ctx.formulaCache
+  if (fc) {
+    fc.rangestart = false
+    fc.rangedrag_column_start = false
+    fc.rangedrag_row_start = false
+  }
+  const cache = reactStateBy((st) => Array.isArray(st.undoList) && Array.isArray(st.redoList))
+  if (cache) {
+    delete cache.doNotUpdateCell
+    delete cache.overwriteCell
+    delete cache.ignoreWriteCell
+    delete cache.doNotFocus
+  }
+  const sel = window.getSelection()
+  const anchor = sel?.anchorNode
+  if (anchor) {
+    const el = anchor.nodeType === 1 ? anchor : anchor.parentElement
+    if (el?.closest?.('#luckysheet-rich-text-editor, #luckysheet-functionbox-cell')) sel.removeAllRanges()
+  }
+  const ed = document.getElementById('luckysheet-rich-text-editor')
+  if (ed?.innerHTML) ed.innerHTML = ''
+}
+function onDocEditResidueDown(e) {
+  if (!hostRef.value?.contains(e.target)) return
+  // 补全列表打开时点格子：先接受当前高亮函数（插入 NAME( ），再放行事件给 fortune——
+  // 接受后光标停在 '(' 后，fortune 原生判定为选区插入，本次点击/拖选的格子直接成为第一个引用。
+  // （旧逻辑只是拦截提交、列表保持，用户点格子无任何反馈，误以为无法选区域）
+  if (funcSug.visible && funcSug.items.length) {
+    const act = activeFormulaEditor()
+    if (act && act.box.offsetParent !== null && e.target.closest?.('.fortune-cell-area')) {
+      acceptFuncSug(funcSug.index)
+      return
+    }
+  }
+  cleanEditResidue()
+}
+document.addEventListener('mousedown', onDocEditResidueDown, true)
+
 watch(folded, () => {
   alignPop.show = false
   wrapPop.show = false
@@ -4653,6 +5179,12 @@ watch(() => cfState.scaleOpen || cfState.kindOpen || cfState.scopeOpen, (open) =
 
 onBeforeUnmount(() => {
   document.removeEventListener('mousedown', onDocScaleDown, true)
+  document.removeEventListener('input', onDocFormulaInput, true)
+  document.removeEventListener('compositionend', onDocFormulaInput, true)
+  document.removeEventListener('keydown', onDocFormulaKeydown, true)
+  document.removeEventListener('mousedown', onDocEditResidueDown, true)
+  document.removeEventListener('selectionchange', onDocFuncSelChange, true)
+  document.removeEventListener('scroll', onDocFuncScroll, true)
   labelObs?.disconnect()
   labelObs = null
   hostRef.value?.removeEventListener('mousedown', onColorToolbarCapture, true)
@@ -4684,6 +5216,63 @@ defineExpose({
   <div class="fortune-wrap" :class="{ 'fs-open': !folded, 'cf-side': cfState.side && cfState.dlg, 'cf-picking': cfState.pickingRange, 'fs-sheet-list-open': sheetListPop.open }" @mousedown="onWrapDown" @mouseover="onTipOver" @mouseleave="onTipLeave">
     <input ref="fileRef" type="file" accept=".xlsx,.xls" hidden @change="onImport">
     <div ref="hostRef" class="fortune-host"></div>
+    <Teleport to="body">
+      <div
+        v-show="funcTip.visible"
+        class="fs-func-tip"
+        :class="{ above: funcTip.above }"
+        :style="{ left: `${funcTip.x}px`, top: `${funcTip.y}px` }"
+        @mousedown.prevent
+      >
+        <div class="fs-func-head">
+          <div class="fs-func-sig">
+            <span class="fs-func-name">{{ funcTip.name }}</span><span>(</span><template v-for="(p, i) in funcTip.parts" :key="i"><span v-if="i" class="fs-func-comma">, </span><span :class="{ hl: i === funcTip.argIndex }">{{ p }}</span></template><span>)</span>
+          </div>
+          <button
+            v-if="funcTip.docs && (funcTip.docs.s || funcTip.docs.ex)"
+            type="button"
+            class="fs-func-toggle"
+            :class="{ open: funcTip.expanded }"
+            data-tip="示例与说明"
+            @click="funcTip.expanded = !funcTip.expanded"
+          ><i class="fs-caret" /></button>
+          <button type="button" class="fs-func-toggle" data-tip="关闭" @click="dismissFuncTip"><span class="fs-func-close">×</span></button>
+        </div>
+        <div v-if="funcTip.expanded && funcTip.docs" class="fs-func-body">
+          <div v-if="funcTip.docs.ex" class="fs-func-row">
+            <div class="fs-func-label">示例</div>
+            <div class="fs-func-text">{{ funcTip.docs.ex }}</div>
+          </div>
+          <div v-if="funcTip.docs.s" class="fs-func-row">
+            <div class="fs-func-label">摘要</div>
+            <div class="fs-func-text">{{ funcTip.docs.s }}</div>
+          </div>
+          <div v-for="(pd, i) in funcTip.docs.d" :key="'d' + i" class="fs-func-row" :class="{ cur: i === funcTip.argIndex }">
+            <div class="fs-func-label">{{ funcTip.parts[i] }}</div>
+            <div class="fs-func-text">{{ pd }}</div>
+          </div>
+        </div>
+      </div>
+      <div
+        v-show="funcSug.visible"
+        class="fs-func-sug"
+        :class="{ above: funcSug.above }"
+        :style="{ left: `${funcSug.x}px`, top: `${funcSug.y}px` }"
+        @mousedown.prevent
+      >
+        <div
+          v-for="(s, i) in funcSug.items"
+          :key="s.name"
+          class="fs-func-sug-item"
+          :class="{ cur: i === funcSug.index }"
+          @mouseenter="funcSug.index = i"
+          @click="acceptFuncSug(i)"
+        >
+          <div class="fs-func-sug-name">{{ s.name }}</div>
+          <div v-if="i === funcSug.index && s.desc" class="fs-func-sug-desc">{{ s.desc }}</div>
+        </div>
+      </div>
+    </Teleport>
     <Teleport v-if="toolbarEl" :to="toolbarEl">
     <div
       v-if="fontBar.show"
@@ -4945,7 +5534,7 @@ defineExpose({
       type="button"
       class="fs-fold"
       @mousedown.stop
-      @click="folded = !folded; nextTick(() => requestAnimationFrame(() => { placeFontBar(hostRef.value); placeAlignBar(hostRef.value); placeFmtBar(hostRef.value); placeDataBar(hostRef.value) }))"
+      @click="toggleFold"
     >
       <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
         <path d="M6.3 9.2a1 1 0 0 1 1.4 0L12 13.5l4.3-4.3a1 1 0 1 1 1.4 1.4l-5 5a1 1 0 0 1-1.4 0l-5-5a1 1 0 0 1 0-1.4Z" fill="currentColor" />
