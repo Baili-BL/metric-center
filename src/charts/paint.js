@@ -28,7 +28,7 @@ import {
   migrateFmtToDisplay,
 } from './fieldFmt'
 import { buildAnalysisOverlays } from './analysis/paintOverlays'
-import { buildSeasonalPack } from './seasonal'
+import { buildSeasonalPack, seasonYearDash, seasonYearWidth } from './seasonal'
 
 const DEFAULT_COLORS = ['#1664FF', '#e34d59', '#12b76a', '#f2994a', '#7b61ff', '#56ccf2']
 
@@ -663,30 +663,23 @@ export function paintChart(el, spec) {
     const pack = seasonalRows(series, labels, spec.season, nullMode)
     const curY = String(pack.currentYear)
     const tickMap = Object.fromEntries((pack.axisTicks || []).map((t) => [t.idx, t.label]))
-    const histRows = pack.rows.filter((r) => String(r.year) !== curY)
-    const curRows = pack.rows.filter((r) => String(r.year) === curY)
     const lineEncode = { x: 'x', y: 'value', color: 'name', series: 'name', shape: lineShape(lineType) }
-    const children = []
-    if (histRows.length) {
-      children.push({
+    // 按年份各出一条线：线宽默认本年 2.5 / 其他 1.5，可被 season.yearStyles[y] 覆盖
+    const children = pack.years.map((y) => {
+      const rows = pack.rows.filter((r) => String(r.year) === String(y))
+      if (!rows.length) return null
+      return {
         type: 'line',
-        data: histRows,
+        data: rows,
         encode: lineEncode,
-        style: { lineWidth: 1.5, lineDash: dashArr(dash) },
+        style: {
+          lineWidth: seasonYearWidth(spec.season, y, curY),
+          lineDash: dashArr(seasonYearDash(spec.season, y, dash)),
+        },
         labels: labelCfg(spec, false, null, spec.series?.[0]),
         tooltip: seriesTooltipOf(spec, true),
-      })
-    }
-    if (curRows.length) {
-      children.push({
-        type: 'line',
-        data: curRows,
-        encode: lineEncode,
-        style: { lineWidth: 3, lineDash: dashArr(dash) },
-        labels: labelCfg(spec, false, null, spec.series?.[0]),
-        tooltip: seriesTooltipOf(spec, true),
-      })
-    }
+      }
+    }).filter(Boolean)
     if (marker) {
       const mk = markerSpec(markerShape)
       children.push({

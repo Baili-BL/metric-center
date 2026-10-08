@@ -1,8 +1,9 @@
 <script setup>
-import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import Icon from '../../components/Icon.vue'
 import ColorPop from '../../components/ColorPop.vue'
 import RichNoteDialog from '../../components/RichNoteDialog.vue'
+import { seasonYearColor, seasonYearDash, seasonYearWidth } from '../../charts/seasonal'
 import {
   BAR_VIS_TYPES,
   DASH_STYLES,
@@ -22,6 +23,8 @@ import {
 const props = defineProps({
   state: { type: Object, required: true },
   palettes: { type: Array, required: true },
+  seasonYears: { type: Array, default: () => [] },
+  seasonCurYear: { type: String, default: '' },
 })
 const emit = defineEmits(['palette'])
 
@@ -205,6 +208,56 @@ function curSeriesMarkerShape() {
 }
 function pickSeries(i) {
   srIdx.value = i
+  srFieldOpen.value = false
+}
+
+/* —— 季节性图：按年份设置线条样式 —— */
+const isSeasonMode = computed(() => t.value === 'seasonal')
+const srYear = ref('')
+const seasonYearOpts = computed(() => (props.seasonYears || []).map((y, i) => {
+  const ys = String(y)
+  return {
+    y: ys,
+    name: `${ys}年`,
+    isCur: ys === String(props.seasonCurYear),
+    color: seasonYearColor(props.state.season || {}, ys, i),
+  }
+}))
+// 年份列表变化（换数据/换区间）时保持有效选中，默认选本年
+watch(seasonYearOpts, (opts) => {
+  if (!opts.some((o) => o.y === srYear.value)) {
+    srYear.value = opts.find((o) => o.isCur)?.y || opts[opts.length - 1]?.y || ''
+  }
+}, { immediate: true })
+const curYearOpt = computed(() => seasonYearOpts.value.find((o) => o.y === srYear.value) || null)
+function ensureSeason() {
+  if (!props.state.season) props.state.season = {}
+  if (!props.state.season.yearStyles || typeof props.state.season.yearStyles !== 'object') props.state.season.yearStyles = {}
+  return props.state.season
+}
+function yearWidthOf(y) {
+  return seasonYearWidth(ensureSeason(), y, props.seasonCurYear)
+}
+function setYearWidth(y, v) {
+  const n = Number(v)
+  if (!Number.isFinite(n) || n < 0.5 || n > 8) return
+  const st = ensureSeason().yearStyles[String(y)] ||= {}
+  st.width = n
+}
+function yearDashOf(y) {
+  return seasonYearDash(ensureSeason(), y, props.state.dash)
+}
+function setYearDash(y, id) {
+  const st = ensureSeason().yearStyles[String(y)] ||= {}
+  st.dash = id
+  srDashOpen.value = false
+}
+const srYearDashCss = computed(() => {
+  const id = yearDashOf(srYear.value)
+  return DASH_STYLES.find((d) => d.id === (id === 'dotted' ? 'dot' : id))?.css || 'solid'
+})
+function pickYear(y) {
+  srYear.value = String(y)
   srFieldOpen.value = false
 }
 function onMinWidth(e) {
@@ -886,22 +939,56 @@ onBeforeUnmount(() => document.removeEventListener('click', onDoc))
       </div>
       <div class="sec-body series-body">
         <div class="plot-field">
-          <div class="plot-label">请选择字段</div>
+          <div class="plot-label">{{ isSeasonMode ? '请选择年份' : '请选择字段' }}</div>
           <div class="sr-field-select" :class="{ open: srFieldOpen }">
             <button type="button" class="sr-field-trigger" @click.stop="srFieldOpen = !srFieldOpen">
-              <span class="sr-field-dot" :style="{ background: curSeries?.color || '#ddd' }"></span>
-              <span class="sr-field-name">{{ curSeries ? (curSeries.alias || curSeries.name) : '请选择' }}</span>
+              <span class="sr-field-dot" :style="{ background: isSeasonMode ? (curYearOpt?.color || '#ddd') : (curSeries?.color || '#ddd') }"></span>
+              <span class="sr-field-name">{{ isSeasonMode
+                ? (curYearOpt ? (curYearOpt.isCur ? `${curYearOpt.name}（本年）` : curYearOpt.name) : '请选择')
+                : (curSeries ? (curSeries.alias || curSeries.name) : '请选择') }}</span>
               <span class="dash-caret"><Icon name="caret-fill" :size="12" /></span>
             </button>
             <div class="sr-field-panel">
-              <button v-for="(s, i) in state.series" :key="s.name" type="button" class="sr-field-opt" @click="pickSeries(i)">
-                <span class="sr-field-dot" :style="{ background: s.color }"></span>{{ s.alias || s.name }}
-              </button>
-              <div v-if="!state.series.length" class="lg-content-empty">请先添加指标</div>
+              <template v-if="isSeasonMode">
+                <button v-for="o in seasonYearOpts" :key="o.y" type="button" class="sr-field-opt" @click="pickYear(o.y)">
+                  <span class="sr-field-dot" :style="{ background: o.color }"></span>{{ o.isCur ? `${o.name}（本年）` : o.name }}
+                </button>
+                <div v-if="!seasonYearOpts.length" class="lg-content-empty">请先添加指标</div>
+              </template>
+              <template v-else>
+                <button v-for="(s, i) in state.series" :key="s.name" type="button" class="sr-field-opt" @click="pickSeries(i)">
+                  <span class="sr-field-dot" :style="{ background: s.color }"></span>{{ s.alias || s.name }}
+                </button>
+                <div v-if="!state.series.length" class="lg-content-empty">请先添加指标</div>
+              </template>
             </div>
           </div>
         </div>
-        <template v-if="curSeries">
+        <!-- 季节性图：按年份设置线条样式，默认本年 2.5px、其他年份 1.5px -->
+        <template v-if="isSeasonMode && curYearOpt">
+          <div class="plot-inline">
+            <div class="plot-label-inline">线条样式</div>
+            <div class="line-style-row">
+              <div class="dash-select" :class="{ open: srDashOpen }">
+                <button type="button" class="dash-trigger" @click.stop="srDashOpen = !srDashOpen">
+                  <span class="dash-sample" :style="{ borderTopStyle: srYearDashCss }"></span>
+                  <span class="dash-caret"><Icon name="caret-fill" :size="12" /></span>
+                </button>
+                <div class="dash-panel">
+                  <button v-for="d in DASH_STYLES" :key="d.id" type="button" class="dash-opt" @click="setYearDash(srYear, d.id)">
+                    <span class="dash-sample" :style="{ borderTopStyle: d.css }"></span>
+                  </button>
+                </div>
+              </div>
+              <div class="px-input">
+                <input type="number" min="0.5" max="8" step="0.5" :value="yearWidthOf(srYear)" @input="setYearWidth(srYear, $event.target.value)">
+                <span class="px-unit">px</span>
+              </div>
+            </div>
+          </div>
+          <div class="sr-hint">未单独设置的年份：本年 2.5px，其他年份 1.5px</div>
+        </template>
+        <template v-else-if="curSeries">
           <div class="plot-inline">
             <div class="plot-label-inline">颜色</div>
             <button type="button" class="fmt-swatch color-well" :style="{ background: curSeries.color }" @click.stop="openColor(curSeries, 'color', $event)" />

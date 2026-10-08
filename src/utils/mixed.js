@@ -15,6 +15,8 @@ export function parseDate(s) {
   if (m) return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]))
   m = str.match(/^(\d{4})[-/](\d{1,2})$/)
   if (m) return new Date(Number(m[1]), Number(m[2]) - 1, 1)
+  m = str.match(/^(\d{1,2})[-/](\d{1,2})$/)
+  if (m) return new Date(new Date().getFullYear(), Number(m[1]) - 1, Number(m[2]))
   return null
 }
 
@@ -120,6 +122,60 @@ export const ANCHOR_OPTS = [
   { id: 'monday', name: '所在周周一' },
   { id: 'monthStart', name: '所在月月初' },
   { id: 'monthEnd', name: '所在月月末' },
+  { id: 'prevMonthSameDay', name: '上月同期' },
+  { id: 'prevYearSameDay', name: '上年同期' },
 ]
+
+// 叠加式日期变换（按添加顺序依次计算）
+// 项：{ type: 'shift', unit: 'day'|'week'|'month', n: 数值 } 或 { type: 'anchor', anchor: 锚定id }
+export function applyTransforms(dateStr, list) {
+  let d = parseDate(dateStr)
+  if (!d) return ''
+  ;(Array.isArray(list) ? list : []).forEach((t) => {
+    if (!t) return
+    if (t.type === 'shift') {
+      const n = Number(t.n || 0)
+      if (t.unit === 'month') d = addMonths(d, n)
+      else if (t.unit === 'week') d = addDays(d, n * 7)
+      else d = addDays(d, n)
+    } else if (t.type === 'anchor') {
+      if (t.anchor === 'monday') {
+        const wd = d.getDay() || 7
+        d = addDays(d, 1 - wd)
+      } else if (t.anchor === 'monthStart') {
+        d = new Date(d.getFullYear(), d.getMonth(), 1)
+      } else if (t.anchor === 'monthEnd') {
+        d = new Date(d.getFullYear(), d.getMonth() + 1, 0)
+      } else if (t.anchor === 'prevMonthSameDay') {
+        d = addMonths(d, -1)
+      } else if (t.anchor === 'prevYearSameDay') {
+        d = addMonths(d, -12)
+      }
+    }
+  })
+  return fmtDate(d)
+}
+
+// 单元格引用（如 B3）的 A1 表示
+export function rcToRef(row, col) {
+  let s = ''
+  let c = Number(col) + 1
+  while (c > 0) {
+    const m = (c - 1) % 26
+    s = String.fromCharCode(65 + m) + s
+    c = Math.floor((c - 1) / 26)
+  }
+  return `${s}${Number(row) + 1}`
+}
+
+// 变换项的展示文案，如「-5 天」「所在周周一」
+export function transformLabel(t) {
+  if (!t) return ''
+  if (t.type === 'shift') {
+    const unit = t.unit === 'month' ? '月' : t.unit === 'week' ? '周' : '天'
+    return `${Number(t.n || 0) > 0 ? '+' : ''}${Number(t.n || 0)} ${unit}`
+  }
+  return (ANCHOR_OPTS.find((a) => a.id === t.anchor) || {}).name || t.anchor
+}
 
 export { monthLabels }

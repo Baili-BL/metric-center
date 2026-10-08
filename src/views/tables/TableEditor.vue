@@ -5,7 +5,7 @@ import { Message } from '@arco-design/web-vue'
 import { useTableStore } from '../../stores/tables'
 import { useIndicatorStore } from '../../stores/indicators'
 import { ME, PEOPLE, todayStr } from '../../utils/hash'
-import { ANCHOR_OPTS, evalExpr, indValueAt, parseDate, refToRC, shiftPeriods, transformDate } from '../../utils/mixed'
+import { applyTransforms, evalExpr, fmtDate, indValueAt, parseDate, rcToRef, refToRC, shiftPeriods, transformDate } from '../../utils/mixed'
 import { workbookToXlsx } from '../../utils/workbook'
 import { runWithExportLoading } from '../../utils/exportLoading'
 import FortuneSheet from '../../components/FortuneSheet.vue'
@@ -17,6 +17,7 @@ import {
 } from '../../utils/pivot'
 import Icon from '../../components/Icon.vue'
 import AppModal from '../../components/AppModal.vue'
+import MxDatePanel from '../../components/MxDatePanel.vue'
 
 const props = defineProps({
   tableId: { type: String, default: '' },
@@ -216,8 +217,15 @@ const mxValPick = ref('')
 const mxCalcPicks = ref([])
 const mxCalcExpr = ref('A*B')
 const mxDateInd = ref('')
-const mxDate = reactive({ src: 'indLatest', periodShift: 0, cellRef: '', days: 0, weeks: 0, months: 0, anchor: 'none' })
+const mxDate = reactive({ src: 'indLatest', back: 0, periodShift: 0, cellRef: '', manual: '', days: 0, weeks: 0, months: 0, anchor: 'none', transforms: [] })
 const mxOp = reactive({ a: '', b: '', kind: 'diffDays' })
+// 右键菜单 / 悬浮提示 / 虚线框 / 选格拾取
+const mxCtx = reactive({ show: false, x: 0, y: 0 })
+let mxCtxCell = null
+const mxTip = reactive({ show: false, x: 0, y: 0, lines: [] })
+const mxDash = reactive({ boxes: [] })
+const stageEl = ref(null)
+const mxPick = reactive({ active: false, modal: '', field: '' })
 
 const mxCount = computed(() => Object.keys(table.value?.mixedConfig?.bindings || {}).length)
 const r4 = (v) => Math.round(Number(v) * 10000) / 10000
@@ -231,20 +239,22 @@ const mxFiltered = computed(() => {
   })
 })
 
-function openMx(kind) {
+function openMx(kind, targetCell) {
   mxMenuOpen.value = false
-  const cell = sheetRef.value?.activeCell?.()
+  const cell = targetCell || sheetRef.value?.activeCell?.()
   if (!cell) return Message.warning('请先在表格中点选一个单元格')
-  mxTarget.value = cell
+  mxTarget.value = { row: cell.row, col: cell.col }
   mxCachedSnap.value = sheetRef.value.snapshot()
   // 恢复表单默认值
-  Object.assign(mxDate, { src: 'indLatest', periodShift: 0, cellRef: '', days: 0, weeks: 0, months: 0, anchor: 'none' })
+  Object.assign(mxDate, { src: 'indLatest', back: 0, periodShift: 0, cellRef: '', manual: '', days: 0, weeks: 0, months: 0, anchor: 'none', transforms: [] })
   mxValPick.value = ''
   mxCalcPicks.value = []
   mxCalcExpr.value = 'A*B'
   mxOp.a = ''
   mxOp.b = ''
   mxOp.kind = 'diffDays'
+  mxLib.value = 'base'
+  mxKw.value = ''
   if (kind === 'value') mxValOpen.value = true
   else if (kind === 'date') { mxDate.src = 'system'; mxDateOpen.value = true }
   else if (kind === 'calc') mxCalcOpen.value = true
@@ -263,12 +273,21 @@ function mxResolveBase(dateCfg, ind) {
     const v = mxCellVal(dateCfg.cellRef)
     return parseDate(v) ? String(v).trim() : ''
   }
-  return ind ? shiftPeriods(ind.latestDate, dateCfg.periodShift, ind.freq) : ''
+  if (dateCfg.src === 'manual') {
+    const d = parseDate(dateCfg.manual)
+    return d ? fmtDate(d) : ''
+  }
+  // 指标最新日期 + 期数前移（back ≥ 0 表示前移期数；兼容旧绑定的 periodShift 负数语义）
+  if (!ind) return ''
+  const shift = dateCfg.back != null ? -Number(dateCfg.back || 0) : Number(dateCfg.periodShift || 0)
+  return shiftPeriods(ind.latestDate, shift, ind.freq)
 }
 function mxResolveDate(dateCfg, ind) {
   const base = mxResolveBase(dateCfg, ind)
   if (!base) return ''
-  return transformDate(base, { days: dateCfg.days, weeks: dateCfg.weeks, months: dateCfg.months, anchor: dateCfg.anchor })
+  // 旧版单行变换（days/weeks/months/anchor）→ 叠加式变换（按添加顺序），两者兼容顺序执行
+  const afterLegacy = transformDate(base, { days: dateCfg.days, weeks: dateCfg.weeks, months: dateCfg.months, anchor: dateCfg.anchor })
+  return applyTransforms(afterLegacy, dateCfg.transforms)
 }
 
 // 各弹层预览
@@ -390,8 +409,16 @@ function computeBinding(b, sh) {
     else if (dateCfg.src === 'cell') {
       const v = readCell(dateCfg.cellRef)
       base = parseDate(v) ? String(v).trim() : ''
-    } else base = ind ? shiftPeriods(ind.latestDate, dateCfg.periodShift, ind.freq) : ''
-    return base ? transformDate(base, { days: dateCfg.days, weeks: dateCfg.weeks, months: dateCfg.months, anchor: dateCfg.anchor }) : ''
+    } else if (dateCfg.src === 'manual') {
+      const d = parseDate(dateCfg.manual)
+      base = d ? fmtDate(d) : ''
+    } else if (ind) {
+      const shift = dateCfg.back != null ? -Number(dateCfg.back || 0) : Number(dateCfg.periodShift || 0)
+      base = shiftPeriods(ind.latestDate, shift, ind.freq)
+    }
+    if (!base) return ''
+    const afterLegacy = transformDate(base, { days: dateCfg.days, weeks: dateCfg.weeks, months: dateCfg.months, anchor: dateCfg.anchor })
+    return applyTransforms(afterLegacy, dateCfg.transforms)
   }
   if (b.kind === 'date') {
     const d = resolve(b.date, indStore.get(b.date.indTitle || ''))
@@ -465,6 +492,214 @@ async function refreshMixed() {
   Message.success(`已刷新 ${n} 个动态单元格`)
 }
 
+/* —— 混合表交互：右键菜单 / 悬浮指标信息 / 关联虚线框 / 选格拾取 / 清除解除关联 —— */
+const mxBindings = computed(() => table.value?.mixedConfig?.bindings || {})
+
+// 本表已关联的指标（供指标计算弹窗快速选择）
+const mxTableInds = computed(() => {
+  const titles = []
+  const push = (t) => { if (t && indStore.get(t) && !titles.includes(t)) titles.push(t) }
+  Object.values(mxBindings.value).forEach((b) => {
+    if (b?.kind === 'value' || b?.kind === 'cmp') push(b.pick)
+    else if (b?.kind === 'calc') (b.picks || []).forEach(push)
+  })
+  return titles
+})
+function toggleCalcQuick(t) {
+  const i = mxCalcPicks.value.indexOf(t)
+  if (i >= 0) mxCalcPicks.value.splice(i, 1)
+  else mxCalcPicks.value.push(t)
+}
+
+// 右键菜单
+function onCellContext(g) {
+  if (!isMixed.value) return
+  mxCtxCell = { row: g.r, col: g.c }
+  mxCtx.x = Math.min(g.clientX, window.innerWidth - 190)
+  mxCtx.y = Math.min(g.clientY, window.innerHeight - 190)
+  mxCtx.show = true
+}
+function ctxOpen(kind) {
+  const cell = mxCtxCell
+  mxCtx.show = false
+  openMx(kind, cell)
+}
+function ctxClearBinding() {
+  const cell = mxCtxCell
+  mxCtx.show = false
+  if (!cell) return
+  const key = `${cell.row},${cell.col}`
+  if (!mxBindings.value[key]) return Message.warning('该单元格没有关联关系')
+  const bindings = { ...mxBindings.value }
+  delete bindings[key]
+  store.setMixedConfig(table.value.id, { bindings })
+  capture()
+  Message.success('已解除该单元格的关联（保留当前数值）')
+}
+function closeMxCtx() {
+  if (mxCtx.show) mxCtx.show = false
+}
+document.addEventListener('mousedown', closeMxCtx, true)
+
+// 悬浮提示：关联指标的单元格展示 指标名称 / 最新日期 / 指标ID
+function onCellHover(g) {
+  if (!isMixed.value || !g) {
+    mxTip.show = false
+    return
+  }
+  const b = mxBindings.value[`${g.r},${g.c}`]
+  if (!b) {
+    mxTip.show = false
+    return
+  }
+  const lines = []
+  const pushInd = (title) => {
+    const ind = indStore.get(title)
+    if (ind && !lines.some((l) => l.name === ind.title)) {
+      lines.push({ name: ind.title, latest: ind.latestDate || '—', id: ind.id })
+    }
+  }
+  if (b.kind === 'value' || b.kind === 'cmp') pushInd(b.pick)
+  else if (b.kind === 'calc') (b.picks || []).forEach(pushInd)
+  else if (b.kind === 'date' && b.date?.indTitle) pushInd(b.date.indTitle)
+  if (!lines.length) {
+    mxTip.show = false
+    return
+  }
+  mxTip.lines = lines
+  mxTip.x = Math.min(g.clientX + 14, window.innerWidth - 240)
+  mxTip.y = Math.min(g.clientY + 14, window.innerHeight - 120)
+  mxTip.show = true
+}
+
+// 虚线框：单击数据值单元格 ↔ 关联日期单元格，双向展示
+function stageBox(g) {
+  const rect = stageEl.value?.getBoundingClientRect()
+  if (!rect) return null
+  return { left: g.vx - rect.left, top: g.vy - rect.top, w: g.vw, h: g.vh }
+}
+function geomCell(row, col) {
+  return sheetRef.value?.cellGeomByRC?.(row, col)
+}
+function onCellClick(g) {
+  closeMxCtx()
+  // 选格拾取模式：把点中的单元格回填到弹窗的引用输入框
+  if (mxPick.active) {
+    const refStr = rcToRef(g.r, g.c)
+    if (mxPick.field === 'cellRef') mxDate.cellRef = refStr
+    else if (mxPick.field === 'a') mxOp.a = refStr
+    else if (mxPick.field === 'b') mxOp.b = refStr
+    mxPick.active = false
+    if (mxPick.modal === 'value') mxValOpen.value = true
+    else if (mxPick.modal === 'date') mxDateOpen.value = true
+    else if (mxPick.modal === 'diff') mxDiffOpen.value = true
+    else if (mxPick.modal === 'calc') mxCalcOpen.value = true
+    mxDash.boxes = []
+    return
+  }
+  if (!isMixed.value) {
+    mxDash.boxes = []
+    return
+  }
+  const key = `${g.r},${g.c}`
+  const b = mxBindings.value[key]
+  const boxes = []
+  const selfBox = stageBox(g)
+  if (b?.date?.src === 'cell' && refToRC(b.date.cellRef)) {
+    // 点击的是关联了表格日期的数据值单元格：本格 + 日期格都画虚线框
+    boxes.push(selfBox)
+    const rc = refToRC(b.date.cellRef)
+    const gb = geomCell(rc.row, rc.col)
+    if (gb) boxes.push(stageBox(gb))
+  } else {
+    // 点击的是被数据值单元格引用的日期单元格：本格 + 所有关联它的格子
+    const linked = Object.entries(mxBindings.value).filter(([, bb]) => {
+      if (!bb?.date || bb.date.src !== 'cell') return false
+      const rc = refToRC(bb.date.cellRef)
+      return rc && rc.row === g.r && rc.col === g.c
+    })
+    if (linked.length) {
+      boxes.push(selfBox)
+      linked.forEach(([k]) => {
+        const [r, c] = k.split(',').map(Number)
+        const gb = geomCell(r, c)
+        if (gb) boxes.push(stageBox(gb))
+      })
+    }
+  }
+  mxDash.boxes = boxes.filter(Boolean)
+}
+function clearDash() {
+  mxDash.boxes = []
+}
+window.addEventListener('resize', clearDash)
+
+// 选格拾取入口（弹窗中"选格"按钮 → 暂时收起弹窗，点表格单元格后回填）
+function startPick(modal, field) {
+  mxPick.active = true
+  mxPick.modal = modal
+  mxPick.field = field
+  mxValOpen.value = false
+  mxDateOpen.value = false
+  mxDiffOpen.value = false
+  Message.info('请在表格中点选一个日期单元格')
+}
+
+// 清除单元格 → 解除关联（关联不因无值而解除，仅清除单元格才解除）
+function reconcileMixed(snap) {
+  const t = table.value
+  if (!t) return
+  const bindings = t.mixedConfig?.bindings || {}
+  const sheetId = snap.sheetOrder?.[0] || Object.keys(snap.sheets || {})[0]
+  const sh = sheetId ? snap.sheets?.[sheetId] : null
+  if (!sh) return
+  const dead = Object.keys(bindings).filter((k) => {
+    if (bindings[k]?.kind === 'cmp') return false // 对比模板绑定允许暂无数据，不因空值解除
+    const [r, c] = k.split(',').map(Number)
+    const cell = sh.cellData?.[r]?.[c]
+    return !cell || cell.v == null || cell.v === ''
+  })
+  if (dead.length) {
+    const next = { ...bindings }
+    dead.forEach((k) => delete next[k])
+    store.setMixedConfig(t.id, { bindings: next })
+  }
+}
+// Delete/Backspace 清除单元格后自动解除关联
+function onMxKeydown(e) {
+  if (!open.value || !isMixed.value) return
+  if (e.key !== 'Delete' && e.key !== 'Backspace') return
+  const tag = e.target?.tagName
+  if (tag === 'INPUT' || tag === 'TEXTAREA' || e.target?.isContentEditable) return
+  setTimeout(() => capture(), 400)
+}
+window.addEventListener('keydown', onMxKeydown)
+
+// 打开表格时静默重算动态单元格（指标数据更新后自动同步）
+function silentRefreshMixed() {
+  const t = table.value
+  const bindings = t?.mixedConfig?.bindings || {}
+  if (!Object.keys(bindings).length || !sheetRef.value) return
+  const snap = sheetRef.value.snapshot()
+  const sheetId = snap.sheetOrder?.[0] || Object.keys(snap.sheets || {})[0]
+  const sh = sheetId ? snap.sheets?.[sheetId] : null
+  if (!sh) return
+  let n = 0
+  Object.keys(bindings).forEach((k) => {
+    const [r, c] = k.split(',').map(Number)
+    const cell = computeBinding(bindings[k], sh)
+    if (cell != null) {
+      sh.cellData[r] = sh.cellData[r] || {}
+      sh.cellData[r][c] = cell
+      n++
+    }
+  })
+  if (n) {
+    sheetRef.value.load(snap)
+    capture()
+  }
+}
+
 /* —— 混合表：指标对比模板（首行动态日期 + 当前值/上期值/日环比/同比，涨红跌绿） —— */
 const mxTplOpen = ref(false)
 function openMxTpl() {
@@ -472,7 +707,7 @@ function openMxTpl() {
   if (!cell) return Message.warning('请先在表格中点选一个单元格（将作为模板左上角）')
   mxTarget.value = cell
   mxCachedSnap.value = sheetRef.value.snapshot()
-  Object.assign(mxDate, { src: 'system', periodShift: 0, cellRef: '', days: 0, weeks: 0, months: 0, anchor: 'none' })
+  Object.assign(mxDate, { src: 'system', back: 0, periodShift: 0, cellRef: '', manual: '', days: 0, weeks: 0, months: 0, anchor: 'none', transforms: [] })
   mxCalcPicks.value = []
   mxLib.value = 'base'
   mxKw.value = ''
@@ -719,6 +954,8 @@ function onEsc(e) {
   if (titleEditing.value) { cancelRename(); return }
   if (wizard.visible) { wizard.visible = false; return }
   if (pop.show) { pop.show = false; return }
+  if (mxCtx.show) { mxCtx.show = false; return }
+  if (mxPick.active) { mxPick.active = false; Message.info('已取消选格'); return }
   if (pub.visible) { pub.visible = false; return }
   if (pivotOpen.value) { closePivot(); return }
   close()
@@ -729,12 +966,16 @@ onBeforeUnmount(() => {
   document.body.classList.remove('tbl-editor-open')
   setPageIcon('/ailab-mark.svg')
   clearTimeout(savedTimer)
+  document.removeEventListener('mousedown', closeMxCtx, true)
+  window.removeEventListener('resize', clearDash)
+  window.removeEventListener('keydown', onMxKeydown)
 })
 
 async function capture() {
   if (!sheetRef.value || !props.tableId) return { ok: false, msg: '表格未就绪' }
   const snap = sheetRef.value.snapshot()
   if (!snap) return { ok: false, msg: '未能读取当前表格内容' }
+  if (isMixed.value) reconcileMixed(snap) // 清除单元格 → 解除关联
   const thumb = sheetRef.value.captureThumb()
   return store.saveWorkbook(props.tableId, snap, snap.__preview, thumb)
 }
@@ -748,8 +989,11 @@ async function loadCurrent() {
   if (!t) return
   applyPivotConfig(pivot, t.pivotConfig)
   pivotOpen.value = false
+  clearDash()
   await nextTick()
   sheetRef.value?.load(t.workbook || { id: t.id, name: t.title, sheetOrder: [], sheets: {} })
+  // 混合表：打开时按绑定配置静默重算动态单元格（跟随指标数据更新）
+  if (t.type === 'mixed') setTimeout(() => silentRefreshMixed(), 350)
 }
 
 async function close() {
@@ -1127,8 +1371,24 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onDocPop))
           <button type="button" class="btn" :disabled="exporting" @click="onExport">{{ exporting ? '导出中…' : '导出' }}</button>
         </div>
       </div>
-      <div class="editor-stage">
-        <FortuneSheet v-if="open" :key="`${tableId}-fold`" ref="sheetRef" @pivot="openPivotWizard" />
+      <div ref="stageEl" class="editor-stage">
+        <FortuneSheet
+          v-if="open"
+          :key="`${tableId}-fold`"
+          ref="sheetRef"
+          :suppress-cell-menu="isMixed"
+          @cellhover="onCellHover"
+          @cellclick="onCellClick"
+          @cellcontext="onCellContext"
+          @pivot="openPivotWizard"
+        />
+        <!-- 关联虚线框（pointer-events 穿透，仅视觉提示） -->
+        <div
+          v-for="(b, i) in mxDash.boxes"
+          :key="`dash-${i}`"
+          class="mx-dash"
+          :style="{ left: `${b.left}px`, top: `${b.top}px`, width: `${b.w}px`, height: `${b.h}px` }"
+        />
         <aside class="pv-panel" :class="{ open: pivotOpen }">
           <div class="pv-head">
             <span class="pv-title">数据透视表
@@ -1245,6 +1505,33 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onDocPop))
         <button v-for="(h, i) in pivot.headers" :key="i" type="button" @click="addFromPop(i)">{{ h }}</button>
         <div v-if="!pivot.headers.length" class="pv-ph" style="padding:10px">暂无字段</div>
       </template>
+    </div>
+
+    <!-- 混合表：单元格右键菜单 -->
+    <div
+      v-if="mxCtx.show"
+      class="mx-ctx"
+      :style="{ left: `${mxCtx.x}px`, top: `${mxCtx.y}px` }"
+      @mousedown.stop
+      @contextmenu.prevent
+    >
+      <button type="button" @click="ctxOpen('value')">根据日期选择指标值</button>
+      <button type="button" @click="ctxOpen('date')">导入日期</button>
+      <button type="button" @click="ctxOpen('diff')">日期计算</button>
+      <button type="button" @click="ctxOpen('calc')">指标计算</button>
+      <button type="button" class="mx-ctx-clear" @click="ctxClearBinding">清除该格关联</button>
+    </div>
+
+    <!-- 混合表：悬浮指标信息（指标名称 / 最新日期 / 指标ID） -->
+    <div
+      v-if="mxTip.show"
+      class="mx-hover-tip"
+      :style="{ left: `${mxTip.x}px`, top: `${mxTip.y}px` }"
+    >
+      <div v-for="(l, i) in mxTip.lines" :key="i" class="mx-hover-line">
+        <div class="mx-hover-name">{{ l.name }}</div>
+        <div class="mx-hover-meta">最新日期 {{ l.latest }} · 指标ID {{ l.id }}</div>
+      </div>
     </div>
   </Teleport>
 
@@ -1383,27 +1670,7 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onDocPop))
     </div>
     <div class="fm-field">
       <label>日期来源与变换</label>
-      <div class="mx-row">
-        <select v-model="mxDate.src" class="mx-select">
-          <option value="indLatest">指标最新日期</option>
-          <option value="system">系统日期</option>
-          <option value="cell">关联单元格日期</option>
-        </select>
-        <input v-if="mxDate.src === 'indLatest'" v-model.number="mxDate.periodShift" type="number" class="mx-num" title="期数位移（按指标频率），负数为前移">
-        <span v-if="mxDate.src === 'indLatest'" class="mx-unit">期位移</span>
-        <input v-if="mxDate.src === 'cell'" v-model="mxDate.cellRef" class="mx-ref" placeholder="单元格引用，如 B3">
-      </div>
-      <div class="mx-row" style="margin-top:6px">
-        <input v-model.number="mxDate.months" type="number" class="mx-num" title="位移月数">
-        <span class="mx-unit">月</span>
-        <input v-model.number="mxDate.weeks" type="number" class="mx-num" title="位移周数">
-        <span class="mx-unit">周</span>
-        <input v-model.number="mxDate.days" type="number" class="mx-num" title="位移天数">
-        <span class="mx-unit">天</span>
-        <select v-model="mxDate.anchor" class="mx-select" style="margin-left:auto">
-          <option v-for="a in ANCHOR_OPTS" :key="a.id" :value="a.id">{{ a.name }}</option>
-        </select>
-      </div>
+      <MxDatePanel :cfg="mxDate" @pick="startPick('value', 'cellRef')" />
     </div>
     <div class="mx-preview">
       <template v-if="mxValPv?.err"><span class="mx-pv-err">{{ mxValPv.err }}</span></template>
@@ -1423,31 +1690,13 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onDocPop))
   <AppModal :visible="mxDateOpen" title="导入日期" icon="edit-fill" :width="520" :z-index="330" @update:visible="(v) => { mxDateOpen = v }">
     <div class="fm-field">
       <label>日期来源</label>
-      <div class="mx-row">
-        <select v-model="mxDate.src" class="mx-select">
-          <option value="system">系统日期</option>
-          <option value="indLatest">指标最新日期</option>
-          <option value="cell">关联单元格日期</option>
-        </select>
-        <select v-if="mxDate.src === 'indLatest'" v-model="mxDateInd" class="mx-select" style="flex:1">
+      <div v-if="mxDate.src === 'indLatest'" class="mx-row" style="margin-bottom:6px">
+        <select v-model="mxDateInd" class="mx-select" style="flex:1">
           <option value="">选择指标…</option>
           <option v-for="c in indStore.cards" :key="c.id" :value="c.title">{{ c.title }}（{{ c.latestDate }}）</option>
         </select>
-        <input v-if="mxDate.src === 'indLatest'" v-model.number="mxDate.periodShift" type="number" class="mx-num" title="期数位移，负数为前移">
-        <span v-if="mxDate.src === 'indLatest'" class="mx-unit">期位移</span>
-        <input v-if="mxDate.src === 'cell'" v-model="mxDate.cellRef" class="mx-ref" placeholder="单元格引用，如 B3">
       </div>
-      <div class="mx-row" style="margin-top:6px">
-        <input v-model.number="mxDate.months" type="number" class="mx-num" title="位移月数">
-        <span class="mx-unit">月</span>
-        <input v-model.number="mxDate.weeks" type="number" class="mx-num" title="位移周数">
-        <span class="mx-unit">周</span>
-        <input v-model.number="mxDate.days" type="number" class="mx-num" title="位移天数">
-        <span class="mx-unit">天</span>
-        <select v-model="mxDate.anchor" class="mx-select" style="margin-left:auto">
-          <option v-for="a in ANCHOR_OPTS" :key="a.id" :value="a.id">{{ a.name }}</option>
-        </select>
-      </div>
+      <MxDatePanel :cfg="mxDate" @pick="startPick('date', 'cellRef')" />
     </div>
     <div class="mx-preview">
       <template v-if="mxDatePv?.err"><span class="mx-pv-err">{{ mxDatePv.err }}</span></template>
@@ -1468,8 +1717,10 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onDocPop))
       <label>参与计算的日期单元格</label>
       <div class="mx-row">
         <input v-model="mxOp.a" class="mx-ref" placeholder="如 B2">
+        <button type="button" class="mx-pick-btn" title="点击后在表格中点选日期单元格" @click="startPick('diff', 'a')">选格</button>
         <span class="mx-unit">{{ mxOp.kind === 'diffDays' ? '与' : '和' }}</span>
         <input v-model="mxOp.b" class="mx-ref" placeholder="如 D2">
+        <button type="button" class="mx-pick-btn" title="点击后在表格中点选日期单元格" @click="startPick('diff', 'b')">选格</button>
       </div>
     </div>
     <div class="fm-field">
@@ -1523,29 +1774,26 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onDocPop))
         <span class="ts-pick-tick">✓</span>
       </button>
     </div>
+    <div v-if="mxTableInds.length" class="fm-field">
+      <label>本表关联指标（快速选择）</label>
+      <div class="mx-quick">
+        <button
+          v-for="t in mxTableInds"
+          :key="t"
+          type="button"
+          :class="{ on: mxCalcPicks.includes(t) }"
+          :title="t"
+          @click="toggleCalcQuick(t)"
+        >{{ t }}</button>
+      </div>
+    </div>
     <div class="fm-field">
       <label>计算表达式（用 A、B… 引用上面选中的指标）</label>
       <input v-model="mxCalcExpr" class="mx-ref" style="width:100%" placeholder="如 A/B*100 或 (A-B)/A">
     </div>
     <div class="fm-field">
       <label>取数日期（每个指标按各自频率解析）</label>
-      <div class="mx-row">
-        <select v-model="mxDate.src" class="mx-select">
-          <option value="indLatest">指标最新日期</option>
-          <option value="system">系统日期</option>
-          <option value="cell">关联单元格日期</option>
-        </select>
-        <input v-if="mxDate.src === 'indLatest'" v-model.number="mxDate.periodShift" type="number" class="mx-num" title="期数位移，负数为前移">
-        <span v-if="mxDate.src === 'indLatest'" class="mx-unit">期位移</span>
-        <input v-if="mxDate.src === 'cell'" v-model="mxDate.cellRef" class="mx-ref" placeholder="单元格引用，如 B3">
-        <input v-model.number="mxDate.months" type="number" class="mx-num" title="位移月数">
-        <span class="mx-unit">月</span>
-        <input v-model.number="mxDate.days" type="number" class="mx-num" title="位移天数">
-        <span class="mx-unit">天</span>
-        <select v-model="mxDate.anchor" class="mx-select">
-          <option v-for="a in ANCHOR_OPTS" :key="a.id" :value="a.id">{{ a.name }}</option>
-        </select>
-      </div>
+      <MxDatePanel :cfg="mxDate" @pick="startPick('calc', 'cellRef')" />
     </div>
     <div class="mx-preview">
       <template v-if="mxCalcPv?.err"><span class="mx-pv-err">{{ mxCalcPv.err }}</span></template>
@@ -1596,8 +1844,8 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onDocPop))
           <option value="system">系统日期</option>
           <option value="indLatest">指标最新日期</option>
         </select>
-        <input v-if="mxDate.src === 'indLatest'" v-model.number="mxDate.periodShift" type="number" class="mx-num" title="期数位移，负数为前移">
-        <span v-if="mxDate.src === 'indLatest'" class="mx-unit">期位移</span>
+        <input v-if="mxDate.src === 'indLatest'" v-model.number="mxDate.back" type="number" min="0" class="mx-num" title="期数前移：0=最新日期，1=上一期">
+        <span v-if="mxDate.src === 'indLatest'" class="mx-unit">期数前移</span>
       </div>
     </div>
     <template #footer>
@@ -1667,3 +1915,93 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onDocPop))
     </template>
   </AppModal>
 </template>
+
+<style scoped>
+/* —— 混合表：右键菜单 —— */
+.mx-ctx {
+  position: fixed;
+  z-index: 5000;
+  min-width: 178px;
+  background: var(--bg-2, #fff);
+  border: 1px solid var(--border, #e0e3e8);
+  border-radius: 10px;
+  box-shadow: 0 10px 32px rgba(0, 0, 0, .13);
+  padding: 4px;
+}
+.mx-ctx button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: none;
+  background: transparent;
+  font-size: 12.5px;
+  color: var(--text-1, #1d2129);
+  padding: 7px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.mx-ctx button:hover { background: var(--fill-2, #f2f3f5); }
+.mx-ctx-clear { color: #d5304f !important; border-top: 1px solid var(--border, #f0f1f3); border-radius: 0 0 6px 6px !important; margin-top: 2px; }
+
+/* —— 混合表：悬浮指标信息 —— */
+.mx-hover-tip {
+  position: fixed;
+  z-index: 5000;
+  max-width: 240px;
+  background: rgba(29, 33, 41, .92);
+  color: #fff;
+  border-radius: 8px;
+  padding: 8px 10px;
+  pointer-events: none;
+  font-size: 12px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, .18);
+}
+.mx-hover-line + .mx-hover-line { margin-top: 6px; padding-top: 6px; border-top: 1px solid rgba(255, 255, 255, .14); }
+.mx-hover-name { font-weight: 600; line-height: 1.4; }
+.mx-hover-meta { opacity: .78; font-size: 11px; margin-top: 2px; }
+
+/* —— 混合表：关联虚线框 —— */
+.mx-dash {
+  position: absolute;
+  z-index: 30;
+  border: 1.5px dashed #165dff;
+  border-radius: 2px;
+  pointer-events: none;
+  box-shadow: 0 0 0 1px rgba(22, 93, 255, .15);
+}
+
+/* —— 混合表：指标计算快捷选择 —— */
+.mx-quick { display: flex; flex-wrap: wrap; gap: 6px; }
+.mx-quick button {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border: 1px solid var(--border, #d0d3d9);
+  background: var(--bg-2, #fff);
+  color: var(--text-2, #4e5969);
+  font-size: 11.5px;
+  border-radius: 999px;
+  padding: 3px 10px;
+  cursor: pointer;
+}
+.mx-quick button.on {
+  color: #165dff;
+  border-color: #165dff;
+  background: rgba(22, 93, 255, .06);
+}
+
+/* —— 混合表：弹窗中的选格按钮 —— */
+.mx-pick-btn {
+  border: 1px solid var(--border, #d0d3d9);
+  background: var(--bg-2, #fff);
+  color: var(--text-2, #4e5969);
+  font-size: 11px;
+  border-radius: 4px;
+  padding: 4px 8px;
+  cursor: pointer;
+  flex: none;
+}
+.mx-pick-btn:hover { color: #165dff; border-color: #165dff; }
+</style>

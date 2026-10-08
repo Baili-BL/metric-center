@@ -34,6 +34,7 @@ export function defaultSeason() {
     crossYear: false,
     align: 'gregorian',
     yearColors: {},
+    yearStyles: {},
   }
 }
 
@@ -70,6 +71,22 @@ export function cnyOffsetLabel(off) {
   return off > 0 ? `+${off}` : String(off)
 }
 
+/** 清洗按年份的线条样式覆盖：只保留合法的 width / dash */
+function sanitizeYearStyles(raw) {
+  const out = {}
+  if (raw && typeof raw === 'object') {
+    Object.entries(raw).forEach(([y, o]) => {
+      if (!o || typeof o !== 'object') return
+      const w = Number(o.width)
+      const item = {}
+      if (Number.isFinite(w) && w >= 0.5 && w <= 8) item.width = w
+      if (typeof o.dash === 'string' && o.dash) item.dash = o.dash
+      if (Object.keys(item).length) out[String(y)] = item
+    })
+  }
+  return out
+}
+
 export function normalizeSeason(raw = {}) {
   const base = defaultSeason()
   const start = parseMd(raw.start || base.start).key
@@ -81,7 +98,22 @@ export function normalizeSeason(raw = {}) {
     crossYear: forced ? true : !!raw.crossYear,
     align: raw.align === 'cny' ? 'cny' : 'gregorian',
     yearColors: raw.yearColors && typeof raw.yearColors === 'object' ? { ...raw.yearColors } : {},
+    yearStyles: sanitizeYearStyles(raw.yearStyles),
   }
+}
+
+/** 某年份的线宽：优先用户覆盖；默认本年 2.5px、其他年份 1.5px */
+export function seasonYearWidth(season, year, currentYear) {
+  const o = season?.yearStyles?.[String(year)]
+  const w = Number(o?.width)
+  if (Number.isFinite(w)) return w
+  return String(year) === String(currentYear) ? 2.5 : 1.5
+}
+
+/** 某年份的虚线样式：优先用户覆盖，回退全局 dash */
+export function seasonYearDash(season, year, fallback) {
+  const o = season?.yearStyles?.[String(year)]
+  return o?.dash || fallback || 'solid'
 }
 
 function pad2(n) {

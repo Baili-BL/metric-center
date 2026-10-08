@@ -881,3 +881,6 @@ body:has(.builder-drawer-root.open){overflow:hidden}
 .axfmt-slash{color:rgba(0,0,0,.45);line-height:32px}
 .axfmt-help{display:inline-flex;align-items:center;justify-content:center;color:rgba(0,0,0,.35);width:14px;height:14px;flex-shrink:0}
 .axfmt-unit-wrap{display:flex;flex-direction:column;align-items:flex-start;gap:8px;width:100%}
+
+/* 季节性图：按年份设置线条样式的提示行 */
+.cb-root .sr-hint{margin-top:6px;font-size:11px;line-height:1.5;color:#86909c}

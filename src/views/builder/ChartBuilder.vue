@@ -172,6 +172,11 @@ const maxInd = computed(() => {
   return MAX_IND
 })
 const seasonYears = computed(() => listSeasonYears(paintLabels.value, state.season))
+const seasonCurYear = computed(() => {
+  const years = seasonYears.value
+  const calY = String(new Date().getFullYear())
+  return years.includes(calY) ? calY : (years[years.length - 1] || calY)
+})
 const seasonCrossLocked = computed(() => mustCrossYear(state.season?.start, state.season?.end))
 const legendSeries = computed(() => {
   if (isSeasonal(state.type)) {
@@ -1101,7 +1106,7 @@ const isPreview = computed(() => props.mode === 'preview' || props.mode === 'exp
           </div>
 
           <div v-show="cfgTab === 'style'" class="cfg-body">
-            <BuilderStylePanel :state="state" :palettes="PALETTES" @palette="applyPalette" />
+            <BuilderStylePanel :state="state" :palettes="PALETTES" :season-years="seasonYears" :season-cur-year="seasonCurYear" @palette="applyPalette" />
           </div>
 
           <div v-show="cfgTab === 'analysis'" class="cfg-body">

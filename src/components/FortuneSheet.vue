@@ -45,8 +45,10 @@ import '@fortune-sheet/react/dist/index.css'
 
 const props = defineProps({
   readonly: { type: Boolean, default: false },
+  // 混合表：屏蔽 fortune 原生单元格右键菜单，改由父组件渲染自定义菜单（cellcontext 事件）
+  suppressCellMenu: { type: Boolean, default: false },
 })
-const emit = defineEmits(['pivot'])
+const emit = defineEmits(['pivot', 'cellhover', 'cellclick', 'cellcontext'])
 
 const TOOLBAR_ITEMS = [
   'undo', 'redo', 'format-painter', 'clear-format', '|',
@@ -1559,6 +1561,23 @@ function selectWholeSheet() {
   api.setSelection([{ row: [0, rows], column: [0, cols] }], { id: sheet.id })
   syncCorner()
   markActiveTools()
+}
+
+// fortune 挂载竞态：sheet 数据未就绪时会写入 row/column 含 NaN 的残缺选区，
+// 名称框随之显示 A1:NaN 并滞留到用户手动点击。检测到非有限选区则重置为 A1；
+// 用户真实选区恒为有限值，重试不会误伤。
+function fixInitialSelection() {
+  try {
+    const api = instRef.current
+    if (!api?.setSelection) return
+    const sel = api.getSelection?.()?.[0]
+    const bad = !sel
+      || !Number.isFinite(sel.row?.[0]) || !Number.isFinite(sel.row?.[1])
+      || !Number.isFinite(sel.column?.[0]) || !Number.isFinite(sel.column?.[1])
+    if (!bad) return
+    const sheet = api.getSheet?.()
+    api.setSelection([{ row: [0, 0], column: [0, 0] }], sheet?.id ? { id: sheet.id } : undefined)
+  } catch { /* 表格未就绪时静默跳过 */ }
 }
 
 function paintToolbarIcons(box) {
@@ -4674,6 +4693,8 @@ function renderBook(data) {
   requestAnimationFrame(() => {
     watchToolbarLabels()
     bindFreezeClick()
+    fixInitialSelection()
+    ;[120, 400, 1000].forEach((d) => setTimeout(fixInitialSelection, d))
     const native = cfRules().filter((rule) => rule.type !== 'dataBar')
     if (native.length !== cfRules().length) patchCf(native, false)
     const sheet = instRef.current?.getSheet?.()
@@ -5250,22 +5271,97 @@ function colName(c) {
   return s
 }
 function cellFromPoint(ctx, clientX, clientY) {
+  const g = geomFromPoint(ctx, clientX, clientY)
+  return g ? { r: g.r, c: g.c } : null
+}
+
+// 完整几何信息：单元格 (r,c) + 其在视口中的矩形（虚线框/悬浮提示定位用）
+function geomFromPoint(ctx, clientX, clientY) {
   const cv = document.querySelector('.fortune-cell-area canvas') || hostRef.value?.querySelector('canvas')
   if (!cv) return null
   const rect = cv.getBoundingClientRect()
-  let x = clientX - rect.left - (ctx.rowHeaderWidth || 0) + (ctx.scrollLeft || 0)
-  let y = clientY - rect.top - (ctx.columnHeaderHeight || 0) + (ctx.scrollTop || 0)
+  const x = clientX - rect.left - (ctx.rowHeaderWidth || 0) + (ctx.scrollLeft || 0)
+  const y = clientY - rect.top - (ctx.columnHeaderHeight || 0) + (ctx.scrollTop || 0)
   if (x < 0 || y < 0) return null
   const cw = (c) => (ctx.config?.columnlen?.[c] ?? ctx.defaultcollen ?? 73)
   const rh = (r) => (ctx.config?.rowlen?.[r] ?? ctx.defaultrowlen ?? 24)
   let c = 0
-  let acc = 0
-  while (x >= acc + cw(c)) { acc += cw(c); c += 1; if (c > 9999) return null }
+  let colX = 0
+  while (x >= colX + cw(c)) { colX += cw(c); c += 1; if (c > 9999) return null }
   let r = 0
-  acc = 0
-  while (y >= acc + rh(r)) { acc += rh(r); r += 1; if (r > 99999) return null }
-  return { r, c }
+  let rowY = 0
+  while (y >= rowY + rh(r)) { rowY += rh(r); r += 1; if (r > 99999) return null }
+  return {
+    r, c,
+    vx: rect.left + (ctx.rowHeaderWidth || 0) + colX - (ctx.scrollLeft || 0),
+    vy: rect.top + (ctx.columnHeaderHeight || 0) + rowY - (ctx.scrollTop || 0),
+    vw: cw(c), vh: rh(r),
+  }
 }
+// 由行列号反查视口矩形（无需鼠标位置）
+function geomByRC(ctx, row, col) {
+  const cv = document.querySelector('.fortune-cell-area canvas') || hostRef.value?.querySelector('canvas')
+  if (!cv || row < 0 || col < 0 || row > 99999 || col > 9999) return null
+  const rect = cv.getBoundingClientRect()
+  const cw = (c) => (ctx.config?.columnlen?.[c] ?? ctx.defaultcollen ?? 73)
+  const rh = (r) => (ctx.config?.rowlen?.[r] ?? ctx.defaultrowlen ?? 24)
+  let colX = 0
+  for (let c = 0; c < col; c++) colX += cw(c)
+  let rowY = 0
+  for (let r = 0; r < row; r++) rowY += rh(r)
+  return {
+    r: row, c: col,
+    vx: rect.left + (ctx.rowHeaderWidth || 0) + colX - (ctx.scrollLeft || 0),
+    vy: rect.top + (ctx.columnHeaderHeight || 0) + rowY - (ctx.scrollTop || 0),
+    vw: cw(col), vh: rh(row),
+  }
+}
+const ctxState = () => reactStateBy((st) => Array.isArray(st.luckysheetfile))
+const inCellArea = (e) => !!e.target?.closest?.('.fortune-cell-area')
+
+/* —— 混合表：单元格级 hover / click / 右键事件转发 —— */
+const mxHover = { r: -1, c: -1, frame: 0 }
+function onMxMouseMove(e) {
+  if (!inCellArea(e)) return
+  if (mxHover.frame) return
+  const { clientX, clientY } = e
+  mxHover.frame = requestAnimationFrame(() => {
+    mxHover.frame = 0
+    const g = geomFromPoint(ctxState() || {}, clientX, clientY)
+    if (!g) {
+      if (mxHover.r !== -1) { mxHover.r = -1; mxHover.c = -1; emit('cellhover', null) }
+      return
+    }
+    if (g.r === mxHover.r && g.c === mxHover.c) return
+    mxHover.r = g.r
+    mxHover.c = g.c
+    emit('cellhover', { ...g, clientX, clientY })
+  })
+}
+function onMxMouseOut(e) {
+  if (!e.relatedTarget && mxHover.r !== -1) {
+    mxHover.r = -1
+    mxHover.c = -1
+    emit('cellhover', null)
+  }
+}
+function onMxClick(e) {
+  if (!inCellArea(e)) return
+  const g = geomFromPoint(ctxState() || {}, e.clientX, e.clientY)
+  if (g) emit('cellclick', { ...g, clientX: e.clientX, clientY: e.clientY })
+}
+function onMxContext(e) {
+  if (!props.suppressCellMenu || !inCellArea(e)) return
+  const g = geomFromPoint(ctxState() || {}, e.clientX, e.clientY)
+  if (!g) return
+  e.preventDefault()
+  e.stopPropagation()
+  emit('cellcontext', { ...g, clientX: e.clientX, clientY: e.clientY })
+}
+document.addEventListener('mousemove', onMxMouseMove, true)
+document.addEventListener('mouseout', onMxMouseOut, true)
+document.addEventListener('click', onMxClick, true)
+document.addEventListener('contextmenu', onMxContext, true)
 function rangeText(a, b) {
   const r1 = Math.min(a.r, b.r)
   const r2 = Math.max(a.r, b.r)
@@ -5368,6 +5464,11 @@ onBeforeUnmount(() => {
   hostRef.value?.removeEventListener('click', onSheetTabFuncClick, true)
   hostRef.value?.removeEventListener('mousedown', onSheetListBtnClick, true)
   hostRef.value?.removeEventListener('contextmenu', onSheetContext, true)
+  document.removeEventListener('mousemove', onMxMouseMove, true)
+  document.removeEventListener('mouseout', onMxMouseOut, true)
+  document.removeEventListener('click', onMxClick, true)
+  document.removeEventListener('contextmenu', onMxContext, true)
+  if (mxHover.frame) { cancelAnimationFrame(mxHover.frame); mxHover.frame = 0 }
   freezeClickBound = false
   if (root) {
     root.unmount()
@@ -5385,6 +5486,7 @@ defineExpose({
   addSheet,
   setActiveSheet,
   writeBlock,
+  cellGeomByRC: (row, col) => geomByRC(ctxState() || {}, row, col),
 })
 </script>
 
