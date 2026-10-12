@@ -657,6 +657,9 @@ export function paintChart(el, spec) {
     container: el,
     autoFit: true,
     height: height || el.clientHeight || (mini ? 132 : 420),
+    ...(mini || spec.listPreview || spec.disableTooltip || spec.animation === false
+      ? { animation: false }
+      : {}),
   })
 
   if (isSeasonal(type)) {

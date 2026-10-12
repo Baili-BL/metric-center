@@ -1,16 +1,20 @@
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Message } from '@arco-design/web-vue'
 import Icon from '../components/Icon.vue'
 import { useGalleryStore } from '../stores/gallery'
 import { useTableStore } from '../stores/tables'
+import { usePptStore } from '../stores/ppt'
 
 const route = useRoute()
 const router = useRouter()
 const galleryStore = useGalleryStore()
 const tableStore = useTableStore()
+const pptStore = usePptStore()
 const collapsed = ref(false)
+const openPpt = ref(route.path.startsWith('/ppt'))
+watch(() => route.path.startsWith('/ppt'), (on) => { if (on) openPpt.value = true }, { immediate: true })
 const openTable = ref(route.path.startsWith('/tables'))
 const openDs = ref(route.path.startsWith('/datasource') || route.path.startsWith('/manual'))
 const openDraft = ref(route.path.startsWith('/drafts') || route.query.draft === 'task')
@@ -27,6 +31,13 @@ const crumb = computed(() => {
     const id = route.params.id
     const c = id ? galleryStore.getChart(String(id)) : null
     return { root: '图库', cur: c ? c.title : '' }
+  }
+  if (route.path.startsWith('/ppt')) {
+    const map = { mine: '我的PPT', shared: '共享PPT', public: '公共PPT' }
+    const scope = route.query.scope || pptStore.scope || 'mine'
+    const id = route.params.id
+    const p = id ? pptStore.get(String(id)) : null
+    return { root: '智能PPT', cur: p ? p.title : (map[scope] || '我的PPT') }
   }
   if (route.path.startsWith('/tables')) {
     const map = { shared: '共享表格', custom: '自定义分析', timeseries: '时间序列表格', mixed: '混合表格', balance: '平衡表' }
@@ -52,6 +63,7 @@ function placeholder(id) {
 function isActive(key) {
   if (key === 'gallery') return route.path.startsWith('/gallery') || route.path.startsWith('/builder')
   if (key === 'indicators') return route.path === '/indicators'
+  if (key === 'ppt') return route.path.startsWith('/ppt')
   if (key === 'tables') return route.path.startsWith('/tables')
   if (key === 'datasource') return route.path === '/datasource' || route.path === '/manual'
   if (key === 'drafts') return route.path === '/drafts' || route.query.draft === 'task'
@@ -63,6 +75,9 @@ function projectVer() {
 }
 function tableType() {
   return route.query.type || 'shared'
+}
+function pptScope() {
+  return route.query.scope || pptStore.scope || 'mine'
 }
 function srcName() {
   return route.query.src || (route.path === '/manual' ? '手工' : '')
@@ -87,10 +102,16 @@ function srcName() {
           <span class="mi-text">研报管理</span>
           <span class="mi-arrow"><Icon name="caret-down" :size="10" /></span>
         </button>
-        <button class="menu-item" data-tip="智能ppt" @click="placeholder('ppt')">
+        <button class="menu-item" :class="{ active: isActive('ppt'), expanded: openPpt }" data-tip="智能ppt" @click="openPpt = !openPpt; go('/ppt', { scope: pptScope() })">
           <span class="mi-icon"><Icon name="nav-ppt" :size="15" /></span>
           <span class="mi-text">智能ppt</span>
+          <span class="mi-arrow"><Icon name="caret-down" :size="10" /></span>
         </button>
+        <div class="sub-menu" :class="{ open: openPpt }">
+          <button class="sub-item" :class="{ active: isActive('ppt') && pptScope() === 'mine' }" @click="go('/ppt', { scope: 'mine' })">我的PPT</button>
+          <button class="sub-item" :class="{ active: pptScope() === 'shared' }" @click="go('/ppt', { scope: 'shared', side: 'out' })">共享PPT</button>
+          <button class="sub-item" :class="{ active: pptScope() === 'public' }" @click="go('/ppt', { scope: 'public' })">公共PPT</button>
+        </div>
         <button class="menu-item" :class="{ active: isActive('gallery') }" data-tip="图库" @click="go('/gallery')">
           <span class="mi-icon"><Icon name="nav-gallery" :size="15" /></span>
           <span class="mi-text">图库</span>

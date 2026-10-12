@@ -121,6 +121,7 @@ async function render() {
 /* 容器宽度变化（如折叠侧栏/面板）时 G2 的 autoFit 不总可靠，手动 forceFit 兜底 */
 let resizeOb = null
 let lastWidth = 0
+let lastHeight = 0
 let resizeTimer = null
 
 function rebindSliderLabels() {
@@ -144,8 +145,10 @@ function rebindSliderLabels() {
 
 function onContainerResize() {
   const w = wrap.value?.clientWidth || 0
-  if (w === lastWidth) return
+  const h = wrap.value?.clientHeight || 0
+  if (w === lastWidth && h === lastHeight) return
   lastWidth = w
+  lastHeight = h
   clearTimeout(resizeTimer)
   resizeTimer = setTimeout(() => {
     if (!chart) return
@@ -162,6 +165,7 @@ function bindResize() {
   if (typeof ResizeObserver !== 'function' || !wrap.value) return
   resizeOb?.disconnect()
   lastWidth = wrap.value.clientWidth
+  lastHeight = wrap.value.clientHeight
   resizeOb = new ResizeObserver(onContainerResize)
   resizeOb.observe(wrap.value)
 }

@@ -21,6 +21,7 @@ const props = defineProps({
   ops: { type: String, default: 'menu' },
   movableItems: { type: Boolean, default: undefined },
   movableDirs: { type: Boolean, default: false },
+  editable: { type: Boolean, default: true },
 })
 const emit = defineEmits(['select', 'select-item', 'add', 'edit', 'edit-item', 'remove', 'remove-item', 'move', 'move-tip', 'drop-item', 'drop-dir'])
 
@@ -195,13 +196,13 @@ function onDrop(e) {
       <template #extra="node">
         <span v-if="ops === 'icons'" class="di-extra" :class="{ 'is-leaf': node.kind === 'item' }" @click.stop>
           <button
-            v-if="node.kind !== 'item' && String(node.key || '').split('/').filter(Boolean).length < 6"
+            v-if="editable && node.kind !== 'item' && String(node.key || '').split('/').filter(Boolean).length < 6"
             type="button"
             class="di-plus"
             title="添加子目录"
             @click="emit('add', node.key)"
           >＋</button>
-          <span class="di-ops">
+          <span v-if="editable" class="di-ops">
             <button type="button" title="移动" @mousedown.stop @click.stop="emitMove(node)"><Icon name="g-18d681d0" :size="14" /></button>
             <button
               v-if="node.kind !== 'item'"
@@ -226,7 +227,7 @@ function onDrop(e) {
         </span>
         <span v-else class="di-extra" @click.stop>
           <span v-if="node.kind !== 'item'" class="cnt">{{ countOf(node.key) }}</span>
-          <a-dropdown v-if="node.kind !== 'item'" trigger="hover">
+          <a-dropdown v-if="editable && node.kind !== 'item'" trigger="hover">
             <span class="di-more" @click.stop>
               <Icon name="more" :size="12" />
             </span>
@@ -234,6 +235,7 @@ function onDrop(e) {
               <a-doption @click="emit('add', node.key)">添加子目录</a-doption>
               <a-doption @click="emit('edit', node.key)">重命名</a-doption>
               <a-doption v-if="canDrag(node)" @click="emitMove(node)">移动</a-doption>
+              <slot name="menu-extra" :node="node" :path="String(node.key || '')" />
               <a-doption @click="emit('remove', node.key)">删除</a-doption>
             </template>
           </a-dropdown>

@@ -9,6 +9,7 @@ const routes = [
   { path: '/manual', name: 'manual', component: () => import('../views/manual/ManualView.vue'), meta: { title: '手工录入', embed: true } },
   { path: '/drafts', name: 'drafts', component: () => import('../views/drafts/DraftsView.vue'), meta: { title: '草稿箱' } },
   { path: '/tables/:id?', name: 'tables', component: () => import('../views/tables/TablesView.vue'), meta: { title: '表格' } },
+  { path: '/ppt/:id?', name: 'ppt', component: () => import('../views/ppt/PptView.vue'), meta: { title: '智能PPT' } },
   { path: '/projects', redirect: '/projects/v1' },
   { path: '/projects/:version(v1|v2)', name: 'projects', component: () => import('../views/projects/ProjectView.vue'), meta: { title: '项目管理' } },
   { path: '/placeholder/:id', name: 'placeholder', component: () => import('../views/placeholder/PlaceholderView.vue'), meta: { title: '规划中' } },

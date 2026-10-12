@@ -1,3 +1,17 @@
+<script>
+/** 与表格 / 图库字段色点同一套定位：贴齐锚点并夹在视口内 */
+export function placeColorPop(anchor) {
+  const r = anchor?.getBoundingClientRect?.()
+  if (!r) return { left: 8, top: 8 }
+  const width = 284
+  const height = 420
+  const left = Math.min(Math.max(8, r.left), window.innerWidth - width - 8)
+  let top = r.bottom + 6
+  if (top + height > window.innerHeight - 8) top = Math.max(8, r.top - height - 6)
+  return { left: Math.round(left), top: Math.round(top) }
+}
+</script>
+
 <script setup>
 import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue'
 
@@ -232,6 +246,12 @@ watch(() => props.show, (on) => {
   recent.value = loadRecent()
   /* 延后绑定，避免打开时的同一次点击立刻触发关闭 */
   nextTick(() => bindOutside(true))
+})
+watch(() => props.origin, (color) => {
+  if (!props.show) return
+  cp.origin = color || '#1f2329'
+  loadColor(cp.origin)
+  if (!color) cp.alpha = 0
 })
 
 onBeforeUnmount(() => bindOutside(false))

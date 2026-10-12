@@ -1,11 +1,7 @@
 <script setup>
-import { nextTick, ref, watch } from 'vue'
-import Icon from './Icon.vue'
+import { nextTick, onBeforeUnmount, ref, watch } from 'vue'
+import AppModal from './AppModal.vue'
 
-/**
- * 备注内容 / 尾注内容 富文本编辑弹窗（工具栏图标与设计稿一致，用 i-rte-* 图标）
- * - contenteditable + document.execCommand，输出 HTML 片段
- */
 const props = defineProps({
   visible: Boolean,
   title: { type: String, default: '备注内容' },
@@ -17,6 +13,9 @@ const emit = defineEmits(['update:visible', 'ok'])
 const editorEl = ref(null)
 const blockMode = ref('p')
 const fontSize = ref('12')
+const empty = ref(true)
+let savedRange = null
+let focusTimer = 0
 
 const BLOCK_OPTIONS = [
   { value: 'p', label: '正文' },
@@ -26,36 +25,120 @@ const BLOCK_OPTIONS = [
 const SIZE_OPTIONS = ['12', '13', '14', '16', '18', '20', '24']
 
 watch(() => props.visible, async (v) => {
-  if (!v) return
+  window.clearTimeout(focusTimer)
+  if (!v) {
+    savedRange = null
+    return
+  }
   await nextTick()
-  if (editorEl.value) editorEl.value.innerHTML = props.html || ''
+  const el = editorEl.value
+  if (!el) return
+  el.innerHTML = normalizeIncoming(props.html)
   blockMode.value = 'p'
   fontSize.value = '12'
+  syncEmpty()
+  focusTimer = window.setTimeout(() => focusEditor(true), 40)
 })
 
-function focusEditor() {
-  editorEl.value?.focus()
+onBeforeUnmount(() => window.clearTimeout(focusTimer))
+
+function normalizeIncoming(html) {
+  const raw = String(html || '').trim()
+  if (!raw || isBlankHtml(raw)) return '<p><br></p>'
+  return raw
+}
+
+function isBlankHtml(html) {
+  return !String(html || '')
+    .replace(/<br\s*\/?>/gi, '')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/<[^>]+>/g, '')
+    .replace(/\s+/g, '')
+}
+
+function syncEmpty() {
+  empty.value = isBlankHtml(editorEl.value?.innerHTML || '')
+}
+
+function focusEditor(toEnd = false) {
+  const el = editorEl.value
+  if (!el) return
+  el.focus({ preventScroll: true })
+  try { document.execCommand('styleWithCSS', false, true) } catch { /* ignore */ }
+  const sel = window.getSelection()
+  if (!sel) return
+  if (!toEnd && savedRange && el.contains(savedRange.commonAncestorContainer)) {
+    sel.removeAllRanges()
+    sel.addRange(savedRange)
+    return
+  }
+  const range = document.createRange()
+  range.selectNodeContents(el)
+  range.collapse(false)
+  sel.removeAllRanges()
+  sel.addRange(range)
+  savedRange = range.cloneRange()
+}
+
+function saveSelection() {
+  const el = editorEl.value
+  const sel = window.getSelection()
+  if (!el || !sel || !sel.rangeCount) return
+  const node = sel.anchorNode
+  if (node && el.contains(node)) savedRange = sel.getRangeAt(0).cloneRange()
+}
+
+function restoreSelection() {
+  const el = editorEl.value
+  if (!el) return false
+  el.focus({ preventScroll: true })
+  const sel = window.getSelection()
+  if (!sel) return false
+  if (savedRange && (el === savedRange.commonAncestorContainer || el.contains(savedRange.commonAncestorContainer))) {
+    sel.removeAllRanges()
+    sel.addRange(savedRange)
+    return true
+  }
+  const range = document.createRange()
+  range.selectNodeContents(el)
+  range.collapse(false)
+  sel.removeAllRanges()
+  sel.addRange(range)
+  savedRange = range.cloneRange()
+  return true
+}
+
+function onBarDown(e) {
+  if (e.target.closest('select, input')) return
+  e.preventDefault()
+}
+
+function selectionInEditor() {
+  const el = editorEl.value
+  const sel = window.getSelection()
+  return !!(el && sel?.rangeCount && sel.anchorNode && el.contains(sel.anchorNode))
 }
 
 function exec(cmd, val = null) {
-  focusEditor()
-  const ok = document.execCommand(cmd, false, val)
-  // Safari 不支持 hiliteColor，回退 backColor
-  if (!ok && cmd === 'hiliteColor') document.execCommand('backColor', false, val)
+  if (!selectionInEditor()) restoreSelection()
+  else editorEl.value?.focus({ preventScroll: true })
+  document.execCommand(cmd, false, val)
+  saveSelection()
   syncBlockMode()
+  syncEmpty()
 }
 
-/** 字号：execCommand 只支持 1-7，先打 tag 再替换为精确 px */
 function applyFontSize(size) {
   fontSize.value = size
-  focusEditor()
+  restoreSelection()
   document.execCommand('fontSize', false, '7')
-  editorEl.value?.querySelectorAll('font[size="7"]').forEach((el) => {
+  editorEl.value?.querySelectorAll('font[size="7"]').forEach((node) => {
     const span = document.createElement('span')
-    span.style.fontSize = size + 'px'
-    span.innerHTML = el.innerHTML
-    el.replaceWith(span)
+    span.style.fontSize = `${size}px`
+    span.innerHTML = node.innerHTML
+    node.replaceWith(span)
   })
+  saveSelection()
 }
 
 function applyBlock(tag) {
@@ -79,16 +162,19 @@ function applyColor(kind, e) {
 }
 
 function addLink() {
+  restoreSelection()
   const sel = document.getSelection()
   const text = sel?.toString() || ''
   const url = window.prompt('请输入链接地址', 'https://')
   if (!url || url === 'https://') return
-  focusEditor()
+  restoreSelection()
   if (!text) {
     document.execCommand('insertHTML', false, `<a href="${url}" target="_blank" rel="noopener">${url}</a>`)
   } else {
     document.execCommand('createLink', false, url)
   }
+  saveSelection()
+  syncEmpty()
 }
 
 function addImage() {
@@ -102,8 +188,18 @@ function clearFormat() {
   exec('unlink')
 }
 
+function onBodyInput() {
+  saveSelection()
+  syncEmpty()
+}
+
+function onBodyKeydown(e) {
+  e.stopPropagation()
+}
+
 function onOk() {
-  emit('ok', editorEl.value?.innerHTML || '')
+  const html = editorEl.value?.innerHTML || ''
+  emit('ok', isBlankHtml(html) ? '' : html)
   emit('update:visible', false)
 }
 
@@ -113,101 +209,173 @@ function onCancel() {
 </script>
 
 <template>
-  <a-modal
+  <AppModal
     :visible="visible"
     :title="title"
-    :width="640"
-    unmount-on-close
-    :mask-closable="false"
+    icon="edit-fill"
+    :width="720"
+    :z-index="3600"
+    overflow-visible
+    foot-end
     @update:visible="emit('update:visible', $event)"
   >
-    <div class="rn-editor">
-      <div class="rn-toolbar" @mousedown.prevent>
-        <select class="rn-sel rn-block" :value="blockMode" title="段落样式" @change="applyBlock($event.target.value)">
-          <option v-for="b in BLOCK_OPTIONS" :key="b.value" :value="b.value">{{ b.label }}</option>
-        </select>
-
-        <select class="rn-sel rn-size" :value="fontSize" title="字号" @change="applyFontSize($event.target.value)">
-          <option v-for="s in SIZE_OPTIONS" :key="s" :value="s">{{ s }}</option>
-        </select>
-
-        <button type="button" class="rn-btn" title="加粗" @click="exec('bold')"><Icon name="rte-bold" :size="14" /></button>
-        <button type="button" class="rn-btn" title="斜体" @click="exec('italic')"><Icon name="rte-italic" :size="14" /></button>
-        <button type="button" class="rn-btn" title="下划线" @click="exec('underline')"><Icon name="rte-underline" :size="14" /></button>
-        <button type="button" class="rn-btn rn-strike" title="删除线" @click="exec('strikeThrough')"><s>S</s></button>
-
-        <label class="rn-btn rn-color" title="文字颜色">
-          <Icon name="rte-font-color" :size="14" />
-          <input type="color" value="#1d2129" @input="applyColor('foreColor', $event)">
-        </label>
-        <label class="rn-btn rn-color" title="背景颜色">
-          <Icon name="rte-font-color-2" :size="14" />
-          <input type="color" value="#ffffff" @input="applyColor('hiliteColor', $event)">
-        </label>
-
-        <button type="button" class="rn-btn" title="左对齐" @click="exec('justifyLeft')"><Icon name="rte-align" :size="14" /></button>
-        <button type="button" class="rn-btn" title="居中" @click="exec('justifyCenter')"><Icon name="rte-align" :size="14" /></button>
-        <button type="button" class="rn-btn" title="右对齐" @click="exec('justifyRight')"><Icon name="rte-align" :size="14" /></button>
-
-        <button type="button" class="rn-btn" title="有序列表" @click="exec('insertOrderedList')"><Icon name="rte-ol" :size="14" /></button>
-        <button type="button" class="rn-btn" title="无序列表" @click="exec('insertUnorderedList')"><Icon name="rte-ul" :size="14" /></button>
-        <button type="button" class="rn-btn" title="增加缩进" @click="exec('indent')"><Icon name="rte-indent" :size="14" /></button>
-
-        <button type="button" class="rn-btn" title="链接" @click="addLink"><Icon name="rte-link" :size="14" /></button>
-        <button type="button" class="rn-btn" title="图片" @click="addImage"><Icon name="rte-image" :size="14" /></button>
-        <button type="button" class="rn-btn rn-quote" title="引用" @click="applyBlock('blockquote')">&ldquo;</button>
-        <button type="button" class="rn-btn" title="分隔线" @click="exec('insertHorizontalRule')"><Icon name="rte-hr" :size="14" /></button>
-        <button type="button" class="rn-btn" title="清除格式" @click="clearFormat"><Icon name="rte-clear" :size="14" /></button>
+    <div class="rn-editor" @keydown="onBodyKeydown">
+      <div class="rn-toolbar" @mousedown="onBarDown">
+        <div class="rn-row">
+          <select class="rn-sel rn-block" :value="blockMode" title="段落样式" @change="applyBlock($event.target.value)">
+            <option v-for="b in BLOCK_OPTIONS" :key="b.value" :value="b.value">{{ b.label }}</option>
+          </select>
+          <select class="rn-sel rn-size" :value="fontSize" title="字号" @change="applyFontSize($event.target.value)">
+            <option v-for="s in SIZE_OPTIONS" :key="s" :value="s">{{ s }}</option>
+          </select>
+          <span class="rn-split" />
+          <button type="button" class="rn-btn rn-b" title="加粗" @click="exec('bold')"><b>B</b></button>
+          <button type="button" class="rn-btn rn-i" title="斜体" @click="exec('italic')"><i>I</i></button>
+          <button type="button" class="rn-btn" title="下划线" @click="exec('underline')"><u>U</u></button>
+          <button type="button" class="rn-btn rn-strike" title="删除线" @click="exec('strikeThrough')"><s>S</s></button>
+          <label class="rn-btn rn-color" title="文字颜色">
+            <span class="rn-a">A</span>
+            <input type="color" value="#1d2129" @input="applyColor('foreColor', $event)">
+          </label>
+          <label class="rn-btn rn-color" title="背景颜色">
+            <span class="rn-a rn-hl">A</span>
+            <input type="color" value="#fff59d" @input="applyColor('hiliteColor', $event)">
+          </label>
+          <span class="rn-split" />
+          <button type="button" class="rn-btn" title="左对齐" @click="exec('justifyLeft')">左</button>
+          <button type="button" class="rn-btn" title="居中" @click="exec('justifyCenter')">中</button>
+          <button type="button" class="rn-btn" title="右对齐" @click="exec('justifyRight')">右</button>
+        </div>
+        <div class="rn-row">
+          <button type="button" class="rn-btn" title="有序列表" @click="exec('insertOrderedList')">1.</button>
+          <button type="button" class="rn-btn" title="无序列表" @click="exec('insertUnorderedList')">•</button>
+          <button type="button" class="rn-btn" title="增加缩进" @click="exec('indent')">⇥</button>
+          <span class="rn-split" />
+          <button type="button" class="rn-btn" title="链接" @click="addLink">链</button>
+          <button type="button" class="rn-btn" title="图片" @click="addImage">图</button>
+          <button type="button" class="rn-btn rn-quote" title="引用" @click="applyBlock('blockquote')">&ldquo;</button>
+          <button type="button" class="rn-btn" title="分隔线" @click="exec('insertHorizontalRule')">—</button>
+          <button type="button" class="rn-btn" title="清除格式" @click="clearFormat">清</button>
+        </div>
       </div>
 
-      <div
-        ref="editorEl"
-        class="rn-body"
-        contenteditable="true"
-        :data-placeholder="placeholder"
-        spellcheck="false"
-        @keyup="syncBlockMode"
-        @mouseup="syncBlockMode"
-      ></div>
+      <div class="rn-body-wrap">
+        <div v-if="empty" class="rn-ph">{{ placeholder }}</div>
+        <div
+          ref="editorEl"
+          class="rn-body"
+          contenteditable="true"
+          tabindex="0"
+          spellcheck="false"
+          @keydown="onBodyKeydown"
+          @keyup="saveSelection(); syncBlockMode()"
+          @mouseup="saveSelection(); syncBlockMode()"
+          @input="onBodyInput"
+          @focus="saveSelection"
+        />
+      </div>
     </div>
 
     <template #footer>
-      <button type="button" class="btn" @click="onCancel">取 消</button>
-      <button type="button" class="btn primary" @click="onOk">确 定</button>
+      <button type="button" class="btn tint" @click="onCancel">取消</button>
+      <button type="button" class="btn primary" @click="onOk">确定</button>
     </template>
-  </a-modal>
+  </AppModal>
 </template>
 
 <style scoped>
-.rn-editor { border: 1px solid var(--border, #e3e6eb); border-radius: 6px; overflow: hidden; }
+.rn-editor {
+  border: 1px solid var(--border, #e3e6eb);
+  border-radius: 6px;
+  overflow: hidden;
+  background: #fff;
+}
 .rn-toolbar {
-  display: flex; align-items: center; flex-wrap: wrap; gap: 2px;
-  padding: 6px 8px; border-bottom: 1px solid var(--border, #e3e6eb); background: #f7f8fa;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border, #e3e6eb);
+  background: #f7f8fa;
   user-select: none;
 }
-.rn-sel {
-  height: 26px; border: 1px solid var(--border, #e3e6eb); border-radius: 4px;
-  background: #fff; font-size: 12px; color: #1d2129; padding: 0 4px; cursor: pointer;
+.rn-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: nowrap;
+  gap: 2px;
 }
-.rn-block { width: 76px; }
-.rn-size { width: 54px; }
+.rn-split {
+  width: 1px;
+  height: 16px;
+  margin: 0 4px;
+  background: #e3e6eb;
+  flex-shrink: 0;
+}
+.rn-sel {
+  height: 28px;
+  border: 1px solid var(--border, #e3e6eb);
+  border-radius: 4px;
+  background: #fff;
+  font-size: 12px;
+  color: #1d2129;
+  padding: 0 6px;
+  cursor: pointer;
+  outline: none;
+}
+.rn-block { width: 72px; }
+.rn-size { width: 52px; }
 .rn-btn {
-  min-width: 26px; height: 26px; padding: 0 5px; border: none; background: none;
-  border-radius: 4px; color: #1d2129; cursor: pointer;
-  display: inline-flex; align-items: center; justify-content: center; line-height: 1;
+  min-width: 28px;
+  height: 28px;
+  padding: 0 6px;
+  border: none;
+  background: none;
+  border-radius: 4px;
+  color: #1d2129;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
   font-family: inherit;
+  font-size: 13px;
+  flex-shrink: 0;
 }
 .rn-btn:hover { background: #e8eaee; }
+.rn-b { font-weight: 700; }
+.rn-i { font-style: italic; }
 .rn-strike { font-size: 13px; }
-.rn-quote { font-size: 17px; font-weight: 700; }
-.rn-color { position: relative; }
+.rn-quote { font-size: 16px; font-weight: 700; }
+.rn-color { position: relative; overflow: hidden; }
 .rn-color input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
-.rn-body {
-  min-height: 240px; max-height: 380px; overflow: auto;
-  padding: 12px 14px; font-size: 13px; line-height: 1.7; color: #1d2129;
-  outline: none; background: #fff;
+.rn-a { font-weight: 700; }
+.rn-hl { text-decoration: underline; text-decoration-color: #f7ba1e; text-underline-offset: 2px; }
+.rn-body-wrap { position: relative; background: #fff; }
+.rn-ph {
+  position: absolute;
+  top: 12px;
+  left: 14px;
+  color: #a9aeb8;
+  font-size: 13px;
+  line-height: 1.7;
+  pointer-events: none;
+  z-index: 1;
 }
-.rn-body:empty::before { content: attr(data-placeholder); color: #a9aeb8; }
+.rn-body {
+  min-height: 240px;
+  max-height: 380px;
+  overflow: auto;
+  padding: 12px 14px;
+  font-size: 13px;
+  line-height: 1.7;
+  color: #1d2129;
+  outline: none;
+  background: transparent;
+  caret-color: #1d2129;
+  user-select: text;
+  -webkit-user-select: text;
+}
 .rn-body :deep(b), .rn-body :deep(strong) { font-weight: 700; }
 .rn-body :deep(blockquote) {
   margin: 6px 0; padding: 2px 10px; border-left: 3px solid #dcdfe4; color: #4e5969;
@@ -215,4 +383,8 @@ function onCancel() {
 .rn-body :deep(ol), .rn-body :deep(ul) { margin: 4px 0; padding-left: 22px; }
 .rn-body :deep(a) { color: #2e74ff; }
 .rn-body :deep(hr) { border: none; border-top: 1px solid #dcdfe4; margin: 8px 0; }
+.rn-body :deep(img) { max-width: 100%; }
+.rn-body :deep(p) { margin: 0; }
+.rn-body :deep(h3) { margin: 0 0 6px; font-size: 16px; }
+.rn-body :deep(h4) { margin: 0 0 4px; font-size: 14px; }
 </style>
