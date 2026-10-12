@@ -247,8 +247,9 @@ function loadChart(id) {
   if (!state.dateFrom) state.dateFrom = rawLabels.value[0]
   if (!state.dateTo) state.dateTo = rawLabels.value.at(-1)
   if (!state.cross) state.cross = { x: { mode: 'latest', ago: 1, fixed: '' }, y: { mode: 'latest', ago: 1, fixed: '' } }
-  if (!state.cross.x.fixed) state.cross.x.fixed = rawLabels.value.at(-1) || ''
-  if (!state.cross.y.fixed) state.cross.y.fixed = rawLabels.value.at(-1) || ''
+  const lastYm = String(rawLabels.value.at(-1) || '').slice(0, 7)
+  state.cross.x.fixed = String(state.cross.x.fixed || lastYm || '').slice(0, 7)
+  state.cross.y.fixed = String(state.cross.y.fixed || lastYm || '').slice(0, 7)
   if (!state.crossBar) state.crossBar = defaultBuilderState().crossBar
   saveForm.title = state.title
   saveForm.dir = c?.dir || gallery.currentDir || ''
@@ -450,6 +451,22 @@ function disabledCrossDate(current) {
   const ymd = toYmd(current)
   if (!ymd) return false
   return ymd < crossMinDate.value || ymd > crossMaxDate.value
+}
+function bindCrossFixed(axis) {
+  const v = state.cross?.[axis]?.fixed
+  return v ? String(v).slice(0, 7) : undefined
+}
+function setCrossFixed(axis, ym) {
+  if (!state.cross?.[axis]) return
+  state.cross[axis].fixed = ym ? String(ym).slice(0, 7) : ''
+}
+function disabledCrossMonth(current) {
+  if (!current) return false
+  const ym = toYmd(current).slice(0, 7)
+  if (!ym) return false
+  const min = String(rawLabels.value[0] || '').slice(0, 7)
+  const max = String(rawLabels.value.at(-1) || '').slice(0, 7)
+  return (min && ym < min) || (max && ym > max)
 }
 function setCrossHeaderDay(ymd) {
   if (!ymd) return
@@ -1009,7 +1026,18 @@ const isPreview = computed(() => props.mode === 'preview' || props.mode === 'exp
                     <label><input type="radio" value="ago" v-model="state.cross.x.mode">N前</label>
                     <input class="cfg-input sm" type="number" min="1" max="120" v-model.number="state.cross.x.ago" :disabled="state.cross.x.mode !== 'ago'" title="期数">
                     <label><input type="radio" value="fixed" v-model="state.cross.x.mode">固定日期</label>
-                    <input class="cfg-input" type="month" v-model="state.cross.x.fixed" :min="rawLabels[0]" :max="rawLabels.at(-1)" :disabled="state.cross.x.mode !== 'fixed'">
+                    <a-month-picker
+                      class="cross-month-picker"
+                      size="mini"
+                      value-format="YYYY-MM"
+                      placeholder="选择月份"
+                      popup-container="body"
+                      :allow-clear="false"
+                      :disabled="state.cross.x.mode !== 'fixed'"
+                      :model-value="bindCrossFixed('x')"
+                      :disabled-date="disabledCrossMonth"
+                      @update:model-value="setCrossFixed('x', $event)"
+                    />
                   </div>
                   <div v-if="crossXHint" class="cross-time-hint">{{ crossXHint }}</div>
                 </div>
@@ -1026,7 +1054,18 @@ const isPreview = computed(() => props.mode === 'preview' || props.mode === 'exp
                     <label><input type="radio" value="ago" v-model="state.cross.y.mode">N前</label>
                     <input class="cfg-input sm" type="number" min="1" max="120" v-model.number="state.cross.y.ago" :disabled="state.cross.y.mode !== 'ago'" title="期数">
                     <label><input type="radio" value="fixed" v-model="state.cross.y.mode">固定日期</label>
-                    <input class="cfg-input" type="month" v-model="state.cross.y.fixed" :min="rawLabels[0]" :max="rawLabels.at(-1)" :disabled="state.cross.y.mode !== 'fixed'">
+                    <a-month-picker
+                      class="cross-month-picker"
+                      size="mini"
+                      value-format="YYYY-MM"
+                      placeholder="选择月份"
+                      popup-container="body"
+                      :allow-clear="false"
+                      :disabled="state.cross.y.mode !== 'fixed'"
+                      :model-value="bindCrossFixed('y')"
+                      :disabled-date="disabledCrossMonth"
+                      @update:model-value="setCrossFixed('y', $event)"
+                    />
                   </div>
                   <div v-if="crossYHint" class="cross-time-hint">{{ crossYHint }}</div>
                 </div>

@@ -11,6 +11,7 @@ import Icon from '../../components/Icon.vue'
 import AppModal from '../../components/AppModal.vue'
 import DirPathPicker from '../../components/DirPathPicker.vue'
 import ChartBuilder from '../builder/ChartBuilder.vue'
+import { parentPathOf } from '../../utils/dir'
 import { hashStr } from '../../utils/hash'
 import { exportChartPng } from '../../utils/exportPng'
 import { exportChartExcel } from '../../utils/exportExcelChart'
@@ -21,6 +22,7 @@ const router = useRouter()
 const info = ref(null)
 const dirCollapsed = ref(false)
 const dirModal = reactive({ visible: false, mode: 'add', parent: '', name: '' })
+const moveModal = reactive({ visible: false, kind: 'dir', from: '', title: '', dest: '' })
 const delModal = reactive({ visible: false, kind: '', title: '', msg: '', id: '', path: '' })
 const batchModal = reactive({ visible: false, dir: '', ids: [] })
 const batchList = ref([])
@@ -381,6 +383,45 @@ function onDropItem(payload, path) {
   store.selectItem(hit.id)
   Message.success(`已移动「${hit.title}」到「${path.split('/').join(' / ')}」`)
 }
+function onMove(payload) {
+  if (payload?.kind === 'item') {
+    const item = payload.item
+    if (!item?.id) return
+    Object.assign(moveModal, {
+      visible: true,
+      kind: 'item',
+      from: item.id,
+      title: item.title || payload.title || item.id,
+      dest: item.dir || '',
+    })
+    return
+  }
+  const path = payload?.path || ''
+  if (!path) return
+  Object.assign(moveModal, {
+    visible: true,
+    kind: 'dir',
+    from: path,
+    title: payload.title || path.split('/').pop(),
+    dest: parentPathOf(path),
+  })
+}
+function confirmMove() {
+  if (moveModal.kind === 'dir') {
+    const r = store.moveDir(moveModal.from, moveModal.dest || '')
+    if (!r || r.skipped) { moveModal.visible = false; return }
+    if (!r.ok) return Message.warning(r.msg)
+    if (r.path) store.selectDir(r.path)
+    moveModal.visible = false
+    Message.success(r.msg || '目录已移动')
+    return
+  }
+  if (!moveModal.dest) return Message.warning('请选择目标目录')
+  store.moveCharts([moveModal.from], moveModal.dest)
+  store.selectDir(moveModal.dest)
+  moveModal.visible = false
+  Message.success(`已将「${moveModal.title}」移动到「${moveModal.dest.split('/').join(' / ')}」`)
+}
 function onDropDir(fromPath, targetPath) {
   const r = store.moveDir(fromPath, targetPath)
   if (!r || r.skipped) return
@@ -410,6 +451,7 @@ function onDropDir(fromPath, targetPath) {
       @add="onAdd"
       @edit="onEdit"
       @remove="onRemove"
+      @move="onMove"
       @drop-dir="onDropDir"
       @drop-item="onDropItem"
     />
@@ -639,6 +681,35 @@ function onDropDir(fromPath, targetPath) {
     <template #footer>
       <button type="button" class="btn primary" style="min-width:88px" @click="confirmDir">保存</button>
       <button type="button" class="btn tint" style="min-width:88px" @click="dirModal.visible = false">取消</button>
+    </template>
+  </AppModal>
+
+  <AppModal
+    :visible="moveModal.visible"
+    :title="moveModal.kind === 'dir' ? '移动目录' : '移动图表'"
+    icon="g-18d681d0"
+    overflow-visible
+    :width="480"
+    @update:visible="(v) => { moveModal.visible = v }"
+  >
+    <div class="df-form">
+      <div class="df-row">
+        <label>{{ moveModal.kind === 'dir' ? '当前目录' : '当前图表' }}</label>
+        <div class="df-val">{{ moveModal.title }}</div>
+      </div>
+      <div class="df-row">
+        <label>移动到</label>
+        <DirPathPicker
+          v-model="moveModal.dest"
+          :tree="store.dirs"
+          :allow-root="moveModal.kind === 'dir'"
+          :placeholder="moveModal.kind === 'dir' ? '请选择上级目录' : '请选择目标目录'"
+        />
+      </div>
+    </div>
+    <template #footer>
+      <button type="button" class="btn tint" style="min-width:88px" @click="moveModal.visible = false">取消</button>
+      <button type="button" class="btn primary" style="min-width:88px" @click="confirmMove">确认移动</button>
     </template>
   </AppModal>
 

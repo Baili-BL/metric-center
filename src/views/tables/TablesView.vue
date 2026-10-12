@@ -5,9 +5,13 @@ import { Message } from '@arco-design/web-vue'
 import { TABLE_TYPES, typeName, useTableStore } from '../../stores/tables'
 import { previewGrid, previewRows, workbookToXlsx } from '../../utils/workbook'
 import { runWithExportLoading } from '../../utils/exportLoading'
+import { parentPathOf } from '../../utils/dir'
+import { startDirDrag } from '../../utils/dir-drag'
 import DirTree from '../../components/DirTree.vue'
+import DirPathPicker from '../../components/DirPathPicker.vue'
 import Icon from '../../components/Icon.vue'
 import AppModal from '../../components/AppModal.vue'
+import BalanceVersionBar from '../../components/BalanceVersionBar.vue'
 import TableEditor from './TableEditor.vue'
 
 const route = useRoute()
@@ -19,6 +23,7 @@ const menuPos = reactive({ left: '0px', top: '0px' })
 const filterOpen = ref('')
 const dateDraft = reactive({ from: '', to: '' })
 const dirModal = reactive({ visible: false, mode: 'add', parent: '', name: '' })
+const moveModal = reactive({ visible: false, kind: 'dir', from: '', title: '', dest: '' })
 const addModal = reactive({ visible: false, name: '' })
 const delModal = reactive({ visible: false, kind: '', title: '', msg: '', path: '', id: '' })
 
@@ -41,6 +46,7 @@ const dirParentLabel = computed(() => {
 const menuTable = computed(() => store.get(menuId.value))
 const editorId = computed(() => String(route.params.id || route.query.id || ''))
 const editorNonce = ref(0)
+const isBalance = computed(() => store.currentType === 'balance')
 
 watch(() => route.query.type, (id) => {
   const typeId = TABLE_TYPES.some((t) => t.id === id) ? id : ''
@@ -77,16 +83,28 @@ function tableLink(t, extra = {}) {
 }
 
 function previewOf(t) {
-  const grid = previewGrid(t.workbook, 16, 10)
+  const grid = previewGrid(t.workbook, 10, 7)
   if (grid.length) return grid
-  const plain = (t.preview && t.preview.length) ? t.preview : previewRows(t.workbook, 16, 10)
-  return plain.map((row) => (row || []).map((text) => (typeof text === 'object' ? text : { text, bg: '', color: '', bold: false, colspan: 1 })))
+  const plain = (t.preview && t.preview.length) ? t.preview : previewRows(t.workbook, 10, 7)
+  return (plain || []).slice(0, 10).map((row) => {
+    const cells = (row || []).slice(0, 7).map((text) => (typeof text === 'object' ? text : { text, bg: '', color: '', bold: false, colspan: 1 }))
+    while (cells.length < 7) cells.push({ text: '', bg: '', color: '', bold: false, colspan: 1 })
+    return cells
+  })
 }
 function cellPreviewStyle(c) {
   const s = {}
-  if (c?.bg) s.background = c.bg
+  if (c?.bar) {
+    const pct = Math.round(Math.max(0, Math.min(1, c.bar.pct)) * 100)
+    s.background = c.bar.color2
+      ? `linear-gradient(to right, ${c.bar.color} 0%, ${c.bar.color2} ${pct}%, #fff ${pct}%)`
+      : `linear-gradient(to right, ${c.bar.color} ${pct}%, #fff ${pct}%)`
+  } else if (c?.bg) {
+    s.background = c.bg
+  }
   if (c?.color) s.color = c.color
   if (c?.bold) s.fontWeight = '600'
+  if (c?.align) s.textAlign = c.align
   return s
 }
 function previewColIndexes(rows) {
@@ -168,17 +186,74 @@ function confirmDel() {
   }
   delModal.visible = false
 }
+function onMove(payload) {
+  if (payload?.kind === 'item') {
+    const item = payload.item
+    if (!item?.id) return
+    Object.assign(moveModal, {
+      visible: true,
+      kind: 'item',
+      from: item.id,
+      title: item.title || payload.title || item.id,
+      dest: item.dir || '',
+    })
+    return
+  }
+  const path = payload?.path || ''
+  if (!path) return
+  Object.assign(moveModal, {
+    visible: true,
+    kind: 'dir',
+    from: path,
+    title: payload.title || path.split('/').pop(),
+    dest: parentPathOf(path),
+  })
+}
+function confirmMove() {
+  if (moveModal.kind === 'dir') {
+    const r = store.moveDir(moveModal.from, moveModal.dest || '')
+    if (!r || r.skipped) { moveModal.visible = false; return }
+    if (!r.ok) return Message.error(r.msg)
+    if (r.path) selectDir(r.path)
+    moveModal.visible = false
+    Message.success(r.msg || '目录已移动')
+    return
+  }
+  if (!moveModal.dest) return Message.warning('请选择目标目录')
+  store.moveTable(moveModal.from, moveModal.dest)
+  store.currentDir = moveModal.dest
+  moveModal.visible = false
+  Message.success(`已将「${moveModal.title}」移动到「${moveModal.dest.split('/').join(' / ')}」`)
+}
 function onDropDir(from, target) {
   const r = store.moveDir(from, target)
   if (!r.ok) return Message.error(r.msg)
-  if (!r.skipped) Message.success(r.msg || '目录已移动')
+  if (r.skipped) return
+  if (r.path) selectDir(r.path)
+  Message.success(r.msg || '目录已移动')
 }
 function onDropItem(payload, dest) {
   const id = payload?.id || payload?.item?.id
-  if (!id || !dest) return
+  if (!id) return
+  if (!dest) return Message.warning('请拖到具体目录')
+  const hit = payload.item || store.get(id)
+  if (hit?.dir === dest) return Message.info(`「${hit.title}」已在该目录`)
   store.moveTable(id, dest)
   store.currentDir = dest
-  Message.success('表格已移动')
+  Message.success(`已将「${hit?.title || id}」移动到「${dest.split('/').join(' / ')}」`)
+}
+function onCardDragStart(e, t) {
+  if (e.target?.closest?.('.cc-fav, .cc-more, .tc-head-acts, .lt-ops')) {
+    e.preventDefault()
+    return
+  }
+  startDirDrag({
+    type: 'item',
+    id: t.id,
+    name: t.title,
+    label: t.title,
+    item: t,
+  }, e)
 }
 function toggleFav(t) {
   store.toggleFav(t.id)
@@ -268,9 +343,19 @@ function resetDate() {
   filterOpen.value = ''
 }
 function onDocClick(e) {
-  if (e.target.closest?.('.gi-date, .arco-picker-container, .arco-trigger-popup, .cc-card-menu, .cc-more')) return
+  if (e.target.closest?.('.gi-date, .bal-ver, .arco-picker-container, .arco-trigger-popup, .arco-panel-date, .cc-card-menu, .cc-more')) return
   filterOpen.value = ''
   menuId.value = ''
+}
+function onBalanceVer(v) {
+  store.setBalanceVer(v)
+}
+function refreshBalanceList() {
+  const n = store.refreshBalance()
+  const ver = store.balanceVer
+  const label = ver.mode === 'date' && ver.date ? ver.date : '动态'
+  if (!n) return Message.info('暂无可刷新的平衡表')
+  Message.success(`已按「${label}」版本刷新 ${n} 张平衡表`)
 }
 onMounted(() => document.addEventListener('click', onDocClick))
 onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
@@ -312,6 +397,7 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
         @edit="onEdit"
         @remove="onRemoveDir"
         @remove-item="onRemoveItem"
+        @move="onMove"
         @drop-dir="onDropDir"
         @drop-item="onDropItem"
       />
@@ -334,6 +420,12 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
           <input v-model="store.filters.nameKw" placeholder="搜索表格名称" autocomplete="off">
         </div>
         <div class="gal-filters">
+          <BalanceVersionBar
+            v-if="isBalance"
+            :version="store.balanceVer"
+            @update:version="onBalanceVer"
+            @refresh="refreshBalanceList"
+          />
           <div class="gi-date" :class="{ open: filterOpen === 'date' }">
             <button type="button" class="gi-date-btn" :class="{ on: !!(store.filters.dateFrom || store.filters.dateTo) }" @click.stop="toggleFilter('date')">
               <Icon name="calendar" :size="13" />
@@ -384,6 +476,8 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
             class="tbl-card"
             :class="{ 'menu-open': menuId === t.id }"
             :to="tableLink(t)"
+            draggable="true"
+            @dragstart="onCardDragStart($event, t)"
             @click="onCardClick(t)"
           >
             <div class="tc-head">
@@ -399,10 +493,7 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
               </div>
             </div>
             <div class="tc-preview">
-              <div v-if="t.thumb" class="tc-paste-pic">
-                <img class="tc-shot" :src="t.thumb" alt="">
-              </div>
-              <div v-else-if="!previewOf(t).length" class="tc-empty">暂无预览</div>
+              <div v-if="!previewOf(t).length" class="tc-empty">暂无预览</div>
               <div v-else class="tc-thumb">
                 <table class="tc-sheet">
                   <thead>
@@ -418,8 +509,9 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
                         v-for="(c, j) in row"
                         :key="j"
                         :colspan="c.colspan || 1"
+                        :class="{ 'tc-cf-cell': c.icon || c.bar }"
                         :style="cellPreviewStyle(c)"
-                      >{{ c.text }}</td>
+                      ><span v-if="c.icon" class="tc-cf-icon" v-html="c.icon"></span>{{ c.text }}</td>
                     </tr>
                   </tbody>
                 </table>
@@ -435,7 +527,7 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
             </tr>
           </thead>
           <tbody>
-            <tr v-for="t in store.filtered" :key="t.id" @click="openEditor(t)">
+            <tr v-for="t in store.filtered" :key="t.id" draggable="true" @dragstart="onCardDragStart($event, t)" @click="openEditor(t)">
               <td class="lt-name" :title="t.title">{{ t.title }}</td>
               <td class="lt-id">{{ t.id }}</td>
               <td>{{ typeName(t.type) }}</td>
@@ -460,6 +552,7 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
 
   <ul v-if="menuId && menuTable" class="cc-card-menu show" :style="menuPos" role="menu" @click.stop>
     <li><button type="button" class="ccm-item" @click="openEditor(menuTable)">编辑</button></li>
+    <li><button type="button" class="ccm-item" @click="onMove({ kind: 'item', item: menuTable, title: menuTable.title }); menuId = ''">移动</button></li>
     <li class="ccm-sep"></li>
     <li><button type="button" class="ccm-item" @click="toggleFav(menuTable); menuId = ''">{{ store.tableFav(menuTable) ? '取消收藏' : '收藏' }}</button></li>
     <li class="ccm-sep"></li>
@@ -492,6 +585,35 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
     <template #footer>
       <button type="button" class="btn" style="min-width:88px" @click="dirModal.visible = false">取消</button>
       <button type="button" class="btn primary" style="min-width:88px" @click="confirmDir">保存</button>
+    </template>
+  </AppModal>
+
+  <AppModal
+    :visible="moveModal.visible"
+    :title="moveModal.kind === 'dir' ? '移动目录' : '移动表格'"
+    icon="g-18d681d0"
+    overflow-visible
+    :width="480"
+    @update:visible="(v) => { moveModal.visible = v }"
+  >
+    <div class="df-form">
+      <div class="df-row">
+        <label>{{ moveModal.kind === 'dir' ? '当前目录' : '当前表格' }}</label>
+        <div class="df-val">{{ moveModal.title }}</div>
+      </div>
+      <div class="df-row">
+        <label>移动到</label>
+        <DirPathPicker
+          v-model="moveModal.dest"
+          :tree="store.dirs"
+          :allow-root="moveModal.kind === 'dir'"
+          :placeholder="moveModal.kind === 'dir' ? '请选择上级目录' : '请选择目标目录'"
+        />
+      </div>
+    </div>
+    <template #footer>
+      <button type="button" class="btn tint" style="min-width:88px" @click="moveModal.visible = false">取消</button>
+      <button type="button" class="btn primary" style="min-width:88px" @click="confirmMove">确认移动</button>
     </template>
   </AppModal>
 

@@ -45,10 +45,11 @@ import '@fortune-sheet/react/dist/index.css'
 
 const props = defineProps({
   readonly: { type: Boolean, default: false },
+  tableType: { type: String, default: '' },
   // 混合表：屏蔽 fortune 原生单元格右键菜单，改由父组件渲染自定义菜单（cellcontext 事件）
   suppressCellMenu: { type: Boolean, default: false },
 })
-const emit = defineEmits(['pivot', 'cellhover', 'cellclick', 'cellcontext'])
+const emit = defineEmits(['pivot', 'cellhover', 'cellclick', 'cellcontext', 'mx-insert'])
 
 const TOOLBAR_ITEMS = [
   'undo', 'redo', 'format-painter', 'clear-format', '|',
@@ -3561,7 +3562,31 @@ function onFreezeCapture(e) {
   openFreezePop(hit.closest('.fortune-toobar-combo-container') || hit)
 }
 
-const ctxMenu = reactive({ show: false, x: 0, y: 0, fly: '' })
+const ctxMenu = reactive({ show: false, x: 0, y: 0, fly: '', fly2: '', subLeft: false })
+const ctxMenuRef = ref(null)
+const ctxItems = computed(() => {
+  if (props.tableType !== 'mixed') return CTX_ITEMS
+  const out = []
+  CTX_ITEMS.forEach((item) => {
+    out.push(item)
+    if (item.id === 'insert') {
+      out.push({
+        id: 'insertData',
+        label: '插入数据',
+        caret: true,
+        children: MX_INSERT_ITEMS,
+      })
+    }
+  })
+  return out
+})
+function onCtxItemEnter(item) {
+  ctxMenu.fly = item.caret ? item.id : ''
+  ctxMenu.fly2 = ''
+}
+function onCtxSubEnter(sub) {
+  ctxMenu.fly2 = sub.caret ? sub.id : ''
+}
 const sheetTabMenu = reactive({
   show: false,
   x: 0,
@@ -3610,6 +3635,13 @@ const CTX_ICONS = {
   note: 'M3.2 2.4h7.1L13.6 5.7v7.9a1.2 1.2 0 0 1-1.2 1.2H3.2A1.2 1.2 0 0 1 2 13.6V3.6a1.2 1.2 0 0 1 1.2-1.2Zm6.6 1.2H3.2v10h9.2V6.2H9.8V3.6Z',
   validation: 'M2.6 3.4h10.8v1.2H2.6V3.4Zm0 3.6h7.4v1.2H2.6V7Zm0 3.6h10.8v1.2H2.6v-1.2Zm9.2-4.2 1.5 1.6-1.5 1.6V6.4Z',
 }
+const MX_INSERT_ITEMS = [
+  { id: 'mx-value', label: '根据日期选择指标值' },
+  { id: 'mx-date', label: '导入日期' },
+  { id: 'mx-diff', label: '日期计算' },
+  { id: 'mx-calc', label: '指标计算' },
+  { id: 'mx-tpl', label: '生成指标对比模板' },
+]
 const CTX_ITEMS = [
   { id: 'copy', label: '复制', shortcut: 'Ctrl+C', icon: 'copy' },
   { id: 'copyImage', label: '复制为图片', icon: 'image' },
@@ -3789,7 +3821,7 @@ function clearSelection(mode) {
 function insertAxis(type, direction) {
   const box = selectionBox()
   const api = instRef.current
-  if (!box || !api?.applyOp) return
+  if (!box || !api?.applyOp) return false
   api.applyOp([{
     op: 'insertRowCol',
     value: {
@@ -3800,6 +3832,7 @@ function insertAxis(type, direction) {
       id: box.id,
     },
   }])
+  return true
 }
 
 function deleteAxis(type) {
@@ -4018,6 +4051,12 @@ async function onCtxAction(id) {
   const api = instRef.current
   ctxMenu.show = false
   ctxMenu.fly = ''
+  ctxMenu.fly2 = ''
+  if (id.startsWith('mx-')) {
+    const kind = id.slice(3)
+    emit('mx-insert', kind === 'tpl' ? 'tpl' : kind)
+    return
+  }
   if (id === 'copy') {
     copiedCells = readSelectionCells()
     await copyText(selectionText())
@@ -4513,12 +4552,26 @@ function onSheetContext(e) {
     remove.children[0].label = a === b ? `删除第 ${a} 行` : `删除第 ${a} - ${b} 行`
     remove.children[1].label = box.c0 === box.c1 ? '删除列' : `删除 ${colLetter(box.c0)} - ${colLetter(box.c1)} 列`
   }
-  const menuW = 260
-  const menuH = 520
-  ctxMenu.x = Math.min(e.clientX, window.innerWidth - menuW - 8)
-  ctxMenu.y = Math.min(e.clientY, window.innerHeight - Math.min(menuH, window.innerHeight - 16))
+  ctxMenu.x = e.clientX
+  ctxMenu.y = e.clientY
   ctxMenu.fly = ''
+  ctxMenu.fly2 = ''
+  ctxMenu.subLeft = false
   ctxMenu.show = true
+  nextTick(() => {
+    const el = ctxMenuRef.value
+    if (!el) return
+    const r = el.getBoundingClientRect()
+    const pad = 8
+    const subW = 240
+    let x = e.clientX
+    let y = e.clientY
+    if (x + r.width > window.innerWidth - pad) x = Math.max(pad, window.innerWidth - r.width - pad)
+    if (y + r.height > window.innerHeight - pad) y = Math.max(pad, window.innerHeight - r.height - pad)
+    ctxMenu.x = x
+    ctxMenu.y = y
+    ctxMenu.subLeft = x + r.width + subW > window.innerWidth - pad
+  })
 }
 
 function bindFreezeClick() {
@@ -5487,6 +5540,7 @@ defineExpose({
   setActiveSheet,
   writeBlock,
   cellGeomByRC: (row, col) => geomByRC(ctxState() || {}, row, col),
+  insertAxis,
 })
 </script>
 
@@ -6560,20 +6614,23 @@ defineExpose({
         <button type="button" :disabled="!findState.query" @click="goFind(1)">查找</button>
       </div>
     </div>
+    <Teleport to="body">
     <div
       v-if="ctxMenu.show"
+      ref="ctxMenuRef"
       class="fs-ctx"
+      :class="{ 'sub-left': ctxMenu.subLeft }"
       :style="{ left: `${ctxMenu.x}px`, top: `${ctxMenu.y}px` }"
       @mousedown.stop
       @contextmenu.prevent
     >
-      <template v-for="(item, i) in CTX_ITEMS" :key="item.sep ? `sep-${i}` : item.id">
+      <template v-for="(item, i) in ctxItems" :key="item.sep ? `sep-${i}` : item.id">
         <div v-if="item.sep" class="fs-ctx-sep" />
         <button
           v-else
           type="button"
           class="fs-ctx-item"
-          @mouseenter="ctxMenu.fly = item.caret ? item.id : ''"
+          @mouseenter="onCtxItemEnter(item)"
           @click="item.caret ? null : onCtxAction(item.id)"
         >
           <svg v-if="item.icon" class="fs-ctx-ico" viewBox="0 0 16 16" aria-hidden="true"><path :d="CTX_ICONS[item.icon]" fill="currentColor" /></svg>
@@ -6585,12 +6642,31 @@ defineExpose({
           <div v-if="item.caret && ctxMenu.fly === item.id" class="fs-ctx-sub" @mousedown.stop>
             <template v-for="(sub, si) in item.children" :key="sub.sep ? `subsep-${si}` : sub.id">
               <div v-if="sub.sep" class="fs-ctx-sep" />
-              <button v-else type="button" @click="onCtxAction(sub.id)">{{ sub.label }}</button>
+              <button
+                v-else
+                type="button"
+                class="fs-ctx-sub-item"
+                :class="{ on: ctxMenu.fly2 === sub.id }"
+                @mouseenter="onCtxSubEnter(sub)"
+                @click="sub.caret ? null : onCtxAction(sub.id)"
+              >
+                <span>{{ sub.label }}</span>
+                <i v-if="sub.caret">›</i>
+                <div v-if="sub.caret && ctxMenu.fly2 === sub.id" class="fs-ctx-sub fs-ctx-sub2" @mousedown.stop>
+                  <button
+                    v-for="leaf in sub.children"
+                    :key="leaf.id"
+                    type="button"
+                    @click="onCtxAction(leaf.id)"
+                  >{{ leaf.label }}</button>
+                </div>
+              </button>
             </template>
           </div>
         </button>
       </template>
     </div>
+    </Teleport>
     <Teleport to="body">
       <div
         v-if="sheetListPop.open"
@@ -6826,6 +6902,7 @@ defineExpose({
         <button type="button" class="fs-dv-ok" @click="confirmValidation">确定</button>
       </div>
     </div>
+    <Teleport to="body">
     <div v-if="ctxDlg.show" class="fs-ctx-dlg" @mousedown.stop>
       <div class="fs-ctx-dlg-title">{{ ctxDlg.title }}</div>
       <div v-if="ctxDlg.lines.length" class="fs-ctx-dlg-lines">
@@ -6840,6 +6917,7 @@ defineExpose({
         </template>
       </div>
     </div>
+    </Teleport>
     <Teleport to="body">
       <ColorPop
         :show="colorPop.show"

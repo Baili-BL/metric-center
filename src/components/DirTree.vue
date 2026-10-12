@@ -233,6 +233,7 @@ function onDrop(e) {
             <template #content>
               <a-doption @click="emit('add', node.key)">添加子目录</a-doption>
               <a-doption @click="emit('edit', node.key)">重命名</a-doption>
+              <a-doption v-if="canDrag(node)" @click="emitMove(node)">移动</a-doption>
               <a-doption @click="emit('remove', node.key)">删除</a-doption>
             </template>
           </a-dropdown>

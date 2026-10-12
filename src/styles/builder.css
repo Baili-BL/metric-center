@@ -668,7 +668,8 @@ body:has(.builder-drawer-root.open){overflow:hidden}
 .cb-root .cross-block .cross-time-row label{display:inline-flex;align-items:center;gap:4px;cursor:pointer;white-space:nowrap}
 .cb-root .cross-block .cross-time-row input[type=radio]{margin:0;accent-color:var(--primary)}
 .cb-root .cross-block .cross-time-row .cfg-input.sm{width:56px;height:26px;text-align:center;padding:0 4px}
-.cb-root .cross-block .cross-time-row input[type=month]{width:118px;height:26px;padding:0 6px;font-size:12px}
+.cb-root .cross-block .cross-time-row .cross-month-picker{width:132px}
+.cb-root .cross-block .cross-time-row .cross-month-picker .arco-picker{width:100%}
 .cb-root .cross-time-hint{font-size:11px;color:var(--text-3);margin-top:6px}
 
 .cb-root .cb-filter-row{display:flex;align-items:center;gap:12px;font-size:12px;color:rgba(0,0,0,.65);flex-wrap:wrap}

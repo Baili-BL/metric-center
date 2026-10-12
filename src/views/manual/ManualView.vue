@@ -4,6 +4,7 @@ import { Message } from '@arco-design/web-vue'
 import ExcelJS from 'exceljs'
 import { DEMO_TPL1, DEMO_TPL2, MANUAL_FREQS, useManualStore } from '../../stores/manual'
 import { useIndicatorStore } from '../../stores/indicators'
+import { parentPathOf } from '../../utils/dir'
 import DirTree from '../../components/DirTree.vue'
 import DirPathPicker from '../../components/DirPathPicker.vue'
 import Icon from '../../components/Icon.vue'
@@ -13,6 +14,7 @@ const store = useManualStore()
 const indicators = useIndicatorStore()
 const dirCollapsed = ref(false)
 const dirModal = reactive({ visible: false, mode: 'add', parent: '', name: '' })
+const moveModal = reactive({ visible: false, from: '', title: '', dest: '' })
 const delModal = reactive({ visible: false, kind: '', title: '', msg: '', path: '', ids: [] })
 const importVisible = ref(false)
 const previewVisible = ref(false)
@@ -107,6 +109,24 @@ function confirmDir() {
 function selectDir(path) {
   store.currentDir = path
   store.setPage(1)
+}
+function onMove(payload) {
+  const path = payload?.path || ''
+  if (!path) return
+  Object.assign(moveModal, {
+    visible: true,
+    from: path,
+    title: payload.title || path.split('/').pop(),
+    dest: parentPathOf(path),
+  })
+}
+function confirmMove() {
+  const r = store.moveDir(moveModal.from, moveModal.dest || '')
+  if (!r || r.skipped) { moveModal.visible = false; return }
+  if (!r.ok) return Message.error(r.msg)
+  if (r.path) store.currentDir = r.path
+  moveModal.visible = false
+  Message.success(r.msg || '目录已移动')
 }
 function onDropDir(from, target) {
   const r = store.moveDir(from, target)
@@ -369,6 +389,7 @@ function jumpPage() { goPage(Number(jump.value) || 1) }
         @add="onAdd"
         @edit="onEdit"
         @remove="onRemoveDir"
+        @move="onMove"
         @drop-dir="onDropDir"
       />
       <div class="dir-foot">
@@ -609,6 +630,35 @@ function jumpPage() { goPage(Number(jump.value) || 1) }
       <button v-if="joinStep === 2" type="button" class="btn" style="min-width:88px" @click="joinStep = 1">上一步</button>
       <button type="button" class="btn primary" style="min-width:88px" @click="joinNext">{{ joinStep === 1 ? '下一步' : '确认加入' }}</button>
       <button v-if="joinStep === 1" type="button" class="btn" style="min-width:88px" @click="joinVisible = false">取消</button>
+    </template>
+  </AppModal>
+
+  <AppModal
+    :visible="moveModal.visible"
+    title="移动目录"
+    icon="g-18d681d0"
+    overflow-visible
+    :width="480"
+    @update:visible="(v) => { moveModal.visible = v }"
+  >
+    <div class="df-form">
+      <div class="df-row">
+        <label>当前目录</label>
+        <div class="df-val">{{ moveModal.title }}</div>
+      </div>
+      <div class="df-row">
+        <label>移动到</label>
+        <DirPathPicker
+          v-model="moveModal.dest"
+          :tree="store.dirs"
+          allow-root
+          placeholder="请选择上级目录"
+        />
+      </div>
+    </div>
+    <template #footer>
+      <button type="button" class="btn tint" style="min-width:88px" @click="moveModal.visible = false">取消</button>
+      <button type="button" class="btn primary" style="min-width:88px" @click="confirmMove">确认移动</button>
     </template>
   </AppModal>
 

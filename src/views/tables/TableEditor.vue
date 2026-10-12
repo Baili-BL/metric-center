@@ -18,6 +18,7 @@ import {
 import Icon from '../../components/Icon.vue'
 import AppModal from '../../components/AppModal.vue'
 import MxDatePanel from '../../components/MxDatePanel.vue'
+import BalanceVersionBar from '../../components/BalanceVersionBar.vue'
 
 const props = defineProps({
   tableId: { type: String, default: '' },
@@ -57,6 +58,7 @@ const tsPickOpen = ref(false)
 const tsBatchOpen = ref(false)
 const tsKw = ref('')
 const isTs = computed(() => table.value?.type === 'timeseries')
+const isBalance = computed(() => table.value?.type === 'balance')
 
 watch(() => props.tableId, () => {
   const c = table.value?.tsSeries
@@ -203,9 +205,26 @@ function confirmTsBatch() {
   applyTsSeries()
 }
 
+function onBalanceVer(v) {
+  store.setBalanceVer(v)
+  refreshBalanceTable()
+}
+async function refreshBalanceTable() {
+  const t = table.value
+  if (!t) return
+  const n = store.refreshBalance(t.id)
+  if (!n) return Message.warning('当前不是平衡表，无法刷新')
+  await nextTick()
+  await loadCurrent()
+  const ver = store.balanceVer
+  Message.success(ver.mode === 'date' && ver.date
+    ? `已加载 ${ver.date} 版本`
+    : '已按动态版本刷新平衡表')
+}
+
 /* —— 混合表格：插入指标值 / 导入日期 / 日期计算 / 指标计算 + 动态绑定刷新 —— */
 const isMixed = computed(() => table.value?.type === 'mixed')
-const mxMenuOpen = ref(false)
+const mxDataOpen = ref(false)
 const mxValOpen = ref(false)
 const mxDateOpen = ref(false)
 const mxCalcOpen = ref(false)
@@ -239,8 +258,13 @@ const mxFiltered = computed(() => {
   })
 })
 
+function onMxInsert(kind) {
+  mxDataOpen.value = false
+  if (kind === 'tpl') openMxTpl()
+  else openMx(kind)
+}
 function openMx(kind, targetCell) {
-  mxMenuOpen.value = false
+  mxDataOpen.value = false
   const cell = targetCell || sheetRef.value?.activeCell?.()
   if (!cell) return Message.warning('请先在表格中点选一个单元格')
   mxTarget.value = { row: cell.row, col: cell.col }
@@ -1306,6 +1330,12 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onDocPop))
           </div>
         </div>
         <div class="editor-acts">
+          <BalanceVersionBar
+            v-if="isBalance"
+            :version="store.balanceVer"
+            @update:version="onBalanceVer"
+            @refresh="refreshBalanceTable"
+          />
           <div v-if="isTs" class="ts-ctrl">
             <button type="button" class="ts-btn" @click="tsPickOpen = true">
               <Icon name="plus-12" :size="12" /> 选择指标<span v-if="tsCfg.picks.length" class="ts-cnt">{{ tsCfg.picks.length }}</span>
@@ -1324,16 +1354,16 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onDocPop))
             >刷新指标数据<span class="ts-cnt">{{ tsCfg.picks.length }}</span></button>
           </div>
           <div v-if="isMixed" class="ts-ctrl">
-            <div class="mx-drop" @mouseleave="mxMenuOpen = false">
-              <button type="button" class="ts-btn" @click.stop="mxMenuOpen = !mxMenuOpen">
-                <Icon name="plus-12" :size="12" /> 插入<span class="mx-caret">▾</span>
+            <div class="mx-drop" @mouseleave="mxDataOpen = false">
+              <button type="button" class="ts-btn" @click.stop="mxDataOpen = !mxDataOpen">
+                插入数据<span class="mx-caret">▾</span>
               </button>
-              <div v-show="mxMenuOpen" class="mx-menu">
+              <div v-show="mxDataOpen" class="mx-menu">
                 <button type="button" @click="openMx('value')">根据日期选择指标值</button>
                 <button type="button" @click="openMx('date')">导入日期</button>
                 <button type="button" @click="openMx('diff')">日期计算</button>
                 <button type="button" @click="openMx('calc')">指标计算</button>
-                <button type="button" @click="mxMenuOpen = false; openMxTpl()">生成指标对比模板</button>
+                <button type="button" @click="onMxInsert('tpl')">生成指标对比模板</button>
               </div>
             </div>
             <button type="button" class="ts-btn" title="按绑定配置重算所有动态单元格" @click="refreshMixed">
@@ -1376,11 +1406,13 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onDocPop))
           v-if="open"
           :key="`${tableId}-fold`"
           ref="sheetRef"
+          :table-type="table?.type"
           :suppress-cell-menu="isMixed"
           @cellhover="onCellHover"
           @cellclick="onCellClick"
           @cellcontext="onCellContext"
           @pivot="openPivotWizard"
+          @mx-insert="onMxInsert"
         />
         <!-- 关联虚线框（pointer-events 穿透，仅视觉提示） -->
         <div
@@ -1813,8 +1845,6 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onDocPop))
     <div class="mx-hint" style="margin-bottom:10px">在选中单元格处生成：首行为动态日期 + 表头，每行一个指标（当前值 / 上期值 / 日环比 / 同比），日环比涨红跌绿，数据可一键刷新。</div>
     <div class="fm-field">
       <div class="mx-libtabs">
-        <button type="button" :class="{ on: mxLib === 'base' }" @click="mxLib = 'base'">指标库</button>
-        <button type="button" :class="{ on: mxLib === 'pred' }" @click="mxLib = 'pred'">预测指标库</button>
         <div class="ts-pick-search" style="flex:1;margin-bottom:0">
           <Icon name="search" :size="13" />
           <input v-model="mxKw" placeholder="搜索指标名称" autocomplete="off">

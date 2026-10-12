@@ -1,4 +1,5 @@
 import ExcelJS from 'exceljs'
+import { cfOverlayMap, mergeCfStyle } from './cf-preview'
 
 export function normalizeWorkbook(raw) {
   if (!raw || typeof raw !== 'object') return raw
@@ -18,6 +19,7 @@ export function firstSheet(wb) {
 export function cellText(cell) {
   if (cell == null || cell === '') return ''
   if (typeof cell !== 'object') return String(cell)
+  if (cell.m != null && cell.m !== '') return String(cell.m)
   if (cell.v != null && cell.v !== '') {
     return typeof cell.v === 'object' ? cellText(cell.v) : String(cell.v)
   }
@@ -134,11 +136,20 @@ function colorOf(v) {
 function cellStyleOf(cell, styles) {
   let s = cell?.s
   if (s != null && typeof s !== 'object') s = styles?.[s] || styles?.[String(s)]
-  if (!s || typeof s !== 'object') return { bg: '', color: '', bold: false }
+  const numeric = cell?.t === 2 || typeof cell?.v === 'number'
+  if (!s || typeof s !== 'object') {
+    return { bg: '', color: '', bold: false, align: numeric ? 'right' : '' }
+  }
+  let align = ''
+  if (s.ht === 2) align = 'center'
+  else if (s.ht === 3) align = 'right'
+  else if (s.ht === 1) align = 'left'
+  else if (numeric) align = 'right'
   return {
     bg: colorOf(s.bg),
     color: colorOf(s.cl),
     bold: !!s.bl,
+    align,
   }
 }
 
@@ -170,13 +181,14 @@ function trimPreviewGrid(rows) {
   })
 }
 
-export function previewGrid(wb, maxR = 16, maxC = 10) {
+export function previewGrid(wb, maxR = 10, maxC = 7) {
   const data = normalizeWorkbook(wb)
   const sheet = pickPreviewSheet(data)
-  const cellData = asCellMap(sheet?.cellData)
-  if (!cellData) return []
+  if (!sheet) return []
+  const cellData = asCellMap(sheet?.cellData) || {}
   const styles = data?.styles || sheet?.styles || {}
   const merges = sheet?.mergeData || []
+  const overlay = cfOverlayMap(sheet)
   const skip = new Set()
   const rows = []
   for (let r = 0; r < maxR; r++) {
@@ -185,7 +197,7 @@ export function previewGrid(wb, maxR = 16, maxC = 10) {
     for (let c = 0; c < maxC; c++) {
       if (skip.has(`${r}:${c}`)) continue
       const raw = line[c] ?? line[String(c)]
-      const st = cellStyleOf(raw, styles)
+      const st = mergeCfStyle(cellStyleOf(raw, styles), overlay.get(`${r}:${c}`))
       const merge = merges.find((m) => Number(m.startRow) === r && Number(m.startColumn) === c)
       let colspan = 1
       if (merge) {
@@ -197,12 +209,15 @@ export function previewGrid(wb, maxR = 16, maxC = 10) {
         bg: st.bg,
         color: st.color,
         bold: st.bold,
+        align: st.align,
+        icon: st.icon || '',
+        bar: st.bar || null,
         colspan,
       })
     }
     rows.push(cells)
   }
-  return trimPreviewGrid(rows)
+  return rows
 }
 
 export function previewRows(wb, maxR = 16, maxC = 10) {
@@ -669,49 +684,43 @@ export function usedExtent(wb) {
 export function paintWorkbookThumb(wb, cssW = 180, cssH = 244) {
   const data = normalizeWorkbook(wb)
   const sheet = pickPreviewSheet(data)
-  const cellData = asCellMap(sheet?.cellData)
-  if (!cellData) return ''
+  const cellData = asCellMap(sheet?.cellData) || {}
   const styles = data?.styles || sheet?.styles || {}
   const merges = sheet?.mergeData || []
-  const ext = usedExtent(data)
-  const rows = Math.min(16, Math.max(1, ext.rows))
-  const cols = Math.min(10, Math.max(1, ext.cols))
   const scale = 2
   const gutter = 22
-  const colW = Math.max(56, Math.floor((cssW * scale - gutter) / cols))
-  const rowH = Math.max(20, Math.floor((cssH * scale - gutter) / Math.max(rows, 6)))
-  const tw = gutter + cols * colW
-  const th = gutter + rows * rowH
+  const rows = 10
+  const cols = 7
   const canvas = document.createElement('canvas')
-  canvas.width = cssW * scale
-  canvas.height = cssH * scale
+  canvas.width = Math.max(2, Math.round(cssW * scale))
+  canvas.height = Math.max(2, Math.round(cssH * scale))
   const ctx = canvas.getContext('2d')
   if (!ctx) return ''
+  const colW = Math.max(48, Math.floor((canvas.width - gutter) / cols))
+  const rowH = Math.max(18, Math.floor((canvas.height - gutter) / rows))
   ctx.fillStyle = '#fff'
   ctx.fillRect(0, 0, canvas.width, canvas.height)
-  ctx.strokeStyle = '#d0d4dc'
-  ctx.lineWidth = 1
-  ctx.font = `600 ${11 * scale / 2 + 4}px Segoe UI, Microsoft YaHei, sans-serif`
+  ctx.fillStyle = '#f5f6f8'
+  ctx.fillRect(0, 0, canvas.width, gutter)
+  ctx.fillRect(0, 0, gutter, canvas.height)
+  ctx.font = `500 ${11}px Segoe UI, Microsoft YaHei, sans-serif`
   ctx.textBaseline = 'middle'
-  ctx.fillStyle = '#f3f5f8'
-  ctx.fillRect(0, 0, tw, gutter)
-  ctx.fillRect(0, 0, gutter, th)
-  ctx.fillStyle = '#8b93a3'
   ctx.textAlign = 'center'
+  ctx.fillStyle = '#8b93a3'
   for (let c = 0; c < cols; c++) {
     ctx.fillText(colLetter(c), gutter + c * colW + colW / 2, gutter / 2)
   }
   for (let r = 0; r < rows; r++) {
     ctx.fillText(String(r + 1), gutter / 2, gutter + r * rowH + rowH / 2)
   }
+  const overlay = cfOverlayMap(sheet)
   const skip = new Set()
-  ctx.textAlign = 'left'
   for (let r = 0; r < rows; r++) {
     const line = cellData[r] || cellData[String(r)] || {}
     for (let c = 0; c < cols; c++) {
       if (skip.has(`${r}:${c}`)) continue
       const raw = line[c] ?? line[String(c)]
-      const st = cellStyleOf(raw, styles)
+      const st = mergeCfStyle(cellStyleOf(raw, styles), overlay.get(`${r}:${c}`))
       const merge = merges.find((m) => Number(m.startRow) === r && Number(m.startColumn) === c)
       let span = 1
       let rspan = 1
@@ -730,17 +739,42 @@ export function paintWorkbookThumb(wb, cssW = 180, cssH = 244) {
       const h = rspan * rowH
       ctx.fillStyle = st.bg || '#fff'
       ctx.fillRect(x, y, w, h)
-      ctx.strokeStyle = '#d0d4dc'
+      if (st.bar) {
+        const bw = Math.max(0, Math.min(w, w * st.bar.pct))
+        if (st.bar.color2) {
+          const grad = ctx.createLinearGradient(x, y, x + bw, y)
+          grad.addColorStop(0, st.bar.color)
+          grad.addColorStop(1, st.bar.color2)
+          ctx.fillStyle = grad
+        } else {
+          ctx.fillStyle = st.bar.color
+        }
+        ctx.fillRect(x, y, bw, h)
+      }
+      ctx.strokeStyle = '#e8eaed'
       ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1)
       const text = cellText(raw)
-      if (text) {
+      if (text || st.iconMark) {
         ctx.fillStyle = st.color || '#1f2329'
-        ctx.font = `${st.bold ? '700' : '400'} ${Math.round(11 * scale / 1.6)}px Segoe UI, Microsoft YaHei, sans-serif`
+        ctx.font = `${st.bold ? '700' : '400'} 12px Segoe UI, Microsoft YaHei, sans-serif`
+        ctx.textAlign = st.align === 'right' ? 'right' : st.align === 'center' ? 'center' : 'left'
         ctx.save()
         ctx.beginPath()
         ctx.rect(x + 4, y, w - 8, h)
         ctx.clip()
-        ctx.fillText(text, x + 6, y + h / 2)
+        const prefix = st.iconMark ? `${st.iconMark} ` : ''
+        const tx = st.align === 'right' ? x + w - 6 : st.align === 'center' ? x + w / 2 : x + 6
+        if (st.iconMark && st.iconColor) {
+          ctx.fillStyle = st.iconColor
+          ctx.textAlign = 'left'
+          ctx.fillText(st.iconMark, x + 6, y + h / 2)
+          ctx.fillStyle = st.color || '#1f2329'
+          ctx.textAlign = st.align === 'right' ? 'right' : st.align === 'center' ? 'center' : 'left'
+          const textX = st.align === 'right' ? x + w - 6 : st.align === 'center' ? x + w / 2 : x + 20
+          if (text) ctx.fillText(text, textX, y + h / 2)
+        } else if (text) {
+          ctx.fillText(prefix + text, tx, y + h / 2)
+        }
         ctx.restore()
       }
     }
@@ -787,11 +821,12 @@ function fortuneCellToUniver(cell) {
   }
   const out = {}
   if (cell.f) out.f = String(cell.f).replace(/^=/, '')
+  if (cell.m != null && cell.m !== '') out.m = String(cell.m)
   if (cell.v != null && cell.v !== '') {
     out.v = cell.v
     out.t = typeof cell.v === 'number' ? 2 : 1
-  } else if (cell.m != null && cell.m !== '') {
-    out.v = cell.m
+  } else if (out.m) {
+    out.v = out.m
     out.t = 1
   }
   const s = {}
