@@ -312,6 +312,12 @@ svg.i use { pointer-events: none; }
 .dir-panel.collapsed .dir-toggle svg { transform: rotate(180deg); }
 .dir-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
 .dir-head h2 { font-size: 15px; }
+.dir-panel .filter-bar {
+  flex-wrap: nowrap;
+  margin-bottom: 12px;
+  flex-shrink: 0;
+}
+.dir-panel .filter-bar .ds-input { min-width: 0 !important; }
 .dir-search { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
 .dir-search .ds-input { flex: 1; }
 .dir-search .exact {
@@ -324,7 +330,7 @@ svg.i use { pointer-events: none; }
   user-select: none;
 }
 .dir-tree, .ic-dir-tree { flex: 1; overflow: auto; margin: 0 -6px; min-height: 0; }
-.dir-foot { display: flex; flex-direction: column; gap: 2px; padding-top: 10px; margin-top: 10px; border-top: 1px solid #f0f1f4; }
+.dir-foot { display: flex; flex-direction: column; gap: 2px; padding-top: 10px; margin-top: 10px; border-top: 1px solid #f0f1f4; flex-shrink: 0; }
 .dir-foot button {
   display: flex;
   align-items: center;

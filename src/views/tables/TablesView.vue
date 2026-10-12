@@ -9,6 +9,7 @@ import { parentPathOf } from '../../utils/dir'
 import { startDirDrag } from '../../utils/dir-drag'
 import DirTree from '../../components/DirTree.vue'
 import DirPathPicker from '../../components/DirPathPicker.vue'
+import FilterBar from '../../components/FilterBar.vue'
 import Icon from '../../components/Icon.vue'
 import AppModal from '../../components/AppModal.vue'
 import BalanceVersionBar from '../../components/BalanceVersionBar.vue'
@@ -24,6 +25,8 @@ const filterOpen = ref('')
 const dateDraft = reactive({ from: '', to: '' })
 const dirModal = reactive({ visible: false, mode: 'add', parent: '', name: '' })
 const moveModal = reactive({ visible: false, kind: 'dir', from: '', title: '', dest: '' })
+const batchModal = reactive({ visible: false, dir: '', ids: [] })
+const batchList = ref([])
 const addModal = reactive({ visible: false, name: '' })
 const delModal = reactive({ visible: false, kind: '', title: '', msg: '', path: '', id: '' })
 
@@ -144,7 +147,6 @@ function selectItem(item) {
 function onAdd(path) {
   Object.assign(dirModal, { visible: true, mode: path ? 'child' : 'add', parent: path || '', name: '' })
 }
-function onFooterAdd() { onAdd(store.currentDir || '') }
 function onEdit(path) {
   Object.assign(dirModal, { visible: true, mode: 'edit', parent: path, name: path.split('/').pop() })
 }
@@ -305,9 +307,33 @@ function toggleMenu(e, t) {
   menuPos.left = `${left}px`
   menuPos.top = `${top}px`
 }
-function onExact(e) {
-  store.filters.exact = e.target.checked
-  Message.info(e.target.checked ? '已开启精准匹配：仅完全匹配表格名称/ID' : '已关闭精准匹配：支持模糊搜索')
+function openBatch() {
+  const rows = store.filtered
+  if (!rows.length) return Message.warning('当前目录暂无表格可移动')
+  batchList.value = rows.map((t) => ({ id: t.id, title: t.title, dir: t.dir || '' }))
+  batchModal.ids = batchList.value.map((t) => t.id)
+  batchModal.dir = ''
+  batchModal.visible = true
+}
+function toggleBatchId(id, on) {
+  if (on) {
+    if (!batchModal.ids.includes(id)) batchModal.ids.push(id)
+  } else {
+    batchModal.ids = batchModal.ids.filter((x) => x !== id)
+  }
+}
+function toggleBatchAll() {
+  if (batchModal.ids.length === batchList.value.length) batchModal.ids = []
+  else batchModal.ids = batchList.value.map((t) => t.id)
+}
+function doBatchMove() {
+  if (!batchModal.dir) return Message.warning('请选择目标目录')
+  if (!batchModal.ids.length) return Message.warning('请勾选要移动的表格')
+  store.moveTables(batchModal.ids, batchModal.dir)
+  store.currentDir = batchModal.dir
+  store.currentItem = ''
+  batchModal.visible = false
+  Message.success(`已移动 ${batchModal.ids.length} 张表格`)
 }
 function toggleFilter(name) {
   if (name === 'date' && filterOpen.value !== 'date') {
@@ -363,23 +389,12 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
 
 <template>
   <div class="tbl-page">
-    <aside class="dir-panel ic-dir-panel" :class="{ collapsed: dirCollapsed }">
+    <aside class="dir-panel" :class="{ collapsed: dirCollapsed }">
       <div class="dir-head">
         <h2>目录</h2>
-        <label class="only-mine"><input type="checkbox" v-model="store.filters.onlyMine">只看我的</label>
+        <label class="only-mine"><a-checkbox v-model="store.filters.onlyMine">只看我的</a-checkbox></label>
       </div>
-      <div class="dir-search">
-        <div class="ds-input">
-          <Icon name="search" :size="13" />
-          <input v-model="store.filters.kw" placeholder="请输入表格名称/ID" autocomplete="off">
-        </div>
-        <label class="exact">精准匹配
-          <span class="switch">
-            <input type="checkbox" :checked="store.filters.exact" @change="onExact">
-            <span class="sl"></span>
-          </span>
-        </label>
-      </div>
+      <FilterBar v-model="store.filters" placeholder="请输入表格名称/ID" :show-mine="false" :show-date="false" />
       <DirTree
         :tree="store.dirs"
         :current="store.currentDir"
@@ -402,10 +417,14 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
         @drop-item="onDropItem"
       />
       <div class="dir-foot">
-        <button type="button" @click="onFooterAdd">
-          <Icon name="plus-14" :size="13" />
+        <a-button long @click="onAdd(store.currentDir)">
+          <template #icon><Icon name="plus-14" :size="13" /></template>
           {{ store.currentDir ? '添加子目录' : '添加一级目录' }}
-        </button>
+        </a-button>
+        <a-button long @click="openBatch">
+          <template #icon><Icon name="swap" :size="13" /></template>
+          批量移动表格
+        </a-button>
       </div>
       <button class="dir-toggle" title="收起 / 展开目录" @click="dirCollapsed = !dirCollapsed">
         <Icon name="chevrons-left" :size="12" />
@@ -614,6 +633,39 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
     <template #footer>
       <button type="button" class="btn tint" style="min-width:88px" @click="moveModal.visible = false">取消</button>
       <button type="button" class="btn primary" style="min-width:88px" @click="confirmMove">确认移动</button>
+    </template>
+  </AppModal>
+
+  <AppModal
+    :visible="batchModal.visible"
+    title="批量移动表格"
+    icon="swap-16"
+    overflow-visible
+    :width="600"
+    @update:visible="(v) => { batchModal.visible = v }"
+  >
+    <div class="bm-toolbar">
+      <div style="font-size:13px;color:var(--text-2)">来源目录：<b>{{ store.currentDir ? store.currentDir.split('/').filter(Boolean).join(' / ') : '全部表格' }}</b></div>
+      <span class="bm-summary">已选 {{ batchModal.ids.length }} / {{ batchList.length }}</span>
+      <button type="button" class="btn" style="height:30px;padding:0 12px;font-size:12px" @click="toggleBatchAll">
+        {{ batchModal.ids.length === batchList.length && batchList.length ? '取消全选' : '全选' }}
+      </button>
+    </div>
+    <div class="bm-list">
+      <label v-for="t in batchList" :key="t.id" class="bm-row">
+        <input type="checkbox" :checked="batchModal.ids.includes(t.id)" @change="toggleBatchId(t.id, $event.target.checked)">
+        <span class="bm-name">{{ t.title }}</span>
+        <span class="bm-dir" :title="t.dir">{{ dirShort(t.dir) === '—' ? '未分类' : dirShort(t.dir) }}</span>
+      </label>
+    </div>
+    <div class="bm-select">
+      <label>移动到</label>
+      <DirPathPicker v-model="batchModal.dir" :tree="store.dirs" placeholder="请选择目标目录" />
+    </div>
+    <template #footer>
+      <span class="foot-left">支持将卡片拖到目录树，也可用此面板批量移动</span>
+      <button type="button" class="btn primary" @click="doBatchMove">确认移动</button>
+      <button type="button" class="btn tint" @click="batchModal.visible = false">取消</button>
     </template>
   </AppModal>
 

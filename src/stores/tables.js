@@ -352,12 +352,12 @@ export const useTableStore = defineStore('tables', () => {
   }))
 
   function dirCount(path) {
-    const list = tables.value.filter(visible)
+    const list = tables.value
     if (!path) return list.length
     return list.filter((t) => pathStarts(t.dir || '', path)).length
   }
   function itemsInDir(path) {
-    return tables.value.filter((t) => visible(t) && (t.dir || '') === path)
+    return tables.value.filter((t) => (t.dir || '') === path)
   }
   function findById(id) {
     if (!id) return null
@@ -469,6 +469,11 @@ export const useTableStore = defineStore('tables', () => {
     t.dir = dir
     persist()
   }
+  function moveTables(ids, dir) {
+    const list = pack.value[currentType.value]?.tables || []
+    list.forEach((t) => { if (ids.includes(t.id)) t.dir = dir })
+    persist()
+  }
   function savePivotConfig(id, cfg) {
     const t = get(id)
     if (!t) return
@@ -554,6 +559,6 @@ export const useTableStore = defineStore('tables', () => {
     dirs, tables, filtered,
     setType, tableFav, dirCount, itemsInDir, findById, get,
     addDir, renameDir, removeDir, moveDir,
-    createTable, removeTable, toggleFav, saveWorkbook, renameTable, moveTable, savePivotConfig, setTsConfig, setMixedConfig, setCustomInd, setBalanceVer, refreshBalance, submitPublish, persist,
+    createTable, removeTable, toggleFav, saveWorkbook, renameTable, moveTable, moveTables, savePivotConfig, setTsConfig, setMixedConfig, setCustomInd, setBalanceVer, refreshBalance, submitPublish, persist,
   }
 })
