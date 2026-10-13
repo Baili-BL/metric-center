@@ -40,6 +40,7 @@ const dateLabel = computed(() => {
   }
   return '创建时间'
 })
+const creatorLabel = computed(() => store.filters.creator || '创建人')
 const dirParentLabel = computed(() => {
   if (dirModal.mode === 'edit') {
     const parts = dirModal.parent.split('/').filter(Boolean)
@@ -365,6 +366,10 @@ function resetDate() {
   store.filters.dateTo = ''
   filterOpen.value = ''
 }
+function setCreator(name) {
+  store.filters.creator = name
+  filterOpen.value = ''
+}
 function onDocClick(e) {
   if (e.target.closest?.('.gi-date, .bal-ver, .arco-picker-container, .arco-trigger-popup, .arco-panel-date, .cc-card-menu, .cc-more')) return
   filterOpen.value = ''
@@ -436,6 +441,27 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
           <input v-model="store.filters.nameKw" placeholder="搜索表格名称" autocomplete="off">
         </div>
         <div class="gal-filters">
+          <div class="gi-date" :class="{ open: filterOpen === 'creator' }">
+            <button type="button" class="gi-date-btn" :class="{ on: !!store.filters.creator }" @click.stop="toggleFilter('creator')">
+              <svg class="i" width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                <circle cx="8" cy="6" r="2.4" stroke="currentColor" stroke-width="1.3"/>
+                <path d="M3.6 13c.6-2.2 2.2-3.4 4.4-3.4s3.8 1.2 4.4 3.4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+              </svg>
+              <span>{{ creatorLabel }}</span>
+              <Icon name="chevron-down" :size="10" />
+            </button>
+            <div v-if="filterOpen === 'creator'" class="gi-type-pop show" @click.stop>
+              <button type="button" class="gi-type-item" :class="{ on: !store.filters.creator }" @click="setCreator('')">全部创建人</button>
+              <button
+                v-for="name in store.creators"
+                :key="name"
+                type="button"
+                class="gi-type-item"
+                :class="{ on: store.filters.creator === name }"
+                @click="setCreator(name)"
+              >{{ name }}</button>
+            </div>
+          </div>
           <BalanceVersionBar
             v-if="isBalance"
             :version="store.balanceVer"
@@ -484,7 +510,7 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
       </div>
 
       <div class="gal-scroll">
-        <div v-if="!store.filtered.length" class="gal-empty">暂无匹配表格<br>可调整目录、创建时间或搜索条件</div>
+        <div v-if="!store.filtered.length" class="gal-empty">暂无匹配表格<br>可调整目录、创建人、创建时间或搜索条件</div>
         <div v-else-if="store.viewMode === 'card'" class="gal-grid">
           <router-link
             v-for="t in store.filtered"

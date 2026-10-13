@@ -1,6 +1,6 @@
 import ExcelJS from 'exceljs'
 import JSZip from 'jszip'
-import { normalizeWorkbook, univerToBook } from './workbook'
+import { normalizeWorkbook, univerToBook, workbookXlsxBuffer } from './workbook'
 import { chartSourceRefs } from './sheetChart'
 import { migrateFmtToDisplay } from '../charts/fieldFmt'
 import { buildSeasonalPack } from '../charts/seasonal'
@@ -1036,7 +1036,7 @@ export async function exportTableExcel(workbook, charts, filename, title) {
   const book = univerToBook(workbook)
   if (title) book.title = title
   const groups = tableChartGroups(workbook, charts)
-  const buf = await book.xlsx.writeBuffer()
+  const buf = await workbookXlsxBuffer(book)
   const blob = groups.size
     ? await injectChartsOntoSheets(buf, groups)
     : new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })

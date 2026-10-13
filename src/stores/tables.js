@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
-import { hashStr, ME, nowStr, todayStr, uid } from '../utils/hash'
+import { hashStr, ME, nowStr, PEOPLE, todayStr, uid } from '../utils/hash'
 import { dirAddUnder, dirMoveDrop, dirRemove, dirRename, matchText, pathStarts, remountPath } from '../utils/dir'
 import { previewRows } from '../utils/workbook'
 
@@ -299,7 +299,7 @@ export const useTableStore = defineStore('tables', () => {
   const currentDir = ref('')
   const currentItem = ref('')
   const viewMode = ref('card')
-  const filters = ref({ kw: '', nameKw: '', exact: false, onlyMine: false, dateFrom: '', dateTo: '' })
+  const filters = ref({ kw: '', nameKw: '', exact: false, onlyMine: false, creator: '', dateFrom: '', dateTo: '' })
   const balanceVer = ref({ mode: 'dynamic', date: '', refreshN: 0 })
 
   function slimPack(data) {
@@ -338,12 +338,19 @@ export const useTableStore = defineStore('tables', () => {
   function visible(t) {
     const f = filters.value
     if (f.onlyMine && !t.mine) return false
+    if (f.creator && (t.creator || '') !== f.creator) return false
     if (f.dateFrom && (t.date || '') < f.dateFrom) return false
     if (f.dateTo && (t.date || '') > f.dateTo) return false
     if (f.kw && !matchText(t.title, f.kw, f.exact) && !matchText(t.id, f.kw, f.exact)) return false
     if (f.nameKw && !matchText(t.title, f.nameKw, false)) return false
     return true
   }
+  const creators = computed(() => {
+    const set = new Set()
+    tables.value.forEach((t) => { if (t.creator) set.add(t.creator) })
+    PEOPLE.forEach((p) => set.add(p))
+    return [ME, ...[...set].filter((n) => n !== ME).sort((a, b) => a.localeCompare(b, 'zh'))]
+  })
   const filtered = computed(() => tables.value.filter((t) => {
     if (!visible(t)) return false
     if (currentItem.value) return t.id === currentItem.value
@@ -562,7 +569,7 @@ export const useTableStore = defineStore('tables', () => {
 
   return {
     pack, currentType, currentDir, currentItem, viewMode, filters, balanceVer,
-    dirs, tables, filtered,
+    dirs, tables, filtered, creators,
     setType, tableFav, dirCount, itemsInDir, findById, get,
     addDir, renameDir, removeDir, moveDir,
     createTable, removeTable, toggleFav, saveWorkbook, renameTable, moveTable, moveTables, savePivotConfig, saveSheetCharts, setTsConfig, setMixedConfig, setCustomInd, setBalanceVer, refreshBalance, submitPublish, persist,

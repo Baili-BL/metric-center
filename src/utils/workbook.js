@@ -1,4 +1,5 @@
 import ExcelJS from 'exceljs'
+import JSZip from 'jszip'
 import { cfOverlayMap, mergeCfStyle } from './cf-preview'
 
 export function normalizeWorkbook(raw) {
@@ -385,6 +386,7 @@ function applyFortuneDataBars(ws, rules) {
       const c1 = range.column?.[1] ?? c0
       const ref = `${colLetter(c0)}${r0 + 1}:${colLetter(c1)}${r1 + 1}`
       const color = argbOf(colorOf(rule.format?.[0]) || '#638ec6') || 'FF638EC6'
+      const gradient = (rule.format || []).length > 1
       for (let r = r0; r <= r1; r += 1) {
         for (let c = c0; c <= c1; c += 1) {
           const cell = ws.getCell(r + 1, c + 1)
@@ -399,6 +401,7 @@ function applyFortuneDataBars(ws, rules) {
         rules: [{
           type: 'dataBar',
           priority: i + 1,
+          gradient,
           cfvo: [{ type: 'min' }, { type: 'max' }],
           color: { argb: color },
         }],
@@ -414,7 +417,7 @@ function applyFortuneColorScales(ws, rules) {
     if (colors.length < 2) return
     const cfvo = colors.length === 2
       ? [{ type: 'min' }, { type: 'max' }]
-      : [{ type: 'min' }, { type: 'percentile', value: 50 }, { type: 'max' }]
+      : [{ type: 'min' }, { type: 'percent', value: 50 }, { type: 'max' }]
     ;(rule.cellrange || []).forEach((range) => {
       const r0 = range.row?.[0] ?? 0
       const r1 = range.row?.[1] ?? r0
@@ -441,28 +444,84 @@ function stripCfGlyphs(text) {
     .trim()
 }
 
+const EXCEL_ICON_SET = {
+  'ic-a3': '3Arrows',
+  'ic-a3g': '3ArrowsGray',
+  'ic-t3': '3Triangles',
+  'ic-a4': '4Arrows',
+  'ic-a4g': '4ArrowsGray',
+  'ic-a5': '5Arrows',
+  'ic-a5g': '5ArrowsGray',
+  'ic-c3': '3TrafficLights2',
+  'ic-c3b': '3TrafficLights1',
+  'ic-c4': '4TrafficLights',
+  'ic-c5': '4TrafficLights',
+  'ic-x2': '3Symbols2',
+  'ic-m3c': '3Symbols',
+  'ic-f2': '3Flags',
+  'ic-f3': '3Flags',
+  'ic-st3': '3Stars',
+  'ic-b3': '5Boxes',
+  'ic-h3': '5Quarters',
+  'ic-h5': '5Quarters',
+}
+const EXCEL_ICON_SIZE = {
+  '3Arrows': 3, '3ArrowsGray': 3, '3Flags': 3, '3TrafficLights1': 3, '3TrafficLights2': 3,
+  '3Signs': 3, '3Symbols': 3, '3Symbols2': 3, '3Stars': 3, '3Triangles': 3,
+  '4Arrows': 4, '4ArrowsGray': 4, '4RedToBlack': 4, '4Rating': 4, '4TrafficLights': 4,
+  '5Arrows': 5, '5ArrowsGray': 5, '5Rating': 5, '5Quarters': 5, '5Boxes': 5,
+}
+
+function excelIconSet(rule) {
+  const id = rule.iconId || ''
+  if (EXCEL_ICON_SET[id]) return EXCEL_ICON_SET[id]
+  const glyphs = Array.isArray(rule.glyphs) ? rule.glyphs : []
+  const kinds = glyphs.map((g) => g?.kind).filter(Boolean)
+  const special = glyphs.find((g) => g?.special)?.special
+  const marks = (rule.marks || []).join('')
+  const preview = rule.preview
+  if (special === 'pie' || preview === 'pie3' || preview === 'pie5' || /[◕◑◔]/.test(marks)) return '5Quarters'
+  if (special === 'signal' || preview === 'signal3' || /[▂▃▄]/.test(marks)) return '5Boxes'
+  if (kinds.includes('star') || kinds.includes('starEmpty') || marks.includes('★') || marks.includes('☆')) return '3Stars'
+  if (kinds.includes('flag') || marks.includes('⚑')) return '3Flags'
+  if (kinds.includes('triUp') || kinds.includes('triDown') || marks.includes('▲') || marks.includes('▼')) return '3Triangles'
+  if (kinds.includes('check') || kinds.includes('cross') || marks.includes('✓') || marks.includes('✕')) return '3Symbols'
+  if (kinds.includes('circleRim') || marks.includes('⬤')) return '3TrafficLights1'
+  if (kinds.includes('circle') || marks.includes('●')) {
+    const n = kinds.length || rule.marks?.length || 3
+    return n >= 4 ? '4TrafficLights' : '3TrafficLights2'
+  }
+  const gray = glyphs.length > 0 && glyphs.every((g) => String(g?.color || '').toLowerCase() === '#8f959e')
+  const n = glyphs.length || rule.marks?.length || (Array.isArray(rule.format) ? rule.format.length : 0) || 3
+  if (n >= 5) return gray ? '5ArrowsGray' : '5Arrows'
+  if (n === 4) return gray ? '4ArrowsGray' : '4Arrows'
+  if (gray) return '3ArrowsGray'
+  return '3Arrows'
+}
+
+function iconPercentStops(count) {
+  return Array.from({ length: count }, (_, i) => ({
+    type: 'percent',
+    value: i === 0 ? 0 : Math.round((i * 100) / count),
+  }))
+}
+
+const iconIdFixes = new WeakMap()
+
+function pie3Icons(rule) {
+  if (rule.iconId === 'ic-h3' || rule.preview === 'pie3') return true
+  const glyphs = Array.isArray(rule.glyphs) ? rule.glyphs : []
+  return glyphs.length === 3 && glyphs.every((g) => g?.special === 'pie')
+}
+
 function applyFortuneIconSets(ws, rules) {
   let priority = 20
-  const setName = (rule) => {
-    const id = rule.iconId || ''
-    if (id.includes('st')) return '3Symbols'
-    if (id.includes('c5') || id.includes('h5') || id.includes('a5')) return '5Arrows'
-    if (id.includes('c4') || id.includes('a4') || id.includes('b3')) return '4Arrows'
-    if (id.includes('c3') || id.includes('t3') || id.includes('m3') || id.includes('f')) return '3TrafficLights1'
-    const count = rule.marks?.length || rule.glyphs?.length || rule.format?.length || 3
-    if (count >= 5) return '5Arrows'
-    if (count === 4) return '4Arrows'
-    if (count === 2) return '3TrafficLights1'
-    return '3Arrows'
-  }
   ;(rules || []).filter((rule) => rule.type === 'icons').forEach((rule) => {
-    const count = rule.marks?.length || rule.glyphs?.length || rule.format?.length || 3
-    const iconSet = setName(rule)
-    const step = Math.floor(100 / count)
-    const cfvo = Array.from({ length: count }, (_, i) => ({
-      type: 'percentile',
-      value: Math.min(100, i === 0 ? 0 : Math.round((i * 100) / count)),
-    }))
+    const iconSet = excelIconSet(rule)
+    const picked = iconSet === '5Quarters' && pie3Icons(rule) ? [0, 2, 4] : null
+    const count = picked?.length || EXCEL_ICON_SIZE[iconSet] || rule.marks?.length || rule.glyphs?.length || rule.format?.length || 3
+    const cfvo = iconPercentStops(count)
+    const icons = picked?.map((iconId) => ({ iconSet, iconId }))
     ;(rule.cellrange || []).forEach((range) => {
       const r0 = range.row?.[0] ?? 0
       const r1 = range.row?.[1] ?? r0
@@ -479,6 +538,11 @@ function applyFortuneIconSets(ws, rules) {
           }
         }
       }
+      if (picked) {
+        const list = iconIdFixes.get(ws) || []
+        list.push({ setName: iconSet, ids: picked })
+        iconIdFixes.set(ws, list)
+      }
       ws.addConditionalFormatting({
         ref,
         rules: [{
@@ -488,6 +552,7 @@ function applyFortuneIconSets(ws, rules) {
           showValue: true,
           reverse: false,
           cfvo,
+          ...(icons ? { custom: true, icons } : {}),
         }],
       })
     })
@@ -658,10 +723,36 @@ export async function xlsxToUniver(buf, title = '') {
   return bookToUniver(book, { name: title })
 }
 
+function rewriteIconIds(xml, fixes) {
+  let out = xml
+  fixes.forEach(({ setName, ids }) => {
+    const from = ids.map((_, i) => `<x14:cfIcon iconSet="${setName}" iconId="${i}"/>`).join('')
+    const to = ids.map((id) => `<x14:cfIcon iconSet="${setName}" iconId="${id}"/>`).join('')
+    const at = out.indexOf(from)
+    if (at >= 0) out = `${out.slice(0, at)}${to}${out.slice(at + from.length)}`
+  })
+  return out
+}
+
+export async function workbookXlsxBuffer(book) {
+  const buf = await book.xlsx.writeBuffer()
+  const perSheet = book.worksheets.map((ws) => iconIdFixes.get(ws) || [])
+  if (perSheet.every((list) => !list.length)) return buf
+  const zip = await JSZip.loadAsync(buf)
+  for (let i = 0; i < perSheet.length; i += 1) {
+    if (!perSheet[i].length) continue
+    const name = `xl/worksheets/sheet${i + 1}.xml`
+    const file = zip.file(name)
+    if (!file) continue
+    zip.file(name, rewriteIconIds(await file.async('string'), perSheet[i]))
+  }
+  return zip.generateAsync({ type: 'arraybuffer' })
+}
+
 export async function workbookToXlsx(wb, title) {
   const book = univerToBook(wb)
   if (title) book.title = title
-  return book.xlsx.writeBuffer()
+  return workbookXlsxBuffer(book)
 }
 
 export function usedExtent(wb) {
