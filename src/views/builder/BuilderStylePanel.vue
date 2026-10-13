@@ -25,6 +25,7 @@ const props = defineProps({
   palettes: { type: Array, required: true },
   seasonYears: { type: Array, default: () => [] },
   seasonCurYear: { type: String, default: '' },
+  hideAux: { type: Boolean, default: false },
 })
 const emit = defineEmits(['palette'])
 
@@ -122,6 +123,7 @@ const srLabelPosOpts = computed(() => (colPlot.value
 const visibleSecs = computed(() => {
   const q = kw.value.trim().toLowerCase()
   return SECS.filter((s) => {
+    if (s.id === 'aux' && props.hideAux) return false
     if (s.id === 'note' && hideNote.value) return false
     if (s.id === 'pieTotal' && !isDonut.value) return false
     if (s.id === 'viewCtrl' && !canViewCtrl.value) return false
@@ -311,8 +313,32 @@ function onDoc(e) {
   if (!e.target.closest?.('.style-more')) moreOpen.value = false
   if (!e.target.closest?.('.palette-wrap')) palOpen.value = false
 }
-onMounted(() => document.addEventListener('click', onDoc))
-onBeforeUnmount(() => document.removeEventListener('click', onDoc))
+function pinSheetMenu(event) {
+  const trigger = event.target?.closest?.('.palette-row, .dash-trigger, .mk-trigger, .sr-field-trigger, .lg-content-trigger')
+  if (!trigger?.closest?.('.sc-style')) return
+  setTimeout(() => {
+    const panel = trigger.parentElement?.querySelector('.palette-list, .dash-panel, .mk-panel, .sr-field-panel, .lg-content-panel')
+    if (!panel || getComputedStyle(panel).display === 'none') return
+    const rect = trigger.getBoundingClientRect()
+    const height = panel.offsetHeight || 160
+    let top = rect.bottom + 4
+    if (top + height > window.innerHeight - 8) top = Math.max(8, rect.top - height - 4)
+    panel.style.position = 'fixed'
+    panel.style.left = `${Math.max(8, rect.left)}px`
+    panel.style.width = `${Math.max(rect.width, 140)}px`
+    panel.style.top = `${top}px`
+    panel.style.right = 'auto'
+    panel.style.zIndex = '90'
+  })
+}
+onMounted(() => {
+  document.addEventListener('click', onDoc)
+  document.addEventListener('click', pinSheetMenu, true)
+})
+onBeforeUnmount(() => {
+  document.removeEventListener('click', onDoc)
+  document.removeEventListener('click', pinSheetMenu, true)
+})
 </script>
 
 <template>

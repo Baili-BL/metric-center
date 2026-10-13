@@ -489,7 +489,7 @@ onBeforeUnmount(() => {
               <template v-if="b.type === 'chart'">
                 <div v-if="specOf(b)" class="slot-chart">
                   <div v-if="b.title" class="slot-cap">{{ b.title }}</div>
-                  <G2Chart :key="(pptStyle?.paletteId || '') + String(!!pptStyle?.gradient) + (hiRes ? '-hi' : '')" :spec="specOf(b)" fill mini disable-tooltip />
+                  <G2Chart :key="(pptStyle?.paletteId || '') + String(!!pptStyle?.gradient) + (pptStyle?.axisXColor || '') + (pptStyle?.axisYColor || '') + (hiRes ? '-hi' : '')" :spec="specOf(b)" fill mini disable-tooltip />
                   <div v-if="footHtml(b)" class="slot-footnote rich-note" v-html="footHtml(b)"></div>
                 </div>
                 <div v-else class="slot-ph slot-ph-chart">{{ emptyHint(b) }}</div>

@@ -119,14 +119,29 @@ function flattenRows(series, labels, nullMode = 'cross') {
   return rows
 }
 
-function pieRows(series, labels, spec = {}) {
-  const range = resolveCrossBarRange(spec.crossBar, labels)
-  let raw = series.map((s) => ({
-    name: seriesName(s),
-    color: s.color,
-    value: Math.abs(Number(sectionValue(s.values || [], range) ?? 0)),
-    time: range.time,
+export function sheetPieSlices(series, labels) {
+  const s = series?.[0]
+  const vals = s?.values || []
+  return (labels || []).map((lab, i) => ({
+    name: lab == null || lab === '' ? `项${i + 1}` : String(lab),
+    color: DEFAULT_COLORS[i % DEFAULT_COLORS.length],
+    value: Math.abs(Number(vals[i]) || 0),
   })).filter((r) => r.value > 0)
+}
+
+function pieRows(series, labels, spec = {}) {
+  let raw
+  if (spec.fromSheet) {
+    raw = sheetPieSlices(series, labels)
+  } else {
+    const range = resolveCrossBarRange(spec.crossBar, labels)
+    raw = series.map((s) => ({
+      name: seriesName(s),
+      color: s.color,
+      value: Math.abs(Number(sectionValue(s.values || [], range) ?? 0)),
+      time: range.time,
+    })).filter((r) => r.value > 0)
+  }
   if (spec.pieMergeOthers && raw.length > 2) {
     const keep = Math.max(2, Math.min(50, Number(spec.pieMergeCount) || Math.max(2, raw.length - 1)))
     raw = [...raw].sort((a, b) => b.value - a.value)
@@ -247,6 +262,27 @@ function seriesTooltipOf(spec, isSeason = false) {
   }
 }
 
+function mergeAxisLayout(layoutAx, built) {
+  if (built === false || built == null) return false
+  if (!layoutAx || typeof layoutAx !== 'object') return built
+  return {
+    ...built,
+    ...layoutAx,
+    labelFill: built.labelFill,
+    labelOpacity: built.labelOpacity,
+    labelFillOpacity: built.labelFillOpacity,
+    labelFontSize: built.labelFontSize,
+    labelFontWeight: built.labelFontWeight,
+    labelFontStyle: built.labelFontStyle,
+    titleFill: built.titleFill,
+    titleOpacity: built.titleOpacity,
+    titleFillOpacity: built.titleFillOpacity,
+    titleFontSize: built.titleFontSize,
+    titleFontWeight: built.titleFontWeight,
+    titleFontStyle: built.titleFontStyle,
+  }
+}
+
 function buildAxis(ax, key, fallbackUnit, mini, spec) {
   const o = ax?.[key] || {}
   if (!o.show) return false
@@ -257,11 +293,15 @@ function buildAxis(ax, key, fallbackUnit, mini, spec) {
   const cfg = {
     title: title || false,
     titleFill: ts.fill,
+    titleOpacity: 1,
+    titleFillOpacity: 1,
     titleFontSize: ts.fontSize,
     titleFontWeight: ts.fontWeight,
     titleFontStyle: ts.fontStyle,
     label: o.showLabels === false ? false : true,
     labelFill: ls.fill,
+    labelOpacity: 1,
+    labelFillOpacity: 1,
     labelFontSize: ls.fontSize,
     labelFontWeight: ls.fontWeight,
     labelFontStyle: ls.fontStyle,
@@ -301,14 +341,15 @@ function buildAxis(ax, key, fallbackUnit, mini, spec) {
 }
 
 function yScale(axY, rows) {
-  const domain = []
-  if (axY && axY.minAuto === false && axY.minV != null && axY.minV !== '') domain[0] = Number(axY.minV)
-  if (axY && axY.maxAuto === false && axY.maxV != null && axY.maxV !== '') domain[1] = Number(axY.maxV)
+  const nums = rows.map((r) => Number(r.value)).filter(Number.isFinite)
+  const manualMin = axY && axY.minAuto === false && axY.minV != null && axY.minV !== '' ? Number(axY.minV) : null
+  const manualMax = axY && axY.maxAuto === false && axY.maxV != null && axY.maxV !== '' ? Number(axY.maxV) : null
   const scale = {}
-  if (domain.length === 2 && Number.isFinite(domain[0]) && Number.isFinite(domain[1])) scale.domain = domain
-  else if (domain.length && Number.isFinite(domain[0])) {
-    const max = Math.max(...rows.map((r) => Number(r.value)).filter(Number.isFinite), domain[0] + 1)
-    scale.domain = [domain[0], max]
+  if (Number.isFinite(manualMin) && Number.isFinite(manualMax)) scale.domain = [manualMin, manualMax]
+  else if (Number.isFinite(manualMin)) {
+    scale.domain = [manualMin, Math.max(...nums, manualMin + 1)]
+  } else if (Number.isFinite(manualMax)) {
+    scale.domain = [nums.length ? Math.min(...nums, manualMax - 1) : manualMax - 1, manualMax]
   }
   if (axY?.reversed) scale.range = [0, 1]
   if (axY?.customTick && axY.tickMode === 'count' && axY.tickCount) scale.tickCount = Number(axY.tickCount)
@@ -490,10 +531,11 @@ function applyCartesianView(chart, spec, rows, children, names, colors, extra = 
     ? Math.max(0, Math.min(0.9, 1 - (Number(barWidth) || 55) / 100))
     : undefined
 
+  const xBuilt = buildAxis(ax, 'x', '', mini, spec)
   const axis = axisShow === false
     ? { x: false, y: false }
     : {
-      x: layout?.axis?.x || buildAxis(ax, 'x', '', mini, spec),
+      x: mergeAxisLayout(layout?.axis?.x, xBuilt),
       y: buildAxis(ax, 'yL', unit, mini, spec),
     }
 
@@ -656,6 +698,7 @@ export function paintChart(el, spec) {
   const chart = new Chart({
     container: el,
     autoFit: true,
+    width: el.clientWidth || undefined,
     height: height || el.clientHeight || (mini ? 132 : 420),
     ...(mini || spec.listPreview || spec.disableTooltip || spec.animation === false
       ? { animation: false }

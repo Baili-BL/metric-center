@@ -4,9 +4,10 @@ import { useRouter } from 'vue-router'
 import { Message } from '@arco-design/web-vue'
 import { useTableStore } from '../../stores/tables'
 import { useIndicatorStore } from '../../stores/indicators'
-import { ME, PEOPLE, todayStr } from '../../utils/hash'
+import { ME, PEOPLE, todayStr, uid } from '../../utils/hash'
 import { applyTransforms, evalExpr, fmtDate, indValueAt, parseDate, rcToRef, refToRC, shiftPeriods, transformDate } from '../../utils/mixed'
-import { workbookToXlsx } from '../../utils/workbook'
+import { exportTableExcel } from '../../utils/exportExcelChart'
+import { exportChartPng } from '../../utils/exportPng'
 import { runWithExportLoading } from '../../utils/exportLoading'
 import FortuneSheet from '../../components/FortuneSheet.vue'
 import {
@@ -17,6 +18,12 @@ import {
 } from '../../utils/pivot'
 import Icon from '../../components/Icon.vue'
 import AppModal from '../../components/AppModal.vue'
+import SheetChartDialog from '../../components/SheetChartDialog.vue'
+import SheetChartView from '../../components/SheetChartView.vue'
+import { mergeBuilderState } from '../../charts/types'
+import {
+  freshChartState, matrixFromSheet, syncChartSeries,
+} from '../../utils/sheetChart'
 import MxDatePanel from '../../components/MxDatePanel.vue'
 import BalanceVersionBar from '../../components/BalanceVersionBar.vue'
 
@@ -36,6 +43,27 @@ const titleEditing = ref(false)
 const titleDraft = ref('')
 const titleInput = ref(null)
 const pivotOpen = ref(false)
+const sheetCharts = reactive([])
+const chartDrag = reactive({})
+const chartSel = ref('')
+const chartMenu = reactive({ id: '', left: 0, top: 0 })
+const chartHandles = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w']
+const layoutTick = ref(0)
+const chPick = reactive({ active: false })
+const chartDlg = reactive({
+  visible: false,
+  editingId: '',
+  sheetName: '',
+  range: null,
+  rangeText: '',
+  labels: [],
+  categoryName: '类别',
+  columns: [],
+  state: freshChartState('图表'),
+})
+let chartLayoutTimer = 0
+let chartRefreshTimer = 0
+let chartsReady = false
 const pivotKw = ref('')
 const pop = reactive({ show: false, left: '0px', top: '0px', kind: '', zone: '', index: -1 })
 const drag = reactive({ idx: -1, from: '' })
@@ -47,6 +75,7 @@ const wizard = reactive({
   srcRange: '',
   dstCell: '',
 })
+const pvPick = reactive({ active: false, field: '' })
 const pub = reactive({ visible: false, approver: '', reason: '' })
 const pivot = reactive(emptyPivot())
 const approvers = PEOPLE.filter((p) => p !== ME)
@@ -606,7 +635,13 @@ function geomCell(row, col) {
   return sheetRef.value?.cellGeomByRC?.(row, col)
 }
 function onCellClick(g) {
+  scheduleChartRefresh()
   closeMxCtx()
+  if (pvPick.active && pvPick.field === 'dst') {
+    wizard.dstCell = absCellRef(liveSheetName(), g.r, g.c)
+    endPvPick(true)
+    return
+  }
   // 选格拾取模式：把点中的单元格回填到弹窗的引用输入框
   if (mxPick.active) {
     const refStr = rcToRef(g.r, g.c)
@@ -975,7 +1010,12 @@ function cancelRename() {
 
 function onEsc(e) {
   if (e.key !== 'Escape' || !open.value) return
+  if (chartMenu.id) { chartMenu.id = ''; return }
+  if (chartSel.value) { chartSel.value = ''; return }
   if (titleEditing.value) { cancelRename(); return }
+  if (pvPick.active) { cancelPvPick(); return }
+  if (chPick.active) { cancelChartPick(); return }
+  if (chartDlg.visible) { closeChartPanel(); return }
   if (wizard.visible) { wizard.visible = false; return }
   if (pop.show) { pop.show = false; return }
   if (mxCtx.show) { mxCtx.show = false; return }
@@ -985,18 +1025,25 @@ function onEsc(e) {
   close()
 }
 window.addEventListener('keydown', onEsc)
+document.addEventListener('mousedown', onChartOutside)
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onEsc)
   document.body.classList.remove('tbl-editor-open')
   setPageIcon('/ailab-mark.svg')
   clearTimeout(savedTimer)
+  endPvPick(false)
+  endChartPick(false)
+  clearInterval(chartLayoutTimer)
+  clearTimeout(chartRefreshTimer)
   document.removeEventListener('mousedown', closeMxCtx, true)
+  document.removeEventListener('mousedown', onChartOutside)
   window.removeEventListener('resize', clearDash)
   window.removeEventListener('keydown', onMxKeydown)
 })
 
 async function capture() {
   if (!sheetRef.value || !props.tableId) return { ok: false, msg: '表格未就绪' }
+  persistCharts()
   const snap = sheetRef.value.snapshot()
   if (!snap) return { ok: false, msg: '未能读取当前表格内容' }
   if (isMixed.value) reconcileMixed(snap) // 清除单元格 → 解除关联
@@ -1016,6 +1063,7 @@ async function loadCurrent() {
   clearDash()
   await nextTick()
   sheetRef.value?.load(t.workbook || { id: t.id, name: t.title, sheetOrder: [], sheets: {} })
+  hydrateCharts(t)
   // 混合表：打开时按绑定配置静默重算动态单元格（跟随指标数据更新）
   if (t.type === 'mixed') setTimeout(() => silentRefreshMixed(), 350)
 }
@@ -1043,18 +1091,15 @@ async function onExport() {
   if (exporting.value) return
   exporting.value = true
   try {
+    refreshChartMatrices()
     await capture()
     const t = table.value
     if (!t) return Message.error('请先打开一张表格')
-    await runWithExportLoading(async () => {
-      const buf = await workbookToXlsx(t.workbook, t.title)
-      const a = document.createElement('a')
-      a.href = URL.createObjectURL(new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }))
-      a.download = `${t.title}.xlsx`
-      a.click()
-      setTimeout(() => URL.revokeObjectURL(a.href), 800)
-    })
-    Message.success('已导出 Excel（.xlsx）')
+    const charts = t.sheetCharts || []
+    const result = await runWithExportLoading(() => exportTableExcel(t.workbook, charts, `${t.title}.xlsx`, t.title))
+    Message.success(result?.chartCount
+      ? '已导出 Excel：图表已放在原数据表上（可编辑）'
+      : '已导出 Excel（.xlsx）')
   } catch (e) {
     Message.error(e?.message || '导出失败，请稍后重试')
   } finally {
@@ -1107,18 +1152,443 @@ function openPivotWizard() {
   wizard.dstCell = absCellRef(name, range.startRow, range.endColumn + 2)
   wizard.visible = true
 }
-function pickSrc() {
-  const name = liveSheetName()
+function syncPvSrcFromSheet() {
   const sel = liveSelectionRange()
-  const used = sheetUsedRange(snapshotSheetByName(name))
-  const range = (sel && sel.endRow > sel.startRow) ? sel : used
-  if (!range) return Message.error('请先框选数据区域')
-  wizard.srcRange = absRangeRef(name, range)
+  if (!sel) return false
+  wizard.srcRange = absRangeRef(liveSheetName(), sel)
+  return true
+}
+function onPvPickPointerUp() {
+  if (!pvPick.active || pvPick.field !== 'src') return
+  setTimeout(syncPvSrcFromSheet, 40)
+}
+function beginPvPick(field) {
+  document.removeEventListener('mouseup', onPvPickPointerUp, true)
+  pvPick.field = field
+  pvPick.active = true
+  wizard.visible = false
+  if (field === 'src') document.addEventListener('mouseup', onPvPickPointerUp, true)
+  Message.info(field === 'src' ? '请在表格中框选数据区域，选好后点「完成」' : '请在表格中点选放置单元格')
+}
+function endPvPick(reopen) {
+  pvPick.active = false
+  pvPick.field = ''
+  document.removeEventListener('mouseup', onPvPickPointerUp, true)
+  if (reopen) wizard.visible = true
+}
+function finishPvSrc() {
+  if (!syncPvSrcFromSheet()) return Message.warning('请框选至少两格，需包含表头和一行数据')
+  endPvPick(true)
+}
+function cancelPvPick() {
+  endPvPick(true)
+}
+function pickSrc() {
+  beginPvPick('src')
 }
 function pickDst() {
+  beginPvPick('dst')
+}
+
+function liveUniverSheet() {
+  const snap = sheetRef.value?.snapshot?.() || table.value?.workbook
   const name = liveSheetName()
+  const list = listWorkbookSheets(snap)
+  const hit = list.find((p) => p.name === name) || list[0]
+  return hit ? { name: hit.name, sheet: hit.sheet } : null
+}
+function readChartMatrix(sheetName, range, binding) {
+  const snap = sheetRef.value?.snapshot?.() || table.value?.workbook
+  const list = listWorkbookSheets(snap)
+  const hit = list.find((p) => p.name === sheetName) || list[0]
+  if (!hit) return null
+  return matrixFromSheet(hit.sheet, range, binding)
+}
+function chartBinding(state) {
+  if (!state?.seriesCols?.length) return null
+  return { categoryCol: state.categoryCol, seriesCols: state.seriesCols }
+}
+function hydrateCharts(t) {
+  chartsReady = false
+  sheetCharts.splice(0, sheetCharts.length)
+  ;(t?.sheetCharts || []).forEach((raw) => {
+    const state = mergeBuilderState(raw.state || {})
+    sheetCharts.push({
+      id: raw.id || uid('CH'),
+      sheetName: raw.sheetName || '数据',
+      range: raw.range,
+      anchorRow: raw.anchorRow || 0,
+      anchorCol: raw.anchorCol || 0,
+      offsetX: raw.offsetX || 0,
+      offsetY: raw.offsetY || 0,
+      w: raw.w || 480,
+      h: raw.h || 300,
+      labels: Array.isArray(raw.labels) ? raw.labels.slice() : [],
+      state,
+    })
+  })
+  chartsReady = true
+  refreshChartMatrices()
+  bumpChartLayout()
+  if (!chartLayoutTimer) chartLayoutTimer = window.setInterval(bumpChartLayout, 200)
+}
+function persistCharts() {
+  if (!chartsReady || !props.tableId) return
+  store.saveSheetCharts(props.tableId, sheetCharts.map((ch) => ({
+    id: ch.id,
+    sheetName: ch.sheetName,
+    range: ch.range ? { ...ch.range } : null,
+    anchorRow: ch.anchorRow,
+    anchorCol: ch.anchorCol,
+    offsetX: ch.offsetX || 0,
+    offsetY: ch.offsetY || 0,
+    w: ch.w,
+    h: ch.h,
+    labels: [...(ch.labels || [])],
+    state: JSON.parse(JSON.stringify(ch.state)),
+  })))
+}
+function bumpChartLayout() {
+  if (sheetCharts.length) layoutTick.value += 1
+}
+function refreshChartMatrices() {
+  if (!sheetCharts.length || !sheetRef.value) return
+  sheetCharts.forEach((ch) => {
+    const matrix = readChartMatrix(ch.sheetName, ch.range, chartBinding(ch.state))
+    if (!matrix) return
+    ch.labels = matrix.labels
+    syncChartSeries(ch.state, matrix)
+  })
+}
+function scheduleChartRefresh() {
+  if (!sheetCharts.length || chPick.active) return
+  clearTimeout(chartRefreshTimer)
+  chartRefreshTimer = setTimeout(refreshChartMatrices, 280)
+}
+function fillChartDraft(range, sheetName, baseState, keepBinding = false) {
+  const binding = keepBinding ? chartBinding(baseState) : null
+  const matrix = readChartMatrix(sheetName, range, binding)
+  if (!matrix) return false
+  chartDlg.sheetName = sheetName
+  chartDlg.range = { ...range }
+  chartDlg.rangeText = absRangeRef(sheetName, range)
+  chartDlg.labels = matrix.labels
+  chartDlg.categoryName = matrix.categoryName || '类别'
+  chartDlg.columns = matrix.columns || []
+  chartDlg.state = baseState || freshChartState(matrix.series[0]?.name || '图表')
+  syncChartSeries(chartDlg.state, matrix)
+  return true
+}
+function rebindChart(binding) {
+  const matrix = readChartMatrix(chartDlg.sheetName, chartDlg.range, binding)
+  if (!matrix?.series?.length) return false
+  chartDlg.labels = matrix.labels
+  chartDlg.categoryName = matrix.categoryName || '类别'
+  chartDlg.columns = matrix.columns || chartDlg.columns
+  syncChartSeries(chartDlg.state, matrix)
+  syncBoundChart()
+  persistCharts()
+  return true
+}
+function setChartCategory(col) {
+  const cols = (chartDlg.state.seriesCols || []).filter((c) => c !== col)
+  if (!cols.length) return Message.warning('至少保留一个数值系列')
+  if (!rebindChart({ categoryCol: col, seriesCols: cols })) Message.warning('这一列不能作为横轴')
+}
+function addChartSeries(col) {
+  const cols = [...(chartDlg.state.seriesCols || [])]
+  if (cols.includes(col)) return
+  cols.push(col)
+  const categoryCol = chartDlg.state.categoryCol === col ? null : chartDlg.state.categoryCol
+  if (!rebindChart({ categoryCol, seriesCols: cols })) Message.warning('这一列没有可绘制的数值')
+}
+function replaceChartSeries(index, col) {
+  const cols = (chartDlg.state.seriesCols || []).slice()
+  if (!cols.length || cols.includes(col)) return
+  cols[index] = col
+  const categoryCol = chartDlg.state.categoryCol === col ? null : chartDlg.state.categoryCol
+  if (!rebindChart({ categoryCol, seriesCols: cols })) Message.warning('这一列没有可绘制的数值')
+}
+function removeChartSeries(index) {
+  const cols = (chartDlg.state.seriesCols || []).slice()
+  if (cols.length <= 1) return Message.warning('至少保留一个系列')
+  cols.splice(index, 1)
+  rebindChart({ categoryCol: chartDlg.state.categoryCol, seriesCols: cols })
+}
+function applyChartRangeText(text) {
+  const range = parseA1Range(text)
+  if (!range || range.endRow <= range.startRow) return Message.warning('请输入类似 A1:C38 的区域')
+  if (!fillChartDraft(range, chartDlg.sheetName || liveSheetName(), chartDlg.state, false)) {
+    return Message.warning('这个区域里没有可绘制的数值')
+  }
+  syncBoundChart()
+  persistCharts()
+}
+function syncBoundChart() {
+  const ch = sheetCharts.find((item) => item.id === chartDlg.editingId)
+  if (!ch || !chartDlg.range) return
+  ch.sheetName = chartDlg.sheetName
+  ch.range = { ...chartDlg.range }
+  ch.labels = chartDlg.labels.slice()
+  ch.state = chartDlg.state
+}
+function closeChartPanel() {
+  syncBoundChart()
+  if (chartDlg.editingId) persistCharts()
+  chartDlg.visible = false
+}
+function openChartDialog(existing) {
+  const live = liveUniverSheet()
+  if (!live) return Message.warning('当前没有可绘制的表格')
+  pivotOpen.value = false
+  if (existing) {
+    if (!fillChartDraft(existing.range, existing.sheetName || live.name, existing.state, true)) {
+      return Message.warning('图表数据区域里已经没有可绘制的数值')
+    }
+    chartDlg.editingId = existing.id
+    chartDlg.visible = true
+    chartSel.value = existing.id
+    return
+  }
+  const used = sheetUsedRange(live.sheet)
   const sel = liveSelectionRange()
-  wizard.dstCell = absCellRef(name, sel ? sel.startRow : 0, sel ? sel.startColumn : 0)
+  const range = (sel && sel.endRow > sel.startRow) ? sel : used
+  if (!range) return Message.warning('请先框选包含表头和一行数据的区域')
+  if (!fillChartDraft(range, live.name, null)) {
+    return Message.warning('请框选至少两行，第一行作为表头，并包含数值')
+  }
+  const ch = {
+    id: uid('CH'),
+    sheetName: chartDlg.sheetName,
+    range: { ...chartDlg.range },
+    anchorRow: chartDlg.range.startRow,
+    anchorCol: chartDlg.range.endColumn + 2,
+    offsetX: 0,
+    offsetY: 0,
+    w: 480,
+    h: 300,
+    labels: chartDlg.labels.slice(),
+    state: chartDlg.state,
+  }
+  sheetCharts.push(ch)
+  chartDlg.editingId = ch.id
+  chartDlg.visible = true
+  chartSel.value = ch.id
+  persistCharts()
+  nextTick(bumpChartLayout)
+}
+function onChartPickUp() {
+  if (!chPick.active) return
+  setTimeout(() => {
+    const sel = liveSelectionRange()
+    if (!sel) return
+    const name = liveSheetName()
+    chartDlg.range = { ...sel }
+    chartDlg.rangeText = absRangeRef(name, sel)
+    chartDlg.sheetName = name
+  }, 40)
+}
+function beginChartPick() {
+  document.removeEventListener('mouseup', onChartPickUp, true)
+  chPick.active = true
+  chartDlg.visible = false
+  document.addEventListener('mouseup', onChartPickUp, true)
+  Message.info('请在表格中框选数据区域，选好后点「完成」')
+}
+function endChartPick(reopen) {
+  chPick.active = false
+  document.removeEventListener('mouseup', onChartPickUp, true)
+  if (reopen) chartDlg.visible = true
+}
+function finishChartPick() {
+  const sel = liveSelectionRange() || chartDlg.range
+  if (!sel || sel.endRow <= sel.startRow) return Message.warning('请框选至少两行，需包含表头和一行数据')
+  const state = chartDlg.state
+  if (!fillChartDraft(sel, liveSheetName(), state)) return Message.warning('选区里没有可绘制的数值')
+  syncBoundChart()
+  persistCharts()
+  endChartPick(true)
+}
+function cancelChartPick() {
+  endChartPick(true)
+}
+function onChartOutside(e) {
+  if (e.target?.closest?.('.sheet-chart, .sheet-chart-menu, .sc-panel')) return
+  chartSel.value = ''
+  chartMenu.id = ''
+}
+function placeChart(ch, pos) {
+  const stage = stageEl.value?.getBoundingClientRect()
+  if (!stage || !pos) return
+  const hit = sheetRef.value?.cellAt?.(stage.left + pos.left + 2, stage.top + pos.top + 2)
+  const row = hit?.r ?? ch.anchorRow
+  const col = hit?.c ?? ch.anchorCol
+  const g = sheetRef.value?.cellGeomByRC?.(row, col)
+  if (!g) return
+  ch.anchorRow = row
+  ch.anchorCol = col
+  ch.offsetX = Math.round(pos.left - (g.vx - stage.left))
+  ch.offsetY = Math.round(pos.top - (g.vy - stage.top))
+}
+function onChartDown(e, id) {
+  if (e.button !== 0) return
+  if (e.target?.closest?.('.sheet-chart-tool, .sheet-chart-handle')) return
+  const ch = chartOf(id)
+  const box = chartBoxes.value.find((b) => b.id === id)
+  if (!ch || !box) return
+  chartSel.value = id
+  chartMenu.id = ''
+  const ox = box.left
+  const oy = box.top
+  const sx = e.clientX
+  const sy = e.clientY
+  let moved = false
+  const move = (ev) => {
+    const dx = ev.clientX - sx
+    const dy = ev.clientY - sy
+    if (!moved && Math.abs(dx) + Math.abs(dy) < 4) return
+    moved = true
+    chartDrag[id] = { left: ox + dx, top: oy + dy, w: ch.w, h: ch.h }
+    layoutTick.value += 1
+  }
+  const up = () => {
+    document.removeEventListener('mousemove', move)
+    document.removeEventListener('mouseup', up)
+    if (!moved) return
+    placeChart(ch, chartDrag[id])
+    delete chartDrag[id]
+    persistCharts()
+    bumpChartLayout()
+  }
+  document.addEventListener('mousemove', move)
+  document.addEventListener('mouseup', up)
+}
+function openChartMenu(id, anchor) {
+  const rect = anchor?.getBoundingClientRect?.()
+  chartSel.value = id
+  chartMenu.id = id
+  chartMenu.left = rect ? rect.left : 0
+  chartMenu.top = rect ? rect.bottom + 6 : 0
+}
+function onChartDblClick(e, id) {
+  const root = e.currentTarget
+  chartSel.value = id
+  nextTick(() => {
+    openChartMenu(id, root?.querySelector?.('.sheet-chart-tool') || root)
+  })
+}
+function toggleChartMenu(e, id) {
+  if (chartMenu.id === id) {
+    chartMenu.id = ''
+    return
+  }
+  openChartMenu(id, e.currentTarget)
+}
+function editChart(id) {
+  chartMenu.id = ''
+  const ch = chartOf(id)
+  if (ch) openChartDialog(ch)
+}
+function copyChart(id) {
+  const ch = chartOf(id)
+  if (!ch) return
+  const copy = JSON.parse(JSON.stringify(ch))
+  copy.id = uid('CH')
+  copy.offsetX = (ch.offsetX || 0) + 24
+  copy.offsetY = (ch.offsetY || 0) + 24
+  sheetCharts.push(copy)
+  chartSel.value = copy.id
+  chartMenu.id = ''
+  persistCharts()
+  nextTick(bumpChartLayout)
+  Message.success('已复制图表')
+}
+function removeChart(id) {
+  const i = sheetCharts.findIndex((ch) => ch.id === id)
+  if (i >= 0) sheetCharts.splice(i, 1)
+  delete chartDrag[id]
+  if (chartSel.value === id) chartSel.value = ''
+  chartMenu.id = ''
+  persistCharts()
+}
+function downloadChartImage(id) {
+  chartMenu.id = ''
+  const ch = chartOf(id)
+  const canvas = document.querySelector(`.sheet-chart[data-id="${id}"] canvas`)
+  if (!ch || !canvas) return Message.warning('请等待图表绘制完成')
+  exportChartPng(canvas, ch.state).then(() => {
+    Message.success('已下载图片')
+  }).catch((err) => {
+    Message.error(err?.message || '下载失败')
+  })
+}
+function startChartResize(e, ch, dir) {
+  if (!ch || e.button !== 0) return
+  e.preventDefault()
+  e.stopPropagation()
+  const box = chartBoxes.value.find((b) => b.id === ch.id)
+  if (!box) return
+  const sw = ch.w
+  const sh = ch.h
+  const ox = box.left
+  const oy = box.top
+  const sx = e.clientX
+  const sy = e.clientY
+  const move = (ev) => {
+    const dx = ev.clientX - sx
+    const dy = ev.clientY - sy
+    let w = sw
+    let h = sh
+    let left = ox
+    let top = oy
+    if (dir.includes('e')) w = Math.max(280, Math.round(sw + dx))
+    if (dir.includes('s')) h = Math.max(180, Math.round(sh + dy))
+    if (dir.includes('w')) {
+      w = Math.max(280, Math.round(sw - dx))
+      left = ox + sw - w
+    }
+    if (dir.includes('n')) {
+      h = Math.max(180, Math.round(sh - dy))
+      top = oy + sh - h
+    }
+    ch.w = w
+    ch.h = h
+    chartDrag[ch.id] = { left, top, w, h }
+    layoutTick.value += 1
+  }
+  const up = () => {
+    document.removeEventListener('mousemove', move)
+    document.removeEventListener('mouseup', up)
+    placeChart(ch, chartDrag[ch.id] || { left: ox, top: oy, w: ch.w, h: ch.h })
+    delete chartDrag[ch.id]
+    persistCharts()
+    bumpChartLayout()
+  }
+  document.addEventListener('mousemove', move)
+  document.addEventListener('mouseup', up)
+}
+const chartBoxes = computed(() => {
+  layoutTick.value
+  const stage = stageEl.value
+  if (!stage || chPick.active || pvPick.active) return []
+  const sr = stage.getBoundingClientRect()
+  const name = sheetRef.value?.getActiveSheetName?.() || ''
+  return sheetCharts.filter((ch) => !name || ch.sheetName === name).map((ch) => {
+    const drag = chartDrag[ch.id]
+    if (drag) return { id: ch.id, ...drag }
+    const g = sheetRef.value?.cellGeomByRC?.(ch.anchorRow, ch.anchorCol)
+    if (!g) return null
+    return {
+      id: ch.id,
+      left: g.vx - sr.left + (ch.offsetX || 0),
+      top: g.vy - sr.top + (ch.offsetY || 0),
+      w: ch.w,
+      h: ch.h,
+    }
+  }).filter(Boolean)
+})
+function chartOf(id) {
+  return sheetCharts.find((ch) => ch.id === id)
 }
 async function insertPivotSheet(name) {
   return sheetRef.value?.addSheet(name) || null
@@ -1402,6 +1872,18 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onDocPop))
         </div>
       </div>
       <div ref="stageEl" class="editor-stage">
+        <div v-if="chPick.active" class="pv-pick-bar">
+          <span>框选图表要使用的数据区域</span>
+          <input readonly :value="chartDlg.rangeText">
+          <button type="button" class="btn primary" @click="finishChartPick">完成</button>
+          <button type="button" class="btn" @click="cancelChartPick">返回</button>
+        </div>
+        <div v-if="pvPick.active" class="pv-pick-bar">
+          <span>{{ pvPick.field === 'src' ? '框选要分析的数据区域' : '点选放置数据透视表的单元格' }}</span>
+          <input readonly :value="pvPick.field === 'src' ? wizard.srcRange : wizard.dstCell">
+          <button v-if="pvPick.field === 'src'" type="button" class="btn primary" @click="finishPvSrc">完成</button>
+          <button type="button" class="btn" @click="cancelPvPick">返回</button>
+        </div>
         <FortuneSheet
           v-if="open"
           :key="`${tableId}-fold`"
@@ -1412,6 +1894,7 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onDocPop))
           @cellclick="onCellClick"
           @cellcontext="onCellContext"
           @pivot="openPivotWizard"
+          @chart="openChartDialog()"
           @mx-insert="onMxInsert"
         />
         <!-- 关联虚线框（pointer-events 穿透，仅视觉提示） -->
@@ -1420,6 +1903,72 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onDocPop))
           :key="`dash-${i}`"
           class="mx-dash"
           :style="{ left: `${b.left}px`, top: `${b.top}px`, width: `${b.w}px`, height: `${b.h}px` }"
+        />
+        <div
+          v-for="box in chartBoxes"
+          :key="box.id"
+          class="sheet-chart"
+          :class="{ selected: chartSel === box.id }"
+          :data-id="box.id"
+          :style="{ left: `${box.left}px`, top: `${box.top}px`, width: `${box.w}px`, height: `${box.h}px` }"
+          @mousedown="onChartDown($event, box.id)"
+          @dblclick.stop.prevent="onChartDblClick($event, box.id)"
+        >
+          <div class="sheet-chart-body">
+            <SheetChartView
+              v-if="chartOf(box.id)"
+              :state="chartOf(box.id).state"
+              :labels="chartOf(box.id).labels"
+            />
+          </div>
+          <button
+            v-if="chartSel === box.id"
+            type="button"
+            class="sheet-chart-tool"
+            title="图表"
+            @mousedown.stop
+            @click.stop="toggleChartMenu($event, box.id)"
+          >
+            <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+              <rect x="2" y="8" width="3" height="6" rx="0.5" fill="#3370ff"/>
+              <rect x="6.5" y="4" width="3" height="10" rx="0.5" fill="#3370ff"/>
+              <rect x="11" y="6" width="3" height="8" rx="0.5" fill="#3370ff"/>
+            </svg>
+            <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M2 3.5L5 6.5L8 3.5" fill="none" stroke="#646a73" stroke-width="1.4"/></svg>
+          </button>
+          <i
+            v-for="dir in chartHandles"
+            v-show="chartSel === box.id"
+            :key="dir"
+            class="sheet-chart-handle"
+            :class="dir"
+            @mousedown="startChartResize($event, chartOf(box.id), dir)"
+          />
+        </div>
+        <div
+          v-if="chartMenu.id"
+          class="sheet-chart-menu"
+          :style="{ left: `${chartMenu.left}px`, top: `${chartMenu.top}px` }"
+          @mousedown.stop
+        >
+          <button type="button" @click="editChart(chartMenu.id)">编辑</button>
+          <button type="button" @click="copyChart(chartMenu.id)">复制</button>
+          <button type="button" @click="removeChart(chartMenu.id)">删除</button>
+          <button type="button" @click="downloadChartImage(chartMenu.id)">下载为图片</button>
+        </div>
+        <SheetChartDialog
+          v-if="chartDlg.visible"
+          :state="chartDlg.state"
+          :range-text="chartDlg.rangeText"
+          :category-name="chartDlg.categoryName"
+          :columns="chartDlg.columns"
+          @close="closeChartPanel"
+          @pick="beginChartPick"
+          @range="applyChartRangeText"
+          @category="setChartCategory"
+          @add-series="addChartSeries"
+          @replace-series="replaceChartSeries"
+          @remove-series="removeChartSeries"
         />
         <aside class="pv-panel" :class="{ open: pivotOpen }">
           <div class="pv-head">
@@ -1573,7 +2122,7 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onDocPop))
       <label class="pv-radio"><input type="radio" v-model="wizard.srcType" value="range"> 请选择单元格区域(S)</label>
       <div class="pv-range-row" :class="{ 'is-off': wizard.srcType !== 'range' }">
         <input v-model="wizard.srcRange" spellcheck="false" placeholder="如 数据!$A$1:$D$8">
-        <button type="button" class="pv-pick" title="选择区域" @click="pickSrc">
+        <button type="button" class="pv-pick" title="到表格中框选区域" @click="pickSrc">
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="2" y="2" width="5" height="5"/><rect x="9" y="2" width="5" height="5"/><rect x="2" y="9" width="5" height="5"/><rect x="9" y="9" width="5" height="5"/></svg>
         </button>
       </div>
@@ -1589,7 +2138,7 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onDocPop))
       <label class="pv-radio"><input type="radio" v-model="wizard.placeType" value="existing"> 现有工作表(E)</label>
       <div class="pv-range-row" :class="{ 'is-off': wizard.placeType !== 'existing' }">
         <input v-model="wizard.dstCell" spellcheck="false" placeholder="如 数据!$F$1">
-        <button type="button" class="pv-pick" title="选择单元格" @click="pickDst">
+        <button type="button" class="pv-pick" title="到表格中点选单元格" @click="pickDst">
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="2" y="2" width="5" height="5"/><rect x="9" y="2" width="5" height="5"/><rect x="2" y="9" width="5" height="5"/><rect x="9" y="9" width="5" height="5"/></svg>
         </button>
       </div>

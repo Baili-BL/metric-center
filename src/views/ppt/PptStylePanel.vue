@@ -241,6 +241,29 @@ const CAP_SIZES = [10, 11, 12, 13, 14, 16, 18]
               <a-option v-for="n in CAP_SIZES" :key="'c' + n" :value="n">{{ n }} px</a-option>
             </a-select>
           </div>
+          <div class="ps-sub">坐标轴</div>
+          <div class="ps-row">
+            <span>X 轴文字</span>
+            <button
+              type="button"
+              class="fmt-color color-well"
+              title="X 轴文字颜色"
+              :style="{ '--swatch': s.axisXColor }"
+              :disabled="disabled"
+              @click.stop="openColor($event, 'axisXColor', s.axisXColor)"
+            >A</button>
+          </div>
+          <div class="ps-row">
+            <span>Y 轴文字</span>
+            <button
+              type="button"
+              class="fmt-color color-well"
+              title="Y 轴文字颜色"
+              :style="{ '--swatch': s.axisYColor }"
+              :disabled="disabled"
+              @click.stop="openColor($event, 'axisYColor', s.axisYColor)"
+            >A</button>
+          </div>
         </div>
       </a-collapse-item>
     </a-collapse>

@@ -3,7 +3,8 @@ import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Message } from '@arco-design/web-vue'
 import { TABLE_TYPES, typeName, useTableStore } from '../../stores/tables'
-import { previewGrid, previewRows, workbookToXlsx } from '../../utils/workbook'
+import { previewGrid, previewRows } from '../../utils/workbook'
+import { exportTableExcel } from '../../utils/exportExcelChart'
 import { runWithExportLoading } from '../../utils/exportLoading'
 import { parentPathOf } from '../../utils/dir'
 import { startDirDrag } from '../../utils/dir-drag'
@@ -283,16 +284,12 @@ function confirmAdd() {
 }
 async function downloadXlsx(t) {
   if (!t) return
+  const charts = t.sheetCharts || []
   try {
-    await runWithExportLoading(async () => {
-      const buf = await workbookToXlsx(t.workbook, t.title)
-      const a = document.createElement('a')
-      a.href = URL.createObjectURL(new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }))
-      a.download = `${t.title}.xlsx`
-      a.click()
-      setTimeout(() => URL.revokeObjectURL(a.href), 800)
-    })
-    Message.success(`已导出 Excel（.xlsx）`)
+    const result = await runWithExportLoading(() => exportTableExcel(t.workbook, charts, `${t.title}.xlsx`, t.title))
+    Message.success(result?.chartCount
+      ? '已导出 Excel：图表已放在原数据表上（可编辑）'
+      : '已导出 Excel（.xlsx）')
   } catch (e) {
     Message.error(e?.message || '导出失败，请稍后重试')
   }

@@ -16,6 +16,7 @@ import DirPathPicker from '../../components/DirPathPicker.vue'
 import PptSlide from './PptSlide.vue'
 import PptEditor from './PptEditor.vue'
 import PptPresent from './PptPresent.vue'
+import PptReportView from './PptReportView.vue'
 import { PPT_TYPES, typeName } from './ppt-model'
 
 const route = useRoute()
@@ -33,8 +34,7 @@ const batchModal = reactive({ visible: false, dir: '', ids: [] })
 const batchList = ref([])
 const shareModal = reactive({ visible: false, id: '', users: [] })
 const mergeModal = reactive({ visible: false, ids: [], title: '合并PPT', tab: 'public' })
-const previewModal = reactive({ visible: false, ppt: null })
-const reportModal = reactive({ visible: false, report: null })
+const previewPpt = ref(null)
 const presentPpt = ref(null)
 const presentStart = ref(0)
 
@@ -324,27 +324,29 @@ function unshare(p) {
 function convertReport(p) {
   const r = store.toReport(p.id)
   if (!r.ok) return Message.error(r.msg)
-  reportModal.report = r.report
-  reportModal.visible = true
   menuId.value = ''
   Message.success(r.existed ? '已有对应报告' : '已转为报告')
+  openPreview(p)
 }
 function openPreview(p) {
-  previewModal.ppt = p
-  previewModal.visible = true
+  previewPpt.value = p
   menuId.value = ''
 }
-function doPublish() {
-  if (!previewModal.ppt) return
-  store.publishPpt(previewModal.ppt.id, true)
-  previewModal.visible = false
-  Message.success('已发布')
+function closePreview() {
+  previewPpt.value = null
+}
+function doPublish(p, on = true) {
+  const target = p || previewPpt.value
+  if (!target) return
+  const r = store.publishPpt(target.id, on)
+  if (!r.ok) return Message.error(r.msg)
+  if (previewPpt.value && previewPpt.value.id === target.id) previewPpt.value = r.ppt
+  Message.success(on ? '已发布' : '已取消发布')
 }
 function present(p, start = 0) {
   presentPpt.value = p
   presentStart.value = start
   menuId.value = ''
-  previewModal.visible = false
 }
 function closePresent() {
   presentPpt.value = null
@@ -421,9 +423,18 @@ function pptDirShort(path) {
 </script>
 
 <template>
-  <PptPresent v-if="(presentPpt || presenting) && (presentPpt || store.get(editorId))" :ppt="presentPpt || store.get(editorId)" :start="presentStart" @close="closePresent" />
+  <PptPresent v-if="(presentPpt || presenting) && (presentPpt || store.get(editorId))" :ppt="presentPpt || store.get(editorId)" :start="presentStart" :preview="!!previewPpt" @close="closePresent" />
+  <PptReportView
+    v-if="previewPpt"
+    v-show="!(presentPpt || presenting)"
+    :ppt="previewPpt"
+    @close="closePreview"
+    @present="present"
+    @download="download"
+    @publish="doPublish"
+  />
 
-  <div v-else class="ppt-page" :class="{ editing: !!editorId }">
+  <div v-if="!previewPpt && !(presentPpt || presenting)" class="ppt-page" :class="{ editing: !!editorId }">
     <aside class="dir-panel" :class="{ collapsed: dirCollapsed }">
       <div class="dir-head">
         <h2>目录</h2>
@@ -753,34 +764,9 @@ function pptDirShort(path) {
     </template>
   </AppModal>
 
-  <AppModal :visible="previewModal.visible" title="预览发布" icon="preview" :width="860" @update:visible="(v) => previewModal.visible = v">
-    <div v-if="previewModal.ppt" class="ppt-preview-list">
-      <div v-for="s in previewModal.ppt.slides" :key="s.id" class="ppt-preview-item">
-        <PptSlide :slide="s" :template="previewModal.ppt.cover?.template || 'navy'" :ppt-style="previewModal.ppt.style" mini />
-      </div>
-    </div>
-    <template #footer>
-      <button type="button" class="btn" @click="present(previewModal.ppt)">演示</button>
-      <button type="button" class="btn tint" @click="previewModal.visible = false">取消</button>
-      <button v-if="previewModal.ppt && previewModal.ppt.scope !== 'public'" type="button" class="btn primary" @click="doPublish">发布</button>
-    </template>
-  </AppModal>
-
-  <AppModal :visible="reportModal.visible" :title="reportModal.report ? '查看报告' : '报告'" icon="nav-report" :width="480" @update:visible="(v) => reportModal.visible = v">
-    <div v-if="reportModal.report" class="ci-panel">
-      <div class="ci-row"><span class="ci-k">报告名称</span><span class="ci-v">{{ reportModal.report.title }}</span></div>
-      <div class="ci-row"><span class="ci-k">报告ID</span><span class="ci-v">{{ reportModal.report.id }}</span></div>
-      <div class="ci-row"><span class="ci-k">页数</span><span class="ci-v">{{ reportModal.report.pages }}</span></div>
-      <div class="ci-row"><span class="ci-k">生成时间</span><span class="ci-v">{{ reportModal.report.date }}</span></div>
-      <div class="ci-row"><span class="ci-k">生成人</span><span class="ci-v">{{ reportModal.report.creator }}</span></div>
-    </div>
-    <template #footer>
-      <button type="button" class="btn primary" @click="reportModal.visible = false">关闭</button>
-    </template>
-  </AppModal>
-
   <PptEditor
     v-if="editorId"
+    v-show="!previewPpt && !presentPpt && !presenting"
     :ppt-id="editorId"
     @close="closeEditor"
     @preview="openPreview"

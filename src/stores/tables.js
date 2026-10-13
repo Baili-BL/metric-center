@@ -474,6 +474,12 @@ export const useTableStore = defineStore('tables', () => {
     list.forEach((t) => { if (ids.includes(t.id)) t.dir = dir })
     persist()
   }
+  function saveSheetCharts(id, charts) {
+    const t = get(id)
+    if (!t) return
+    t.sheetCharts = charts
+    persist()
+  }
   function savePivotConfig(id, cfg) {
     const t = get(id)
     if (!t) return
@@ -559,6 +565,6 @@ export const useTableStore = defineStore('tables', () => {
     dirs, tables, filtered,
     setType, tableFav, dirCount, itemsInDir, findById, get,
     addDir, renameDir, removeDir, moveDir,
-    createTable, removeTable, toggleFav, saveWorkbook, renameTable, moveTable, moveTables, savePivotConfig, setTsConfig, setMixedConfig, setCustomInd, setBalanceVer, refreshBalance, submitPublish, persist,
+    createTable, removeTable, toggleFav, saveWorkbook, renameTable, moveTable, moveTables, savePivotConfig, saveSheetCharts, setTsConfig, setMixedConfig, setCustomInd, setBalanceVer, refreshBalance, submitPublish, persist,
   }
 })

@@ -212,6 +212,8 @@ export function defaultPptStyle() {
     bodyItalic: false,
     capSize: 12,
     bodyBg: '',
+    axisXColor: '#000000',
+    axisYColor: '#000000',
   }
 }
 
@@ -250,6 +252,8 @@ export function normalizePptStyle(raw) {
     titleColor: raw.titleColor || d.titleColor,
     bodyColor: raw.bodyColor || d.bodyColor,
     bodyBg: raw.bodyBg || '',
+    axisXColor: raw.axisXColor || d.axisXColor,
+    axisYColor: raw.axisYColor || d.axisYColor,
   }
 }
 
@@ -504,7 +508,7 @@ export function defaultSlides(title, typeId) {
   ]
 }
 
-export function chartPaintSpec(chartLike, style) {
+export function chartPaintSpec(chartLike, style, opts = {}) {
   if (!chartLike) return null
   const st = mergeBuilderState(chartLike.builderState || {}, {
     title: chartLike.title,
@@ -516,7 +520,7 @@ export function chartPaintSpec(chartLike, style) {
     ...toPaintSpec(st, st.series || [], monthLabels(36)),
     customLegend: true,
     tooltipShow: false,
-    listPreview: true,
+    listPreview: !opts.forReport,
     disableTooltip: true,
   }
   if (!style) return spec
@@ -527,6 +531,12 @@ export function chartPaintSpec(chartLike, style) {
     ...ser,
     color: colors[i % colors.length],
   }))
+  const xColor = s.axisXColor || '#000000'
+  const yColor = s.axisYColor || '#000000'
+  spec.ax = spec.ax || {}
+  spec.ax.x = { ...(spec.ax.x || {}), labelColor: xColor, titleColor: xColor }
+  spec.ax.yL = { ...(spec.ax.yL || {}), labelColor: yColor, titleColor: yColor }
+  spec.ax.yR = { ...(spec.ax.yR || {}), labelColor: yColor, titleColor: yColor }
   return spec
 }
 

@@ -112,14 +112,6 @@ function srcName() {
           <button class="sub-item" :class="{ active: pptScope() === 'shared' }" @click="go('/ppt', { scope: 'shared', side: 'out' })">共享PPT</button>
           <button class="sub-item" :class="{ active: pptScope() === 'public' }" @click="go('/ppt', { scope: 'public' })">公共PPT</button>
         </div>
-        <button class="menu-item" :class="{ active: isActive('gallery') }" data-tip="图库" @click="go('/gallery')">
-          <span class="mi-icon"><Icon name="nav-gallery" :size="15" /></span>
-          <span class="mi-text">图库</span>
-        </button>
-        <button class="menu-item" :class="{ active: isActive('indicators') }" data-tip="指标中心" @click="go('/indicators')">
-          <span class="mi-icon"><Icon name="nav-indicator" :size="15" /></span>
-          <span class="mi-text">指标中心</span>
-        </button>
         <button class="menu-item" :class="{ active: isActive('tables'), expanded: openTable }" data-tip="表格" @click="openTable = !openTable; go('/tables', { type: tableType() })">
           <span class="mi-icon"><Icon name="nav-table" :size="15" /></span>
           <span class="mi-text">表格</span>
@@ -132,6 +124,14 @@ function srcName() {
           <button class="sub-item" :class="{ active: tableType() === 'mixed' }" @click="go('/tables', { type: 'mixed' })">混合表格</button>
           <button class="sub-item" :class="{ active: tableType() === 'balance' }" @click="go('/tables', { type: 'balance' })">平衡表</button>
         </div>
+        <button class="menu-item" :class="{ active: isActive('gallery') }" data-tip="图库" @click="go('/gallery')">
+          <span class="mi-icon"><Icon name="nav-gallery" :size="15" /></span>
+          <span class="mi-text">图库</span>
+        </button>
+        <button class="menu-item" :class="{ active: isActive('indicators') }" data-tip="指标中心" @click="go('/indicators')">
+          <span class="mi-icon"><Icon name="nav-indicator" :size="15" /></span>
+          <span class="mi-text">指标中心</span>
+        </button>
         <button class="menu-item" :class="{ active: isActive('datasource'), expanded: openDs }" data-tip="数据源" @click="openDs = !openDs; go('/datasource')">
           <span class="mi-icon"><Icon name="nav-datasource" :size="15" /></span>
           <span class="mi-text">数据源</span>

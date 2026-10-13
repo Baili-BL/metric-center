@@ -23,6 +23,41 @@ const BLOCK_OPTIONS = [
   { value: 'h4', label: '标题2' },
 ]
 const SIZE_OPTIONS = ['12', '13', '14', '16', '18', '20', '24']
+const LIST_MAIN = [
+  { id: 'decimal', title: '1. 2. 3.', samples: ['1.', '2.', '3.'] },
+  { id: 'circled', title: '① ② ③', samples: ['①', '②', '③'] },
+  { id: 'upper-roman', title: 'I. II. III.', samples: ['I.', 'II.', 'III.'] },
+  { id: 'upper-alpha', title: 'A. B. C.', samples: ['A.', 'B.', 'C.'] },
+  { id: 'lower-alpha-paren', title: 'a) b) c)', samples: ['a)', 'b)', 'c)'] },
+  { id: 'lower-alpha', title: 'a. b. c.', samples: ['a.', 'b.', 'c.'] },
+]
+const LIST_MORE = [
+  { id: 'decimal-zero', title: '01. 02. 03.' },
+  { id: 'lower-roman', title: 'i. ii. iii.' },
+  { id: 'paren-decimal', title: '(1) (2) (3)' },
+  { id: 'cjk', title: '一、二、三、' },
+  { id: 'cjk-heavenly', title: '甲、乙、丙、' },
+]
+const listOpen = ref(false)
+const listMore = ref(false)
+const listStyle = ref('')
+
+function onDocDown(e) {
+  if (!listOpen.value) return
+  if (e.target?.closest?.('.rn-list-wrap')) return
+  listOpen.value = false
+  listMore.value = false
+}
+watch(() => props.visible, (v) => {
+  if (!v) {
+    listOpen.value = false
+    listMore.value = false
+    document.removeEventListener('mousedown', onDocDown, true)
+  } else {
+    document.addEventListener('mousedown', onDocDown, true)
+  }
+})
+onBeforeUnmount(() => document.removeEventListener('mousedown', onDocDown, true))
 
 watch(() => props.visible, async (v) => {
   window.clearTimeout(focusTimer)
@@ -149,6 +184,8 @@ function applyBlock(tag) {
 function syncBlockMode() {
   const sel = document.getSelection()
   let node = sel?.anchorNode
+  const ol = closestList('OL')
+  listStyle.value = ol ? (ol.getAttribute('data-list') || 'decimal') : ''
   while (node && node !== editorEl.value) {
     const tag = node.nodeName?.toLowerCase()
     if (tag === 'h3' || tag === 'h4' || tag === 'blockquote') { blockMode.value = tag; return }
@@ -186,6 +223,68 @@ function addImage() {
 function clearFormat() {
   exec('removeFormat')
   exec('unlink')
+}
+
+function closestList(tag) {
+  const el = editorEl.value
+  const sel = window.getSelection()
+  let node = sel?.anchorNode
+  if (!node || !el) return null
+  if (node.nodeType === 3) node = node.parentElement
+  while (node && node !== el) {
+    if (node.tagName === tag) return node
+    node = node.parentElement
+  }
+  return null
+}
+
+function applyOlKind(ol, id) {
+  if (!ol) return
+  ol.removeAttribute('style')
+  ol.className = ''
+  if (id === 'decimal') {
+    ol.style.listStyleType = 'decimal'
+    ol.removeAttribute('data-list')
+    return
+  }
+  ol.setAttribute('data-list', id)
+  const css = {
+    'upper-roman': 'upper-roman',
+    'lower-roman': 'lower-roman',
+    'upper-alpha': 'upper-alpha',
+    'lower-alpha': 'lower-alpha',
+    'decimal-zero': 'decimal-leading-zero',
+    cjk: 'simp-chinese-informal',
+    'cjk-heavenly': 'cjk-heavenly-stem',
+  }[id]
+  ol.style.listStyleType = css || 'none'
+}
+
+function applyList(id) {
+  restoreSelection()
+  const ol = closestList('OL')
+  if (id === 'none') {
+    if (ol) exec('insertOrderedList')
+    listStyle.value = ''
+    listOpen.value = false
+    listMore.value = false
+    return
+  }
+  if (!ol) exec('insertOrderedList')
+  nextTick(() => {
+    const cur = closestList('OL')
+    applyOlKind(cur, id)
+    listStyle.value = id
+    listOpen.value = false
+    listMore.value = false
+    saveSelection()
+    syncEmpty()
+  })
+}
+
+function toggleListPop() {
+  listOpen.value = !listOpen.value
+  if (!listOpen.value) listMore.value = false
 }
 
 function onBodyInput() {
@@ -247,7 +346,35 @@ function onCancel() {
           <button type="button" class="rn-btn" title="右对齐" @click="exec('justifyRight')">右</button>
         </div>
         <div class="rn-row">
-          <button type="button" class="rn-btn" title="有序列表" @click="exec('insertOrderedList')">1.</button>
+          <div class="rn-list-wrap">
+            <button type="button" class="rn-btn" title="编号" :class="{ on: listOpen || listStyle }" @click="toggleListPop">1.</button>
+            <div v-if="listOpen" class="rn-list-pop" @mousedown.prevent>
+              <div class="rn-list-grid">
+                <button type="button" class="rn-list-none" :class="{ on: !listStyle }" @click="applyList('none')">无</button>
+                <button
+                  v-for="item in LIST_MAIN"
+                  :key="item.id"
+                  type="button"
+                  class="rn-list-card"
+                  :class="{ on: listStyle === item.id }"
+                  :title="item.title"
+                  @click="applyList(item.id)"
+                >
+                  <span v-for="s in item.samples" :key="s">{{ s }}————</span>
+                </button>
+              </div>
+              <button type="button" class="rn-list-more" @click="listMore = !listMore">其他编号…</button>
+              <div v-if="listMore" class="rn-list-extra">
+                <button
+                  v-for="item in LIST_MORE"
+                  :key="item.id"
+                  type="button"
+                  :class="{ on: listStyle === item.id }"
+                  @click="applyList(item.id)"
+                >{{ item.title }}</button>
+              </div>
+            </div>
+          </div>
           <button type="button" class="rn-btn" title="无序列表" @click="exec('insertUnorderedList')">•</button>
           <button type="button" class="rn-btn" title="增加缩进" @click="exec('indent')">⇥</button>
           <span class="rn-split" />
@@ -263,7 +390,7 @@ function onCancel() {
         <div v-if="empty" class="rn-ph">{{ placeholder }}</div>
         <div
           ref="editorEl"
-          class="rn-body"
+          class="rn-body rich-note"
           contenteditable="true"
           tabindex="0"
           spellcheck="false"
@@ -287,7 +414,7 @@ function onCancel() {
 .rn-editor {
   border: 1px solid var(--border, #e3e6eb);
   border-radius: 6px;
-  overflow: hidden;
+  overflow: visible;
   background: #fff;
 }
 .rn-toolbar {
@@ -343,6 +470,85 @@ function onCancel() {
   flex-shrink: 0;
 }
 .rn-btn:hover { background: #e8eaee; }
+.rn-btn.on { background: #e8f0ff; color: #1664ff; }
+.rn-list-wrap { position: relative; }
+.rn-list-pop {
+  position: absolute;
+  left: 0;
+  top: calc(100% + 4px);
+  z-index: 20;
+  width: 268px;
+  padding: 8px;
+  background: #fff;
+  border: 1px solid #e3e6eb;
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(29, 33, 41, .12);
+}
+.rn-list-grid {
+  display: grid;
+  grid-template-columns: 52px 1fr 1fr 1fr;
+  grid-template-rows: auto auto;
+  gap: 4px;
+  align-items: stretch;
+}
+.rn-list-none {
+  grid-row: 1 / span 2;
+  border: 1px solid #e3e6eb;
+  border-radius: 4px;
+  background: #f7f8fa;
+  color: #4e5969;
+  font-size: 13px;
+  cursor: pointer;
+}
+.rn-list-none.on,
+.rn-list-card.on,
+.rn-list-extra button.on { border-color: #1664ff; background: #e8f0ff; color: #1664ff; }
+.rn-list-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  padding: 4px 6px;
+  border: 1px solid #e3e6eb;
+  border-radius: 4px;
+  background: #fff;
+  color: #1d2129;
+  font-size: 11px;
+  line-height: 1.35;
+  cursor: pointer;
+  font-family: inherit;
+}
+.rn-list-card:hover,
+.rn-list-none:hover,
+.rn-list-extra button:hover { background: #f7f8fa; }
+.rn-list-more {
+  margin-top: 6px;
+  width: 100%;
+  height: 28px;
+  border: none;
+  background: none;
+  color: #1d2129;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+  padding: 0 4px;
+}
+.rn-list-extra {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+}
+.rn-list-extra button {
+  height: 26px;
+  padding: 0 8px;
+  border: 1px solid #e3e6eb;
+  border-radius: 4px;
+  background: #fff;
+  font-size: 12px;
+  cursor: pointer;
+  font-family: inherit;
+}
 .rn-b { font-weight: 700; }
 .rn-i { font-style: italic; }
 .rn-strike { font-size: 13px; }
@@ -381,6 +587,21 @@ function onCancel() {
   margin: 6px 0; padding: 2px 10px; border-left: 3px solid #dcdfe4; color: #4e5969;
 }
 .rn-body :deep(ol), .rn-body :deep(ul) { margin: 4px 0; padding-left: 22px; }
+.rn-body :deep(ol[data-list="circled"]),
+.rn-body :deep(ol[data-list="lower-alpha-paren"]),
+.rn-body :deep(ol[data-list="paren-decimal"]) { list-style: none; padding-left: 1.6em; }
+.rn-body :deep(ol[data-list="circled"]) > li,
+.rn-body :deep(ol[data-list="lower-alpha-paren"]) > li,
+.rn-body :deep(ol[data-list="paren-decimal"]) > li { position: relative; }
+.rn-body :deep(ol[data-list="circled"]) { counter-reset: rn-ol; }
+.rn-body :deep(ol[data-list="circled"]) > li { counter-increment: rn-ol; }
+.rn-body :deep(ol[data-list="circled"]) > li::before { position: absolute; left: -1.5em; content: counter(rn-ol, circled-decimal) " "; }
+.rn-body :deep(ol[data-list="lower-alpha-paren"]) { counter-reset: rn-ol; }
+.rn-body :deep(ol[data-list="lower-alpha-paren"]) > li { counter-increment: rn-ol; }
+.rn-body :deep(ol[data-list="lower-alpha-paren"]) > li::before { position: absolute; left: -1.5em; content: counter(rn-ol, lower-alpha) ") "; }
+.rn-body :deep(ol[data-list="paren-decimal"]) { counter-reset: rn-ol; }
+.rn-body :deep(ol[data-list="paren-decimal"]) > li { counter-increment: rn-ol; }
+.rn-body :deep(ol[data-list="paren-decimal"]) > li::before { position: absolute; left: -1.5em; content: "(" counter(rn-ol) ") "; }
 .rn-body :deep(a) { color: #2e74ff; }
 .rn-body :deep(hr) { border: none; border-top: 1px solid #dcdfe4; margin: 8px 0; }
 .rn-body :deep(img) { max-width: 100%; }

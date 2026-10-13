@@ -41,9 +41,9 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
     <header class="pp-bar">
       <button type="button" class="pp-back" @click="emit('close')">
         <Icon name="back" :size="14" />
-        <span>{{ preview ? '退出预览' : '退出演示' }}</span>
+        <span>{{ preview ? '返回报告' : '退出演示' }}</span>
       </button>
-      <span v-if="preview" class="pp-mode">演示预览</span>
+      <span v-if="preview" class="pp-mode">PPT 演示</span>
       <span class="pp-title">{{ ppt.title }}</span>
       <button v-if="idx > 0" type="button" class="pp-from-start" @click="idx = 0">从头播放</button>
       <span class="pp-idx">{{ idx + 1 }} / {{ slides.length }}</span>

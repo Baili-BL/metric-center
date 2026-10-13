@@ -637,6 +637,18 @@
 .slot-text.rich-note h4 { margin: 0 0 4px; font-weight: 650; }
 .slot-text.rich-note ol,
 .slot-text.rich-note ul { margin: 4px 0; padding-left: 20px; }
+.rich-note ol[data-list="circled"],
+.rich-note ol[data-list="lower-alpha-paren"],
+.rich-note ol[data-list="paren-decimal"] { list-style: none; padding-left: 1.6em; }
+.rich-note ol[data-list="circled"] { counter-reset: rn-ol; }
+.rich-note ol[data-list="circled"] > li { counter-increment: rn-ol; position: relative; }
+.rich-note ol[data-list="circled"] > li::before { position: absolute; left: -1.5em; content: counter(rn-ol, circled-decimal) " "; }
+.rich-note ol[data-list="lower-alpha-paren"] { counter-reset: rn-ol; }
+.rich-note ol[data-list="lower-alpha-paren"] > li { counter-increment: rn-ol; position: relative; }
+.rich-note ol[data-list="lower-alpha-paren"] > li::before { position: absolute; left: -1.5em; content: counter(rn-ol, lower-alpha) ") "; }
+.rich-note ol[data-list="paren-decimal"] { counter-reset: rn-ol; }
+.rich-note ol[data-list="paren-decimal"] > li { counter-increment: rn-ol; position: relative; }
+.rich-note ol[data-list="paren-decimal"] > li::before { position: absolute; left: -1.5em; content: "(" counter(rn-ol) ") "; }
 .slot-cap { font-size: var(--ppt-cap-size, 12px); font-weight: 600; margin-bottom: 4px; color: var(--text-2); font-family: var(--ppt-font, inherit); }
 .slot-chart, .slot-table, .slot-sand { height: 100%; display: flex; flex-direction: column; min-height: 0; }
 .slot-chart .g2-wrap, .slot-chart .g2-host {
@@ -2447,3 +2459,239 @@
 .ppt-slide.layering .slide-shape { cursor: move; }
 .ppt-slide.mini .slide-shape .slot-handles,
 .ppt-slide.mini .slide-shape .shape-del { display: none !important; }
+
+.ppt-report {
+  position: fixed;
+  inset: 0;
+  z-index: 360;
+  background: #fff;
+  overflow: auto;
+  color: #1d2129;
+  padding-right: 176px;
+  box-sizing: border-box;
+}
+.pr-rail {
+  position: fixed;
+  top: 20px;
+  right: 16px;
+  z-index: 20;
+  width: 148px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.pr-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  height: 36px;
+  padding: 0 12px;
+  border-radius: 4px;
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  border: 1px solid transparent;
+  box-shadow: 0 1px 4px rgba(15, 23, 42, .08);
+}
+.pr-btn.ghost {
+  background: #fff;
+  color: #1d2129;
+  border-color: #e5e6eb;
+}
+.pr-btn.ghost:hover { background: #f7f8fa; }
+.pr-btn.primary {
+  background: #165dff;
+  color: #fff;
+}
+.pr-btn.primary:hover { background: #0e4fe0; }
+.pr-pub { position: relative; }
+.pr-pub .pr-btn { justify-content: space-between; }
+.pr-pub-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  background: #fff;
+  border: 1px solid #e5e6eb;
+  border-radius: 4px;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, .12);
+  overflow: hidden;
+}
+.pr-pub-menu button {
+  display: block;
+  width: 100%;
+  height: 34px;
+  padding: 0 12px;
+  border: none;
+  background: #fff;
+  text-align: left;
+  font-size: 13px;
+  color: #1d2129;
+  cursor: pointer;
+}
+.pr-pub-menu button:hover { background: #f2f3f5; }
+.pr-hero {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  background: #111;
+  overflow: hidden;
+}
+.pr-hero .ppt-slide { width: 100%; height: 100%; }
+.pr-article {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 28px 40px 96px;
+}
+.pr-sec { margin-bottom: 36px; }
+.pr-sec-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  margin-bottom: 18px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #eee;
+}
+.pr-sec-mark {
+  display: flex;
+  align-items: stretch;
+  height: 22px;
+  flex: none;
+  gap: 3px;
+}
+.pr-sec-mark i {
+  width: 10px;
+  background: #c62828;
+}
+.pr-sec-mark b {
+  width: 6px;
+  background: #4a4a4a;
+}
+.pr-sec-head h2 {
+  margin: 0;
+  flex: 1;
+  min-width: 0;
+  font-size: 20px;
+  font-weight: 600;
+  color: #1d2129;
+  letter-spacing: .02em;
+}
+.pr-brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+  color: #1d2129;
+}
+.pr-mark {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 18px;
+}
+.pr-mark i {
+  display: block;
+  width: 5px;
+  background: #c62828;
+}
+.pr-mark i:nth-child(1) { height: 10px; }
+.pr-mark i:nth-child(2) { height: 14px; }
+.pr-mark i:nth-child(3) { height: 18px; }
+.pr-brand strong {
+  display: block;
+  font-size: 13px;
+  line-height: 1.1;
+  font-weight: 700;
+}
+.pr-brand em {
+  display: block;
+  font-style: normal;
+  font-size: 9px;
+  letter-spacing: .04em;
+  color: #86909c;
+}
+.pr-grid {
+  display: grid;
+  gap: 28px 32px;
+  margin-bottom: 16px;
+}
+.pr-grid.cols-1 { grid-template-columns: 1fr; }
+.pr-grid.cols-2 { grid-template-columns: 1fr 1fr; }
+.pr-grid.cols-3 { grid-template-columns: 1fr 1fr 1fr; }
+.pr-fig { margin: 0; min-width: 0; }
+.pr-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  margin-bottom: 6px;
+  font-size: 12px;
+  color: #4e5969;
+}
+.pr-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.pr-legend i {
+  width: 16px;
+  height: 2px;
+  background: #c62828;
+}
+.pr-chart {
+  height: 280px;
+}
+.pr-chart.tall { height: 380px; }
+.pr-chart .g2-wrap { height: 100%; }
+.pr-foot {
+  margin-top: 4px;
+  font-size: 12px;
+  color: #86909c;
+}
+.pr-cap {
+  margin-bottom: 8px;
+  font-size: 13px;
+  color: #4e5969;
+}
+.pr-table-wrap { margin: 12px 0 20px; overflow: auto; }
+.pr-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.pr-table td {
+  border: 1px solid #e5e6eb;
+  padding: 6px 8px;
+  color: #1d2129;
+}
+.pr-sand { margin: 12px 0 20px; }
+.pr-sand-grid {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 8px;
+}
+.pr-sand-cell {
+  border: 1px solid #e5e6eb;
+  border-radius: 4px;
+  padding: 8px;
+  text-align: center;
+}
+.pr-sand-cell b { display: block; font-size: 13px; }
+.pr-sand-cell span { font-size: 12px; color: #4e5969; }
+.pr-sand-cell.up span { color: #cb2634; }
+.pr-sand-cell.down span { color: #1a7f37; }
+.pr-text {
+  margin: 8px 0 0;
+  font-size: 14px;
+  line-height: 1.85;
+  color: #1d2129;
+}
+.pr-text p { margin: 0 0 8px; }
+.pr-text ul, .pr-text ol {
+  margin: 6px 0 0;
+  padding-left: 1.4em;
+}
+.pr-text li { margin: 4px 0; }
+@media (max-width: 960px) {
+  .pr-article { padding: 20px 16px 80px; }
+  .pr-rail { right: 8px; width: 120px; }
+  .pr-grid.cols-2, .pr-grid.cols-3 { grid-template-columns: 1fr; }
+  .pr-sand-grid { grid-template-columns: repeat(3, 1fr); }
+}

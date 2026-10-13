@@ -49,7 +49,7 @@ const props = defineProps({
   // 混合表：屏蔽 fortune 原生单元格右键菜单，改由父组件渲染自定义菜单（cellcontext 事件）
   suppressCellMenu: { type: Boolean, default: false },
 })
-const emit = defineEmits(['pivot', 'cellhover', 'cellclick', 'cellcontext', 'mx-insert'])
+const emit = defineEmits(['pivot', 'chart', 'cellhover', 'cellclick', 'cellcontext', 'mx-insert'])
 
 const TOOLBAR_ITEMS = [
   'undo', 'redo', 'format-painter', 'clear-format', '|',
@@ -5327,6 +5327,9 @@ function cellFromPoint(ctx, clientX, clientY) {
   const g = geomFromPoint(ctx, clientX, clientY)
   return g ? { r: g.r, c: g.c } : null
 }
+function cellAt(clientX, clientY) {
+  return cellFromPoint(ctxState() || {}, clientX, clientY)
+}
 
 // 完整几何信息：单元格 (r,c) + 其在视口中的矩形（虚线框/悬浮提示定位用）
 function geomFromPoint(ctx, clientX, clientY) {
@@ -5540,6 +5543,7 @@ defineExpose({
   setActiveSheet,
   writeBlock,
   cellGeomByRC: (row, col) => geomByRC(ctxState() || {}, row, col),
+  cellAt,
   insertAxis,
 })
 </script>
@@ -5936,10 +5940,11 @@ defineExpose({
     >
       <template v-if="pop.kind === 'menu'">
         <button type="button" @click="fileRef?.click(); pop.show = false">导入 Excel</button>
-        <button type="button" @click="emit('pivot'); pop.show = false">数据透视表</button>
       </template>
       <template v-else-if="pop.kind === 'insert'">
         <button type="button" @click="clickFortune('插入图片')">插入图片</button>
+        <button type="button" @click="emit('chart'); pop.show = false">图表</button>
+        <button type="button" @click="emit('pivot'); pop.show = false">插入透视表</button>
         <button type="button" @click="clickFortune('插入链接')">插入链接</button>
       </template>
       <template v-else-if="pop.kind === 'sort'">
