@@ -39,18 +39,29 @@ export function cfIconSvg(kind, color) {
   return `<svg viewBox="0 0 24 24" width="20" height="20"><path d="${d}" fill="${fill}"/></svg>`
 }
 
-export function cfSignalSvg(level, total = 4) {
-  const gap = 2
-  const w = (20 - gap * (total - 1)) / total
+export function cfSignalSvg(level, total = 3, size = 20) {
+  const n = Math.max(1, total)
+  const gap = 1
+  const pad = 1
+  const inner = size - pad * 2
+  const w = Math.max(2, Math.floor((inner - gap * (n - 1)) / n))
+  const used = w * n + gap * (n - 1)
+  const x0 = pad + Math.floor((inner - used) / 2)
+  const bottom = size - 1
+  const minH = Math.max(3, Math.round(size * 0.28))
+  const maxH = size - 2
   let bars = ''
-  for (let i = 0; i < total; i += 1) {
-    const h = 6 + i * ((14) / (total - 1 || 1))
-    const x = i * (w + gap)
-    const y = 20 - h - 2
+  for (let i = 0; i < n; i += 1) {
+    const h = n === 1 ? maxH : Math.round(minH + ((maxH - minH) * i) / (n - 1))
+    const x = x0 + i * (w + gap)
+    const y = bottom - h
     const on = i < level
-    bars += `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="1" fill="${on ? '#3370ff' : '#c8cdd3'}"/>`
+    const color = on ? '#3370ff' : '#c8cdd3'
+    const r = Math.min(1, w / 2, h / 2)
+    // 顶角圆角，底边平齐，避免缩放后短柱探出底线
+    bars += `<path d="M${x} ${y + h}H${x + w}V${y + r}Q${x + w} ${y} ${x + w - r} ${y}H${x + r}Q${x} ${y} ${x} ${y + r}Z" fill="${color}"/>`
   }
-  return `<svg viewBox="0 0 20 20" width="20" height="20">${bars}</svg>`
+  return `<svg viewBox="0 0 ${size} ${size}" width="${size}" height="${size}">${bars}</svg>`
 }
 
 export function cfPieSvg(filled) {
@@ -107,7 +118,7 @@ export function cfIconGlyphs(item) {
 export function cfIconGlyphHtml(glyph, size = 16) {
   if (!glyph) return ''
   if (glyph.special === 'signal') {
-    return cfSignalSvg(glyph.level, glyph.total).replace(/width="20"/g, `width="${size}"`).replace(/height="20"/g, `height="${size}"`)
+    return cfSignalSvg(glyph.level, glyph.total, size)
   }
   if (glyph.special === 'pie') {
     return cfPieSvg(glyph.filled).replace(/width="20"/g, `width="${size}"`).replace(/height="20"/g, `height="${size}"`)

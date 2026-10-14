@@ -100,7 +100,9 @@ function commitRange() {
       <span class="sc-info" title="用当前选区的表头和数值绘制，样式与图库图表一致">
         <Icon name="info-circle" :size="14" />
       </span>
-      <button type="button" class="sc-x" title="关闭" @click="emit('close')">×</button>
+      <button type="button" class="sc-x" title="关闭" @click="emit('close')">
+        <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M4.1 4.1l7.8 7.8M11.9 4.1l-7.8 7.8" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+      </button>
     </header>
     <div class="sc-tabs">
       <button type="button" :class="{ on: tab === 'data' }" @click="tab = 'data'">类型与数据</button>

@@ -6,6 +6,7 @@ import { Workbook } from '@fortune-sheet/react'
 import { Message, Modal } from '@arco-design/web-vue'
 import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { colLetter, fortuneToUniver, paintWorkbookThumb, univerToFortune, xlsxToUniver } from '../utils/workbook'
+import { formatByCode } from '../utils/numfmt'
 import {
   applyFeishuIcons,
   feishuIcon,
@@ -49,7 +50,7 @@ const props = defineProps({
   // 混合表：屏蔽 fortune 原生单元格右键菜单，改由父组件渲染自定义菜单（cellcontext 事件）
   suppressCellMenu: { type: Boolean, default: false },
 })
-const emit = defineEmits(['pivot', 'chart', 'cellhover', 'cellclick', 'cellcontext', 'mx-insert'])
+const emit = defineEmits(['pivot', 'chart', 'cellhover', 'cellclick', 'celldblclick', 'cellcontext', 'mx-insert'])
 
 const TOOLBAR_ITEMS = [
   'undo', 'redo', 'format-painter', 'clear-format', '|',
@@ -95,6 +96,32 @@ const instRef = createRef()
 const folded = ref(true)
 const fsTip = reactive({ show: false, text: '', left: 0, top: 0 })
 const pop = reactive({ show: false, kind: '', left: 0, top: 0 })
+const linkPop = reactive({
+  show: false,
+  left: 0,
+  top: 0,
+  text: '',
+  address: '',
+  type: 'webpage',
+  sheetsOpen: false,
+  picking: false,
+  row: 0,
+  col: 0,
+  sheetId: '',
+})
+const linkBar = reactive({
+  show: false,
+  left: 0,
+  top: 0,
+  r: -1,
+  c: -1,
+  sheetId: '',
+  type: 'webpage',
+  address: '',
+})
+let linkBarTimer = 0
+let linkArmed = ''
+let locationLinkApplied = false
 const freezeInfo = reactive({ row: 0, col: 0, letter: 'A' })
 const colorPop = reactive({ show: false, kind: 'fc', key: '', origin: '#1f2329', left: 0, top: 0 })
 const borderState = reactive({ type: 'border-all', color: '#1f2329', style: '1', styleOpen: false })
@@ -292,20 +319,58 @@ const dataBar = reactive({
   filter: false,
   cf: false,
 })
-const filterHidden = new Map()
+const filterRules = new Map()
+const filterMenu = reactive({ show: false, left: 0, top: 0 })
+const FILTER_NUM_OPS = [
+  ['eq', '等于'],
+  ['ne', '不等于'],
+  ['gt', '大于'],
+  ['gte', '大于或等于'],
+  ['lt', '小于'],
+  ['lte', '小于或等于'],
+  ['between', '介于'],
+  ['empty', '为空'],
+  ['notEmpty', '不为空'],
+]
+const FILTER_TEXT_OPS = [
+  ['eq', '等于'],
+  ['ne', '不等于'],
+  ['starts', '开头是'],
+  ['ends', '结尾是'],
+  ['contains', '包含'],
+  ['notContains', '不包含'],
+  ['empty', '为空'],
+  ['notEmpty', '不为空'],
+]
+const FILTER_DATE_OPS = [
+  ['eq', '等于'],
+  ['before', '早于'],
+  ['after', '晚于'],
+  ['between', '介于'],
+  ['empty', '为空'],
+  ['notEmpty', '不为空'],
+]
 const filterPop = reactive({
   show: false,
   left: 0,
   top: 0,
   tab: 'value',
   query: '',
+  addTo: false,
   onlyMine: false,
   col: 0,
+  header: 0,
+  c0: 0,
+  c1: 0,
   r0: 1,
   r1: 1,
   items: [],
+  kind: 'text',
   cond: 'contains',
   condValue: '',
+  condValue2: '',
+  bgColors: [],
+  fcColors: [],
 })
 let findMark = null
 const numFmt = reactive({ id: 'general' })
@@ -341,16 +406,40 @@ const FMT_CATS = [
   { id: 'special', label: '特殊', hint: '特殊格式可用于跟踪数据列表及数据库的值。' },
   { id: 'custom', label: '自定义', hint: '以现有格式为基础，生成自定义的数字格式。' },
 ]
+const FMT_PREVIEW_AT = new Date(2017, 7, 1, 13, 14, 25)
 const FMT_DATES = [
-  { fa: 'yyyy-MM-dd', sample: '2017-08-01' },
-  { fa: 'yyyy/MM/dd', sample: '2017/08/01' },
-  { fa: 'yyyy年M月d日', sample: '2017年8月1日' },
-  { fa: 'MM-dd', sample: '08-01' },
+  'yyyy-MM-dd',
+  'yyyy/MM/dd',
+  'yyyy年m月d日',
+  'yyyy年m月d日 aaaa',
+  'MM-dd',
+  'm月d日',
+  'aaaa',
+  'aaa',
 ]
 const FMT_TIMES = [
-  { fa: 'hh:mm:ss', sample: '23:24:25' },
-  { fa: 'hh:mm', sample: '23:24' },
-  { fa: 'yyyy-MM-dd hh:mm:ss', sample: '2017-08-01 23:24:25' },
+  'hh:mm:ss',
+  'h:mm',
+  'yyyy-MM-dd hh:mm:ss',
+  'h:mm 上午/下午',
+  'hh:mm AM/PM',
+]
+const FMT_CUSTOM = [
+  'G/通用格式',
+  '0.00',
+  '#,##0.00',
+  '0.00%',
+  '0.00E+00',
+  '0"."0,"万元"',
+  '0!.0000,"万元"',
+  '0,,.00"百万"',
+  'yyyy-MM-dd',
+  'yyyy年m月d日 aaaa',
+  'h:mm 上午/下午',
+  '000-0000-0000',
+  '@"部门"',
+  '# "个"',
+  '"🔺"#;"🔻"#',
 ]
 const fmtDlg = reactive({
   show: false,
@@ -362,6 +451,7 @@ const fmtDlg = reactive({
   dateFa: 'yyyy-MM-dd',
   timeFa: 'hh:mm:ss',
   custom: 'General',
+  raw: '',
   ht: '1',
   vt: '0',
   wrap: false,
@@ -720,6 +810,8 @@ const CF_RULES = {
 let root = null
 let latest = []
 let labelObs = null
+let filterIconObs = null
+let filterIconFrame = 0
 let freezeClickBound = false
 const dataBarStore = new Map()
 let barDrawTimer = 0
@@ -862,6 +954,7 @@ function scheduleDataBars() {
   barDrawTimer = window.setTimeout(() => {
     drawDataBars()
     drawIconSets()
+    drawCrosshair()
   }, 16)
 }
 
@@ -895,7 +988,7 @@ function stampFeishuLabelsNow(box) {
   box.querySelectorAll('.fortune-toolbar-button[data-tips]').forEach((el) => {
     el.setAttribute('data-label', shortLabel(el.getAttribute('data-tips')))
     const tip = el.getAttribute('data-tips')
-    if ((tip === '菜单' || tip === '插入') && !el.querySelector('.fs-caret')) {
+    if ((tip === '菜单' || tip === '插入' || tip === '美化表格') && !el.querySelector('.fs-caret')) {
       const caret = document.createElement('i')
       caret.className = 'fs-caret'
       el.appendChild(caret)
@@ -964,12 +1057,22 @@ function overlayPos(wrap, el, height) {
   const base = (bar || wrap).getBoundingClientRect()
   const r = el.getBoundingClientRect()
   const open = wrap.classList.contains('fs-open')
+  const clusterH = height || r.height
   return {
     left: Math.round(r.left - base.left),
     top: open
-      ? Math.max(0, Math.round((base.height - (height || r.height)) / 2))
+      ? Math.max(0, Math.round(r.top - base.top + (r.height - clusterH) / 2))
       : Math.round((base.height - 24) / 2),
   }
+}
+
+function fitPlaceholder(el, selector) {
+  const cluster = document.querySelector(selector)
+  if (!el || !cluster) return
+  const w = Math.ceil(cluster.getBoundingClientRect().width)
+  if (w < 8) return
+  el.style.width = `${w}px`
+  el.style.minWidth = `${w}px`
 }
 
 function placeFontBar(box) {
@@ -984,7 +1087,9 @@ function placeFontBar(box) {
   fontEl.style.width = open ? '204px' : '88px'
   fontEl.style.minWidth = open ? '204px' : '88px'
   fontEl.style.height = open ? '44px' : '24px'
+  if (open) fitPlaceholder(fontEl, '.fs-style-cluster')
   const put = () => {
+    if (open) fitPlaceholder(fontEl, '.fs-style-cluster')
     const pos = overlayPos(wrap, fontEl, open ? 52 : 0)
     fontBar.left = pos.left
     fontBar.top = pos.top
@@ -1012,11 +1117,10 @@ function placeAlignBar(box) {
     alignBar.show = false
     return
   }
-  el.style.width = '168px'
-  el.style.minWidth = '168px'
   el.style.height = '44px'
   alignBar.show = true
   const put = () => {
+    fitPlaceholder(el, '.fs-align-cluster')
     const pos = overlayPos(wrap, el, 52)
     alignBar.left = pos.left
     alignBar.top = pos.top
@@ -1037,10 +1141,9 @@ function placeFmtBar(box) {
     el.style.height = ''
     return
   }
-  el.style.width = '108px'
-  el.style.minWidth = '108px'
   el.style.height = '44px'
   const put = () => {
+    fitPlaceholder(el, '.fs-fmt-cluster')
     const pos = overlayPos(wrap, el, 52)
     fmtBar.left = pos.left
     fmtBar.top = pos.top
@@ -1062,10 +1165,9 @@ function placeDataBar(box) {
     el.style.height = ''
     return
   }
-  el.style.width = '292px'
-  el.style.minWidth = '292px'
   el.style.height = '44px'
   const put = () => {
+    fitPlaceholder(el, '.fs-data-cluster')
     const pos = overlayPos(wrap, el, 44)
     dataBar.left = pos.left
     dataBar.top = pos.top
@@ -1221,36 +1323,527 @@ function cellLabel(cell) {
   return ''
 }
 
-function openFilter(el) {
-  const sheet = instRef.current?.getSheet?.()
-  const sel = instRef.current?.getSelection?.()?.[0]
-  if (!sheet) return
+function normColor(color) {
+  if (!color) return ''
+  let c = String(color).trim().toLowerCase()
+  if (c.startsWith('rgb')) {
+    const parts = c.match(/[\d.]+/g)
+    if (!parts || parts.length < 3) return c
+    const hex = (n) => Math.round(Number(n)).toString(16).padStart(2, '0')
+    return `#${hex(parts[0])}${hex(parts[1])}${hex(parts[2])}`
+  }
+  if (/^#[0-9a-f]{3}$/.test(c)) return `#${c[1]}${c[1]}${c[2]}${c[2]}${c[3]}${c[3]}`
+  return c
+}
+
+function rulesOf(sheet) {
+  let bag = filterRules.get(sheet.id)
+  if (!bag && sheet.fs_filter) {
+    bag = sheet.fs_filter
+    if (!bag.cols) bag.cols = {}
+    filterRules.set(sheet.id, bag)
+  }
+  if (!bag) {
+    bag = { onlyMine: false, cols: {} }
+    filterRules.set(sheet.id, bag)
+  }
+  if (!bag.cols) bag.cols = {}
+  return bag
+}
+
+function filterBoxOf(sheet, sel) {
+  const r0 = sel?.row?.[0] ?? 0
+  const r1 = sel?.row?.[1] ?? r0
   const c0 = sel?.column?.[0] ?? 0
-  let head = sel?.row?.[0] ?? 0
-  let end = sel?.row?.[1] ?? head
-  if (head === end) {
-    head = 0
-    end = 0
-    ;(sheet.data || []).forEach((row, r) => {
-      if ((row || []).some((cell) => cellLabel(cell))) end = r
+  const c1 = sel?.column?.[1] ?? c0
+  const expanded = expandSortBox(sheet, { r0, r1, c0, c1 })
+  return trimSortBox(sheet, expanded) || expanded
+}
+
+/** 筛选建立之后又改过、补过的行也要算进去，否则新值不会出现在列表里。 */
+function grownFilterRange(sheet, range) {
+  if (!range?.row || !range?.column) return null
+  let r0 = range.row[0]
+  let r1 = range.row[1]
+  const c0 = range.column[0]
+  const c1 = range.column[1]
+  const rowCount = sheet.data?.length || 0
+  while (r0 > 0 && rowHasLabel(sheet, r0 - 1, c0, c1)) r0 -= 1
+  while (r1 + 1 < rowCount && rowHasLabel(sheet, r1 + 1, c0, c1)) r1 += 1
+  return { row: [r0, r1], column: [c0, c1] }
+}
+
+function excelSerialToMs(n) {
+  if (typeof n !== 'number' || !Number.isFinite(n) || n < 20000 || n > 80000) return NaN
+  return (n - 25569) * 86400000
+}
+
+function parseFilterDate(v) {
+  if (v instanceof Date) return v.getTime()
+  if (typeof v === 'number') return excelSerialToMs(v)
+  const s = String(v ?? '').trim()
+  if (!s) return NaN
+  if (/^\d+(\.\d+)?$/.test(s)) {
+    const ms = excelSerialToMs(Number(s))
+    if (Number.isFinite(ms)) return ms
+  }
+  const m = s.match(/^(\d{4})[/\-.](\d{1,2})[/\-.](\d{1,2})/)
+  if (!m) return NaN
+  return new Date(+m[1], +m[2] - 1, +m[3]).getTime()
+}
+
+function startOfDay(ms) {
+  if (!Number.isFinite(ms)) return NaN
+  const d = new Date(ms)
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime()
+}
+
+function columnRejects(cell, rule) {
+  if (!rule) return false
+  if (rule.mode === 'value') {
+    const label = cellLabel(cell) || '(空白)'
+    return (rule.unchecked || []).includes(label)
+  }
+  if (rule.kind === 'bg' || rule.kind === 'fc') {
+    const color = rule.kind === 'bg' ? (normColor(cell?.bg) || '#ffffff') : (normColor(cell?.fc) || '#1f2329')
+    const keep = rule.colors || []
+    return keep.length > 0 && !keep.includes(color)
+  }
+  if (rule.kind === 'date') {
+    const text = cellLabel(cell).trim()
+    if (rule.cond === 'empty') return text !== ''
+    if (rule.cond === 'notEmpty') return text === ''
+    const day = startOfDay(parseFilterDate(cell?.v != null && cell.v !== '' ? cell.v : text))
+    const left = startOfDay(parseFilterDate(rule.condValue))
+    const right = startOfDay(parseFilterDate(rule.condValue2))
+    if (!Number.isFinite(day) || !Number.isFinite(left)) return true
+    if (rule.cond === 'eq') return day !== left
+    if (rule.cond === 'before') return !(day < left)
+    if (rule.cond === 'after') return !(day > left)
+    if (rule.cond === 'between') {
+      if (!Number.isFinite(right)) return true
+      const lo = Math.min(left, right)
+      const hi = Math.max(left, right)
+      return day < lo || day > hi
+    }
+    return false
+  }
+  const raw = cellLabel(cell).trim()
+  const cv = String(rule.condValue ?? '')
+  const low = raw.toLowerCase()
+  const q = cv.toLowerCase()
+  if (rule.cond === 'empty') return raw !== ''
+  if (rule.cond === 'notEmpty') return raw === ''
+  if (rule.kind === 'num' || ['gt', 'gte', 'lt', 'lte', 'between'].includes(rule.cond)) {
+    const n = filterNumber(cell)
+    const cn = parseLooseNumber(cv)
+    const cn2 = parseLooseNumber(rule.condValue2)
+    if (rule.cond === 'eq') return !(Number.isFinite(n) && Number.isFinite(cn) && n === cn)
+    if (rule.cond === 'ne') return !(Number.isFinite(n) && Number.isFinite(cn) && n !== cn)
+    if (rule.cond === 'gt') return !(Number.isFinite(n) && Number.isFinite(cn) && n > cn)
+    if (rule.cond === 'gte') return !(Number.isFinite(n) && Number.isFinite(cn) && n >= cn)
+    if (rule.cond === 'lt') return !(Number.isFinite(n) && Number.isFinite(cn) && n < cn)
+    if (rule.cond === 'lte') return !(Number.isFinite(n) && Number.isFinite(cn) && n <= cn)
+    if (rule.cond === 'between') {
+      if (!Number.isFinite(n) || !Number.isFinite(cn) || !Number.isFinite(cn2)) return true
+      const a = Math.min(cn, cn2)
+      const b = Math.max(cn, cn2)
+      return n < a || n > b
+    }
+  }
+  if (rule.cond === 'eq') return raw !== cv
+  if (rule.cond === 'ne') return raw === cv
+  if (rule.cond === 'starts') return !low.startsWith(q)
+  if (rule.cond === 'ends') return !low.endsWith(q)
+  if (rule.cond === 'notContains') return q ? low.includes(q) : false
+  return q ? !low.includes(q) : false
+}
+
+function rejectedByOthers(sheet, rules, row, col) {
+  return Object.entries(rules.cols || {}).some(([key, rule]) => {
+    if (Number(key) === col) return false
+    return columnRejects(sheet.data?.[row]?.[Number(key)], rule)
+  })
+}
+
+/** 去掉千分位、货币符号和百分号，得到屏幕上那个数。33.57% → 33.57 */
+function parseLooseNumber(text) {
+  let s = String(text ?? '').trim().replace(/,/g, '').replace(/\s/g, '')
+  if (!s) return NaN
+  s = s.replace(/^[¥$€£]/, '')
+  if (s.endsWith('%')) s = s.slice(0, -1).trim()
+  if (!/^[+-]?\d+(\.\d+)?$/.test(s)) return NaN
+  return Number(s)
+}
+
+function filterNumber(cell) {
+  if (cell == null || cell === '') return NaN
+  if (typeof cell !== 'object') return parseLooseNumber(cell)
+  const label = cellLabel(cell).trim()
+  const fa = String(cell.ct?.fa || '')
+  if (fa.includes('%') || label.endsWith('%')) {
+    if (label.endsWith('%')) {
+      const shown = parseLooseNumber(label)
+      if (Number.isFinite(shown)) return shown
+    }
+    if (typeof cell.v === 'number' && Number.isFinite(cell.v)) return cell.v * 100
+  }
+  if (typeof cell.v === 'number' && Number.isFinite(cell.v)) return cell.v
+  return parseLooseNumber(label)
+}
+
+/**
+ * 显示行和隐藏行必须同一次写完。分成两次调用时，后一次会把前一次冲掉，
+ * 筛选确认后行又全部出现。
+ */
+function commitFilterRows(sheetId, body, hide) {
+  const paint = () => {
+    const dispatch = sheetContextDispatch()
+    if (!dispatch) return
+    dispatch((ctx) => {
+      if (!ctx?.luckysheetfile) return ctx
+      const idx = ctx.luckysheetfile.findIndex((s) => s.id === sheetId)
+      if (idx < 0) return ctx
+      const sheet = ctx.luckysheetfile[idx]
+      const rowhidden = { ...(sheet.config?.rowhidden || {}) }
+      body.forEach((r) => { delete rowhidden[r] })
+      hide.forEach((r) => { rowhidden[r] = 0 })
+      const config = { ...(sheet.config || {}), rowhidden }
+      const files = ctx.luckysheetfile.slice()
+      files[idx] = { ...sheet, config }
+      const next = { ...ctx, luckysheetfile: files }
+      if (ctx.currentSheetId === sheetId) next.config = config
+      return next
     })
   }
-  const counts = new Map()
-  for (let r = head + 1; r <= end; r += 1) {
-    const label = cellLabel(sheet.data?.[r]?.[c0]) || '(空白)'
-    counts.set(label, (counts.get(label) || 0) + 1)
+  setTimeout(paint, 0)
+}
+
+function writeFilterState(sheet, rules) {
+  const range = grownFilterRange(sheet, sheet.filter_select)
+  if (!range) return
+  const [r0, r1] = range.row
+  const [c0, c1] = range.column
+  const hide = []
+  const body = []
+  for (let r = r0 + 1; r <= r1; r += 1) {
+    body.push(r)
+    const rejected = Object.entries(rules.cols || {}).some(([key, rule]) => columnRejects(sheet.data?.[r]?.[Number(key)], rule))
+    if (rejected) hide.push(r)
   }
-  filterPop.col = c0
-  filterPop.r0 = head + 1
-  filterPop.r1 = end
+  commitFilterRows(sheet.id, body, hide)
+  const filter = {}
+  Object.entries(rules.cols || {}).forEach(([key, rule]) => {
+    const col = Number(key)
+    const rowhidden = {}
+    for (let r = r0 + 1; r <= r1; r += 1) {
+      if (columnRejects(sheet.data?.[r]?.[col], rule)) rowhidden[r] = 0
+    }
+    filter[col - c0] = {
+      rowhidden,
+      optionstate: true,
+      cindex: col,
+      stc: c0,
+      edc: c1,
+      str: r0,
+      edr: r1,
+      caljs: null,
+    }
+  })
+  const ops = [{ op: 'replace', path: ['filter'], value: filter }]
+  const stored = { onlyMine: !!rules.onlyMine, cols: rules.cols }
+  ops.push({
+    op: Object.prototype.hasOwnProperty.call(sheet, 'filter') ? 'replace' : 'add',
+    id: sheet.id,
+    path: ['filter'],
+    value: filter,
+  })
+  ops.push({
+    op: Object.prototype.hasOwnProperty.call(sheet, 'fs_filter') ? 'replace' : 'add',
+    id: sheet.id,
+    path: ['fs_filter'],
+    value: stored || { onlyMine: true, cols: rules.cols },
+  })
+  const prev = sheet.filter_select
+  if (!prev || prev.row[0] !== range.row[0] || prev.row[1] !== range.row[1] || prev.column[0] !== range.column[0] || prev.column[1] !== range.column[1]) {
+    ops.push({ op: 'replace', id: sheet.id, path: ['filter_select'], value: range })
+  }
+  applyOpUndoable(ops)
+  filterRules.set(sheet.id, rules)
+}
+
+function enableFilter() {
+  filterMenu.show = false
+  filterPop.show = false
+  const api = instRef.current
+  const sheet = api?.getSheet?.()
+  const sel = api?.getSelection?.()?.[0]
+  if (!sheet?.id) return
+  if (sheet.filter_select?.row) {
+    cancelFilter()
+    return
+  }
+  const box = filterBoxOf(sheet, sel)
+  if (!box || box.r1 <= box.r0) {
+    Message.warning('请选择至少包含表头和一行数据的区域')
+    return
+  }
+  const rules = { onlyMine: false, cols: {} }
+  filterRules.set(sheet.id, rules)
+  applyOpUndoable([{
+    op: Object.prototype.hasOwnProperty.call(sheet, 'filter_select') ? 'replace' : 'add',
+    id: sheet.id,
+    path: ['filter_select'],
+    value: { row: [box.r0, box.r1], column: [box.c0, box.c1] },
+  }])
+  dataBar.filter = true
+  markActiveTools()
+  scheduleFilterIcons()
+}
+
+function cancelFilter() {
+  const api = instRef.current
+  const sheet = api?.getSheet?.()
+  filterMenu.show = false
+  filterPop.show = false
+  if (!sheet?.id) return
+  const range = sheet.filter_select
+  if (range?.row) {
+    const body = []
+    for (let r = range.row[0] + 1; r <= range.row[1]; r += 1) body.push(r)
+    if (body.length) commitFilterRows(sheet.id, body, [])
+  }
+  filterRules.delete(sheet.id)
+  const ops = [{ op: 'replace', path: ['filter'], value: {} }]
+  if (Object.prototype.hasOwnProperty.call(sheet, 'filter_select')) ops.unshift({ op: 'remove', id: sheet.id, path: ['filter_select'] })
+  if (Object.prototype.hasOwnProperty.call(sheet, 'filter')) ops.push({ op: 'remove', id: sheet.id, path: ['filter'] })
+  if (Object.prototype.hasOwnProperty.call(sheet, 'fs_filter')) ops.push({ op: 'remove', id: sheet.id, path: ['fs_filter'] })
+  if (ops.length) applyOpUndoable(ops)
+  dataBar.filter = false
+  markActiveTools()
+}
+
+function toggleFilterMenu(anchor) {
+  if (filterMenu.show) {
+    filterMenu.show = false
+    return
+  }
+  const rect = anchor?.getBoundingClientRect?.()
+  if (!rect) return
+  filterMenu.left = rect.left
+  filterMenu.top = rect.bottom + 4
+  filterMenu.show = true
+  filterPop.show = false
+}
+
+function openColumnFilter(btn) {
+  const sheet = instRef.current?.getSheet?.()
+  const range = grownFilterRange(sheet, sheet?.filter_select)
+  if (!sheet || !range?.row) return
+  const buttons = [...(hostRef.value?.querySelectorAll('.luckysheet-filter-options') || [])]
+  const index = buttons.indexOf(btn)
+  if (index < 0) return
+  const col = range.column[0] + index
+  const r0 = range.row[0]
+  const r1 = range.row[1]
+  const rules = rulesOf(sheet)
+  const rule = rules.cols[col] || rules.cols[String(col)]
+  const counts = new Map()
+  const bgMap = new Map()
+  const fcMap = new Map()
+  for (let r = r0 + 1; r <= r1; r += 1) {
+    if (rejectedByOthers(sheet, rules, r, col)) continue
+    const cell = sheet.data?.[r]?.[col]
+    const label = cellLabel(cell) || '(空白)'
+    counts.set(label, (counts.get(label) || 0) + 1)
+    const bg = normColor(cell?.bg) || '#ffffff'
+    const fc = normColor(cell?.fc) || '#1f2329'
+    if (!bgMap.has(bg)) bgMap.set(bg, 0)
+    bgMap.set(bg, bgMap.get(bg) + 1)
+    if (label !== '(空白)') {
+      if (!fcMap.has(fc)) fcMap.set(fc, 0)
+      fcMap.set(fc, fcMap.get(fc) + 1)
+    }
+  }
+  const unchecked = new Set(rule?.mode === 'value' ? (rule.unchecked || []) : [])
+  filterPop.col = col
+  filterPop.header = r0
+  filterPop.c0 = range.column[0]
+  filterPop.c1 = range.column[1]
+  filterPop.r0 = r0 + 1
+  filterPop.r1 = r1
   filterPop.query = ''
-  filterPop.tab = 'value'
-  filterPop.items = [...counts.entries()].map(([label, count]) => ({ label, count, checked: true }))
-  const box = el?.getBoundingClientRect?.()
-  filterPop.left = Math.min(box?.left || 80, window.innerWidth - 340)
-  filterPop.top = (box?.bottom || 80) + 4
+  filterPop.addTo = false
+  filterPop.onlyMine = !!rules.onlyMine
+  if (rule?.kind === 'bg' || rule?.kind === 'fc') filterPop.tab = 'color'
+  else if (rule?.mode === 'cond') filterPop.tab = 'cond'
+  else filterPop.tab = 'value'
+  filterPop.kind = rule?.kind === 'bg' || rule?.kind === 'fc' ? 'text' : (rule?.kind || 'text')
+  filterPop.cond = rule?.cond || (filterPop.kind === 'num' ? 'gt' : filterPop.kind === 'date' ? 'before' : 'contains')
+  filterPop.condValue = rule?.condValue || ''
+  filterPop.condValue2 = rule?.condValue2 || ''
+  filterPop.items = [...counts.entries()].map(([label, count]) => ({ label, count, checked: !unchecked.has(label) }))
+  const keptBg = new Set(rule?.kind === 'bg' ? (rule.colors || []) : [])
+  const keptFc = new Set(rule?.kind === 'fc' ? (rule.colors || []) : [])
+  filterPop.bgColors = [...bgMap.entries()].map(([color, count]) => ({ color, count, checked: rule?.kind === 'bg' ? keptBg.has(color) : true }))
+  filterPop.fcColors = [...fcMap.entries()].map(([color, count]) => ({ color, count, checked: rule?.kind === 'fc' ? keptFc.has(color) : true }))
+  const rect = btn.getBoundingClientRect()
+  filterPop.left = Math.max(8, Math.min(rect.left, window.innerWidth - 340))
+  filterPop.top = rect.bottom + 360 > window.innerHeight ? Math.max(8, rect.top - 360) : rect.bottom + 4
   filterPop.show = true
-  pop.show = false
+  filterMenu.show = false
+}
+
+let filterCondFocusTimer = 0
+function focusFilterCondInput() {
+  clearTimeout(filterCondFocusTimer)
+  // 下拉框的 change 之后浏览器还会把焦点交回 select，放到下一拍再抢回来
+  filterCondFocusTimer = setTimeout(() => {
+    if (!filterPop.show || filterPop.tab !== 'cond') return
+    if (filterPop.cond === 'empty' || filterPop.cond === 'notEmpty') return
+    const el = document.querySelector('.fs-filter-cond input')
+    if (!el) return
+    document.getElementById('luckysheet-rich-text-editor')?.blur()
+    el.focus()
+  }, 0)
+}
+
+function onFilterKind() {
+  if (filterPop.kind === 'num') filterPop.cond = 'gt'
+  else if (filterPop.kind === 'date') filterPop.cond = 'before'
+  else filterPop.cond = 'contains'
+  focusFilterCondInput()
+}
+
+/** 选完「数字 / 大于」后焦点仍在 select 上，数字键会被下拉框吞掉。可打印字符直接写入条件框。 */
+function onFilterSelectKey(e) {
+  if (e.ctrlKey || e.metaKey || e.altKey || e.isComposing || e.key.length !== 1) return
+  if (filterPop.cond === 'empty' || filterPop.cond === 'notEmpty') return
+  if (filterPop.kind === 'date') return
+  if (filterPop.kind === 'num' && !/^[0-9.\-]$/.test(e.key)) return
+  e.preventDefault()
+  e.stopPropagation()
+  filterPop.condValue = `${filterPop.condValue || ''}${e.key}`
+  focusFilterCondInput()
+}
+
+function openFilterTab(tab) {
+  filterPop.tab = tab
+  if (tab === 'cond' && (filterPop.kind === 'bg' || filterPop.kind === 'fc')) {
+    filterPop.kind = 'text'
+    filterPop.cond = 'contains'
+  }
+  if (tab === 'cond') focusFilterCondInput()
+}
+
+const filterCondOps = computed(() => {
+  if (filterPop.kind === 'num') return FILTER_NUM_OPS
+  if (filterPop.kind === 'date') return FILTER_DATE_OPS
+  return FILTER_TEXT_OPS
+})
+
+function scheduleFilterIcons() {
+  cancelAnimationFrame(filterIconFrame)
+  filterIconFrame = requestAnimationFrame(() => {
+    filterIconFrame = requestAnimationFrame(syncFilterIcons)
+  })
+}
+
+/** Univer 把 16px 筛选按钮贴在表头单元格右下角：未筛选三道横线，已筛选实心漏斗 */
+function syncFilterIcons() {
+  const host = hostRef.value
+  const sheet = instRef.current?.getSheet?.()
+  const range = sheet?.filter_select
+  const buttons = [...(host?.querySelectorAll('.luckysheet-filter-options') || [])]
+  if (!buttons.length || !range?.row) return
+  const row = range.row[0]
+  const zoom = Number(sheet.zoomRatio) || 1
+  const rowPx = (Number(sheet.config?.rowlen?.[row] || sheet.defaultRowHeight) || 24) * zoom
+  buttons.forEach((btn) => {
+    const topNow = btn.style.top
+    const leftNow = btn.style.left
+    if (btn.dataset.fsAppliedTop == null || Math.abs(parseFloat(topNow) - parseFloat(btn.dataset.fsAppliedTop)) > 0.6) {
+      btn.dataset.fsBaseTop = topNow
+    }
+    if (btn.dataset.fsAppliedLeft == null || Math.abs(parseFloat(leftNow) - parseFloat(btn.dataset.fsAppliedLeft)) > 0.6) {
+      btn.dataset.fsBaseLeft = leftNow
+    }
+    const top = parseFloat(btn.dataset.fsBaseTop) + Math.max(0, rowPx - 17)
+    const left = parseFloat(btn.dataset.fsBaseLeft) + 3
+    btn.dataset.fsAppliedTop = String(top)
+    btn.dataset.fsAppliedLeft = String(left)
+    btn.style.top = `${top}px`
+    btn.style.left = `${left}px`
+  })
+}
+
+function openFilter() {
+  enableFilter()
+}
+
+function ruleFromPanel() {
+  if (filterPop.tab === 'value') {
+    if (filterPop.query.trim() && !filterPop.addTo) {
+      const visible = new Set(filterView.value.map((item) => item.label))
+      filterPop.items.forEach((item) => {
+        if (!visible.has(item.label)) item.checked = false
+      })
+    }
+    const unchecked = filterPop.items.filter((item) => !item.checked).map((item) => item.label)
+    if (!unchecked.length) return null
+    return { mode: 'value', unchecked }
+  }
+  if (filterPop.tab === 'color') {
+    const fills = filterPop.bgColors
+    const fonts = filterPop.fcColors
+    const fillOn = fills.filter((item) => item.checked)
+    const fontOn = fonts.filter((item) => item.checked)
+    if (fills.length && fillOn.length < fills.length) return { mode: 'cond', kind: 'bg', colors: fillOn.map((item) => item.color) }
+    if (fonts.length && fontOn.length < fonts.length) return { mode: 'cond', kind: 'fc', colors: fontOn.map((item) => item.color) }
+    return null
+  }
+  const needsValue = !['empty', 'notEmpty'].includes(filterPop.cond)
+  if (needsValue && !String(filterPop.condValue).trim()) return null
+  if (filterPop.cond === 'between' && !String(filterPop.condValue2).trim()) return null
+  return {
+    mode: 'cond',
+    kind: filterPop.kind,
+    cond: filterPop.cond,
+    condValue: filterPop.condValue,
+    condValue2: filterPop.condValue2,
+  }
+}
+
+function applyFilter() {
+  const sheet = instRef.current?.getSheet?.()
+  if (!sheet?.filter_select) {
+    filterPop.show = false
+    return
+  }
+  const rules = rulesOf(sheet)
+  rules.onlyMine = filterPop.onlyMine
+  const next = ruleFromPanel()
+  if (next) rules.cols[filterPop.col] = next
+  else delete rules.cols[filterPop.col]
+  writeFilterState(sheet, rules)
+  filterPop.show = false
+  markActiveTools()
+  scheduleFilterIcons()
+}
+
+function clearFilter() {
+  const sheet = instRef.current?.getSheet?.()
+  if (!sheet?.filter_select) {
+    filterPop.show = false
+    return
+  }
+  const rules = rulesOf(sheet)
+  delete rules.cols[filterPop.col]
+  delete rules.cols[String(filterPop.col)]
+  writeFilterState(sheet, rules)
+  filterPop.show = false
+  markActiveTools()
+  scheduleFilterIcons()
 }
 
 const filterView = computed(() => {
@@ -1268,93 +1861,155 @@ function toggleFilterAll() {
   })
 }
 
-function rowKept(label) {
-  if (filterPop.tab === 'cond') {
-    const raw = label === '(空白)' ? '' : label
-    const n = Number(raw)
-    const cv = filterPop.condValue
-    const cn = Number(cv)
-    if (filterPop.cond === 'empty') return raw === ''
-    if (filterPop.cond === 'notEmpty') return raw !== ''
-    if (filterPop.cond === 'eq') return raw === cv
-    if (filterPop.cond === 'ne') return raw !== cv
-    if (filterPop.cond === 'gt') return Number.isFinite(n) && Number.isFinite(cn) && n > cn
-    if (filterPop.cond === 'lt') return Number.isFinite(n) && Number.isFinite(cn) && n < cn
-    return raw.toLowerCase().includes(String(cv).toLowerCase())
-  }
-  return filterPop.items.find((item) => item.label === label)?.checked !== false
+function sortKeyOf(cell) {
+  const text = cellLabel(cell).trim()
+  if (!text) return { empty: true, value: '' }
+  const n = Number(text)
+  if (Number.isFinite(n) && text !== '') return { empty: false, value: n }
+  return { empty: false, value: text }
 }
 
-function applyFilter() {
-  const api = instRef.current
-  const sheet = api?.getSheet?.()
-  if (!api?.hideRowOrColumn || !sheet) {
-    filterPop.show = false
+function compareSortKey(a, b, asc) {
+  if (a.empty && b.empty) return 0
+  if (a.empty) return 1
+  if (b.empty) return -1
+  const an = typeof a.value === 'number'
+  const bn = typeof b.value === 'number'
+  if (an && bn) return asc ? a.value - b.value : b.value - a.value
+  if (an !== bn) return an ? (asc ? -1 : 1) : (asc ? 1 : -1)
+  const cmp = String(a.value).localeCompare(String(b.value), 'zh')
+  return asc ? cmp : -cmp
+}
+
+function rowHasLabel(sheet, r, c0, c1) {
+  for (let c = c0; c <= c1; c += 1) if (cellLabel(sheet.data?.[r]?.[c])) return true
+  return false
+}
+
+function colHasLabel(sheet, c, r0, r1) {
+  for (let r = r0; r <= r1; r += 1) if (cellLabel(sheet.data?.[r]?.[c])) return true
+  return false
+}
+
+function trimSortBox(sheet, box) {
+  let { r0, r1, c0, c1 } = box
+  while (r0 <= r1 && !rowHasLabel(sheet, r0, c0, c1)) r0 += 1
+  while (r1 >= r0 && !rowHasLabel(sheet, r1, c0, c1)) r1 -= 1
+  while (c0 <= c1 && !colHasLabel(sheet, c0, r0, r1)) c0 += 1
+  while (c1 >= c0 && !colHasLabel(sheet, c1, r0, r1)) c1 -= 1
+  if (r0 > r1 || c0 > c1) return null
+  return { r0, r1, c0, c1 }
+}
+
+/** 从当前列向外扩到紧挨着的整张表，让排序按行联动 */
+function expandSortBox(sheet, box) {
+  let { r0, r1, c0, c1 } = box
+  const rowCount = sheet.data?.length || 0
+  let maxC = c1
+  for (let r = 0; r < rowCount; r += 1) maxC = Math.max(maxC, (sheet.data[r]?.length || 1) - 1)
+  for (let guard = 0; guard < 400; guard += 1) {
+    let changed = false
+    if (r0 > 0 && rowHasLabel(sheet, r0 - 1, c0, c1)) { r0 -= 1; changed = true }
+    if (r1 + 1 < rowCount && rowHasLabel(sheet, r1 + 1, c0, c1)) { r1 += 1; changed = true }
+    if (c0 > 0 && colHasLabel(sheet, c0 - 1, r0, r1)) { c0 -= 1; changed = true }
+    if (c1 < maxC && colHasLabel(sheet, c1 + 1, r0, r1)) { c1 += 1; changed = true }
+    if (!changed) break
+  }
+  return { r0, r1, c0, c1 }
+}
+
+function isSortHeader(sheet, box) {
+  if (box.r1 <= box.r0) return false
+  let filled = 0
+  let labels = 0
+  for (let c = box.c0; c <= box.c1; c += 1) {
+    const text = cellLabel(sheet.data?.[box.r0]?.[c]).trim()
+    if (!text) continue
+    filled += 1
+    if (!Number.isFinite(Number(text)) && !/^\d/.test(text)) labels += 1
+  }
+  return filled > 0 && labels === filled
+}
+
+function sortLinked(sheet, box, keyCol, asc) {
+  const trimmed = trimSortBox(sheet, box)
+  if (!trimmed) {
+    Message.warning('当前没有可排序的内容')
     return
   }
-  const hide = []
-  const show = []
-  for (let r = filterPop.r0; r <= filterPop.r1; r += 1) {
-    const label = cellLabel(sheet.data?.[r]?.[filterPop.col]) || '(空白)'
-    if (rowKept(label)) show.push(r)
-    else hide.push(r)
+  const area = expandSortBox(sheet, trimmed)
+  const key = Math.min(Math.max(keyCol, area.c0), area.c1)
+  let r0 = area.r0
+  if (isSortHeader(sheet, area)) r0 += 1
+  if (r0 >= area.r1) return
+  for (let r = r0; r <= area.r1; r += 1) {
+    for (let c = area.c0; c <= area.c1; c += 1) {
+      if (sheet.data?.[r]?.[c]?.mc) {
+        Message.warning('合并单元格不能按列联动排序')
+        return
+      }
+    }
   }
-  if (show.length) api.showRowOrColumn(show, 'row')
-  if (hide.length) api.hideRowOrColumn(hide, 'row')
-  filterHidden.set(sheet.id, { rows: hide })
-  filterPop.show = false
-  markActiveTools()
-}
-
-function clearFilter() {
-  const api = instRef.current
-  const sheet = api?.getSheet?.()
-  const saved = sheet && filterHidden.get(sheet.id)
-  if (api?.showRowOrColumn && saved?.rows?.length) api.showRowOrColumn(saved.rows, 'row')
-  if (sheet) filterHidden.delete(sheet.id)
-  filterPop.items.forEach((item) => { item.checked = true })
-  filterPop.show = false
-  markActiveTools()
+  const records = []
+  for (let r = r0; r <= area.r1; r += 1) {
+    const line = []
+    for (let c = area.c0; c <= area.c1; c += 1) line.push(sheet.data?.[r]?.[c] ?? null)
+    records.push({ line, key: sortKeyOf(line[key - area.c0]), idx: r })
+  }
+  records.sort((a, b) => compareSortKey(a.key, b.key, asc) || a.idx - b.idx)
+  const ops = []
+  records.forEach((row, i) => {
+    const r = r0 + i
+    const src = sheet.data?.[r]
+    const clone = (cell) => (cell && typeof cell === 'object' ? { ...cell } : cell ?? null)
+    if (!Array.isArray(src) || src.length <= area.c1) {
+      const next = Array.isArray(src) ? src.slice() : []
+      while (next.length <= area.c1) next.push(null)
+      for (let c = area.c0; c <= area.c1; c += 1) next[c] = clone(row.line[c - area.c0])
+      ops.push({ op: 'replace', id: sheet.id, path: ['data', r], value: next })
+    } else {
+      for (let c = area.c0; c <= area.c1; c += 1) {
+        ops.push({ op: 'replace', id: sheet.id, path: ['data', r, c], value: clone(row.line[c - area.c0]) })
+      }
+    }
+  })
+  if (sheet.hyperlink) {
+    const next = { ...sheet.hyperlink }
+    const moved = []
+    records.forEach((row, i) => {
+      for (let c = area.c0; c <= area.c1; c += 1) {
+        const item = sheet.hyperlink[`${row.idx}_${c}`]
+        if (item) moved.push([`${r0 + i}_${c}`, item])
+      }
+    })
+    for (let r = r0; r <= area.r1; r += 1) {
+      for (let c = area.c0; c <= area.c1; c += 1) delete next[`${r}_${c}`]
+    }
+    moved.forEach(([key, item]) => { next[key] = item })
+    ops.push({ op: 'replace', id: sheet.id, path: ['hyperlink'], value: next })
+  }
+  if (!ops.length) return
+  applyOpUndoable(ops)
+  scheduleDataBars()
 }
 
 function sortFromFilter(asc) {
   filterPop.show = false
-  const api = instRef.current
-  const sheet = api?.getSheet?.()
-  if (!api?.setCellValuesByRange || !sheet) return
-  const rows = []
-  let maxC = filterPop.col
-  for (let r = filterPop.r0; r <= filterPop.r1; r += 1) {
-    const line = sheet.data?.[r] || []
-    maxC = Math.max(maxC, line.length - 1)
-    rows.push(line.slice())
-  }
-  const keyOf = (cell) => {
-    const v = cell?.m ?? cell?.v ?? ''
-    const n = Number(v)
-    return v !== '' && v != null && Number.isFinite(n) ? n : String(v ?? '')
-  }
-  rows.sort((a, b) => {
-    const av = keyOf(a[filterPop.col])
-    const bv = keyOf(b[filterPop.col])
-    if (av < bv) return asc ? -1 : 1
-    if (av > bv) return asc ? 1 : -1
-    return 0
-  })
-  // 一次写回 = 一步撤销（逐格 setCellValue 会产生行×列个撤销步骤）
-  const matrix = rows.map((line) => Array.from({ length: maxC + 1 }, (_, c) => {
-    const cell = line[c]
-    return cell == null ? '' : { ...cell }
-  }))
-  try {
-    api.setCellValuesByRange(matrix, { row: [filterPop.r0, filterPop.r1], column: [0, maxC] }, { id: sheet.id })
-  } catch { /* */ }
+  const sheet = instRef.current?.getSheet?.()
+  if (!sheet?.id) return
+  sortLinked(sheet, {
+    r0: filterPop.header,
+    r1: filterPop.r1,
+    c0: filterPop.c0,
+    c1: filterPop.c1,
+  }, filterPop.col, asc)
+  const rules = rulesOf(sheet)
+  if (Object.keys(rules.cols || {}).length) writeFilterState(sheet, rules)
 }
 
 function clickData(label) {
   if (label === '筛选') {
-    const el = hostRef.value?.querySelector('[data-label="筛选"], [data-tips="筛选"]')
-    openFilter(el)
+    enableFilter()
     return
   }
   if (label === '下拉列表') {
@@ -1371,34 +2026,14 @@ function applySort(asc) {
   const api = instRef.current
   const sel = api?.getSelection?.()?.[0]
   const sheet = api?.getSheet?.()
-  if (!api?.setCellValuesByRange || !sel || !sheet) return
+  if (!sel || !sheet?.id) return
   const r0 = sel.row?.[0] ?? 0
   const r1 = sel.row?.[1] ?? r0
   const c0 = sel.column?.[0] ?? 0
   const c1 = sel.column?.[1] ?? c0
-  const rows = []
-  for (let r = r0; r <= r1; r++) {
-    const cells = []
-    for (let c = c0; c <= c1; c++) cells.push(sheet.data?.[r]?.[c] ?? null)
-    rows.push(cells)
-  }
-  const keyOf = (cell) => {
-    const v = cell?.m ?? cell?.v ?? ''
-    const n = Number(v)
-    return v !== '' && v != null && Number.isFinite(n) ? n : String(v ?? '')
-  }
-  rows.sort((a, b) => {
-    const av = keyOf(a[0])
-    const bv = keyOf(b[0])
-    if (av < bv) return asc ? -1 : 1
-    if (av > bv) return asc ? 1 : -1
-    return 0
-  })
-  // 一次写回 = 一步撤销（逐格 setCellValue 会产生行×列个撤销步骤）
-  const matrix = rows.map((cells) => cells.map((cell) => (cell == null ? '' : { ...cell })))
-  try {
-    api.setCellValuesByRange(matrix, { row: [r0, r1], column: [c0, c1] }, { id: sheet.id })
-  } catch { /* */ }
+  const focus = sel.column_focus
+  const keyCol = focus != null && focus >= c0 && focus <= c1 ? focus : c0
+  sortLinked(sheet, { r0, r1, c0, c1 }, keyCol, asc)
 }
 
 function applyFontName(name, key) {
@@ -1495,9 +2130,9 @@ function markActiveTools() {
   )
   const byTip = (tip) => box.querySelector(`.fortune-toolbar [data-tips="${tip}"]`)?.closest('.fortune-toolbar-button, .fortune-toobar-combo-container')
   const frozen = !!(sheet?.frozen && sheet.frozen.type && sheet.frozen.type !== 'cancel')
-  const filtered = !!(sheet?.filter_select || sheet?.filter)
+  const filtered = !!sheet?.filter_select?.row
   setOn(byLabel('冻结'), frozen)
-  setOn(byLabel('筛选'), filtered || filterHidden.has(sheet?.id))
+  setOn(byLabel('筛选'), filtered)
   setOn(byLabel('合并单元格'), !!(cell?.mc))
   setOn(byLabel('对齐'), alignPop.show || cell?.ht === 0 || cell?.ht === 2)
   setOn(byLabel('垂直对齐'), vtPop.show || Number(cell?.vt) === 1 || Number(cell?.vt) === 2)
@@ -1512,7 +2147,7 @@ function markActiveTools() {
   setOn(byTip('查找替换'), findState.open)
   setOn(byLabel('评论'), false)
   dataBar.freeze = !!(sheet?.frozen && sheet.frozen.type && sheet.frozen.type !== 'cancel')
-  dataBar.filter = !!(sheet?.filter_select || sheet?.filter) || filterHidden.has(sheet?.id)
+  dataBar.filter = !!sheet?.filter_select?.row
   dataBar.cf = pop.show && pop.kind === 'cf'
   fontBar.bl = cell?.bl ? 1 : 0
   fontBar.it = cell?.it ? 1 : 0
@@ -1633,6 +2268,317 @@ function watchToolbarLabels() {
   labelObs = new MutationObserver(() => { attach() })
   labelObs.observe(box, { childList: true, subtree: true })
   ;[50, 150, 400].forEach((ms) => setTimeout(attach, ms))
+}
+
+function linkSheetNames() {
+  return liveSheets().map((sheet) => sheet.name).filter(Boolean)
+}
+
+function placeLinkPop() {
+  const box = hostRef.value?.querySelector('#luckysheet-cell-selected')
+  const rect = box?.getBoundingClientRect?.()
+  const width = 440
+  if (!rect || rect.width < 2) {
+    linkPop.left = 72
+    linkPop.top = 96
+    return
+  }
+  let left = rect.left
+  let top = rect.bottom + 6
+  if (left + width > window.innerWidth - 8) left = Math.max(8, window.innerWidth - width - 8)
+  if (top + 168 > window.innerHeight - 8) top = Math.max(8, rect.top - 168)
+  linkPop.left = left
+  linkPop.top = top
+}
+
+function openLinkPop() {
+  pop.show = false
+  const cell = activeCell()
+  const sheet = cfSheet()
+  if (!cell || !sheet) {
+    Message.warning('请先选中一个单元格')
+    return
+  }
+  const raw = sheet.data?.[cell.row]?.[cell.col]
+  const saved = sheet.hyperlink?.[`${cell.row}_${cell.col}`]
+  linkPop.row = cell.row
+  linkPop.col = cell.col
+  linkPop.sheetId = sheet.id
+  linkPop.text = raw && typeof raw === 'object' ? String(raw.m ?? raw.v ?? '') : (raw == null ? '' : String(raw))
+  linkPop.address = saved?.linkAddress || ''
+  linkPop.type = saved?.linkType || 'webpage'
+  linkPop.sheetsOpen = false
+  linkPop.picking = false
+  linkPop.show = true
+  nextTick(() => placeLinkPop())
+}
+
+function startSheetLink() {
+  linkPop.sheetsOpen = !linkPop.sheetsOpen
+}
+
+function pickSheetLink(name) {
+  linkPop.type = 'sheet'
+  linkPop.address = name
+  linkPop.text = name
+  linkPop.sheetsOpen = false
+}
+
+function startCellLink() {
+  linkPop.picking = true
+  linkPop.sheetsOpen = false
+  linkPop.show = false
+  linkBar.show = false
+}
+
+function quoteSheetName(name) {
+  const s = String(name || '')
+  if (!s) return s
+  if (/^[A-Za-z_\u4e00-\u9fff][\w\u4e00-\u9fff]*$/.test(s)) return s
+  return `'${s.replace(/'/g, "''")}'`
+}
+
+function parseRangeAddress(address) {
+  const raw = String(address || '').trim()
+  if (!raw) return null
+  let sheet = ''
+  let body = raw
+  const quoted = raw.match(/^'((?:[^']|'')*)'!(\$?[A-Za-z]+\$?\d+(?::\$?[A-Za-z]+\$?\d+)?)$/)
+  if (quoted) {
+    sheet = quoted[1].replace(/''/g, "'")
+    body = quoted[2]
+  } else {
+    const plain = raw.match(/^(.+)!(\$?[A-Za-z]+\$?\d+(?::\$?[A-Za-z]+\$?\d+)?)$/)
+    if (plain) {
+      sheet = plain[1]
+      body = plain[2]
+    }
+  }
+  const m = body.replace(/\$/g, '').match(/^([A-Za-z]+)(\d+)(?::([A-Za-z]+)(\d+))?$/)
+  if (!m) return null
+  const r0 = Number(m[2]) - 1
+  const c0 = colIndexFromLetters(m[1])
+  const r1 = m[4] ? Number(m[4]) - 1 : r0
+  const c1 = m[3] ? colIndexFromLetters(m[3]) : c0
+  if ([r0, c0, r1, c1].some((n) => !Number.isFinite(n) || n < 0)) return null
+  const a = `${colLetter(Math.min(c0, c1))}${Math.min(r0, r1) + 1}`
+  const b = `${colLetter(Math.max(c0, c1))}${Math.max(r0, r1) + 1}`
+  const span = a === b ? a : `${a}:${b}`
+  return {
+    sheet,
+    r0: Math.min(r0, r1),
+    r1: Math.max(r0, r1),
+    c0: Math.min(c0, c1),
+    c1: Math.max(c0, c1),
+    address: sheet ? `${quoteSheetName(sheet)}!${span}` : span,
+  }
+}
+
+function linkFromUrl(text) {
+  let url
+  try { url = new URL(text, location.origin) } catch { return null }
+  const range = url.searchParams.get('range')
+  if (!range || !parseRangeAddress(range)) return null
+  const same = url.origin === location.origin && url.pathname === location.pathname
+  if (!same) return { type: 'webpage', address: url.toString() }
+  const sheet = url.searchParams.get('sheet') || ''
+  const address = sheet ? `${quoteSheetName(sheet)}!${range.replace(/\$/g, '')}` : range.replace(/\$/g, '')
+  return { type: 'cellrange', address }
+}
+
+function finishCellLinkPick() {
+  if (!linkPop.picking) return
+  const sel = instRef.current?.getSelection?.()?.[0]
+  const r0 = sel?.row?.[0]
+  const c0 = sel?.column?.[0]
+  if (r0 == null || c0 == null) return
+  const r1 = sel.row?.[1] ?? r0
+  const c1 = sel.column?.[1] ?? c0
+  const a = `${colLetter(Math.min(c0, c1))}${Math.min(r0, r1) + 1}`
+  const b = `${colLetter(Math.max(c0, c1))}${Math.max(r0, r1) + 1}`
+  const addr = `${quoteSheetName(getActiveSheetName())}!${a === b ? a : `${a}:${b}`}`
+  linkPop.address = addr
+  linkPop.type = 'cellrange'
+  if (!linkPop.text.trim()) linkPop.text = addr
+  linkPop.picking = false
+  linkPop.show = true
+  nextTick(() => placeLinkPop())
+}
+
+function resolveLink(address) {
+  const text = address.trim()
+  if (/^https?:\/\//i.test(text) || /[?&]range=/.test(text)) {
+    const fromUrl = linkFromUrl(text)
+    if (fromUrl) return fromUrl
+  }
+  const range = parseRangeAddress(text)
+  if (range && (text.includes('!') || range.address === text.replace(/\$/g, ''))) {
+    return { type: 'cellrange', address: range.address }
+  }
+  if (linkSheetNames().includes(text)) return { type: 'sheet', address: text }
+  const href = /^https?:\/\//i.test(text) || /^mailto:/i.test(text) ? text : `https://${text}`
+  return { type: 'webpage', address: href }
+}
+
+function followCellRange(address) {
+  const box = parseRangeAddress(address)
+  if (!box) return false
+  if (box.sheet && !linkSheetNames().includes(box.sheet)) {
+    Message.warning(`找不到工作表「${box.sheet}」`)
+    return false
+  }
+  if (box.sheet) setActiveSheet(box.sheet)
+  instRef.current?.setSelection?.([{ row: [box.r0, box.r1], column: [box.c0, box.c1] }])
+  return true
+}
+
+function followLink(item) {
+  if (!item?.linkAddress) return
+  linkBar.show = false
+  if (item.linkType === 'sheet') {
+    if (!linkSheetNames().includes(item.linkAddress)) {
+      Message.warning(`找不到工作表「${item.linkAddress}」`)
+      return
+    }
+    setActiveSheet(item.linkAddress)
+    return
+  }
+  if (item.linkType === 'cellrange') {
+    followCellRange(item.linkAddress)
+    return
+  }
+  const internal = linkFromUrl(item.linkAddress)
+  if (internal?.type === 'cellrange') {
+    followCellRange(internal.address)
+    return
+  }
+  window.open(item.linkAddress, '_blank', 'noopener')
+}
+
+function removeLinkAt(row, col, sheetId) {
+  const sheet = (sheetId && liveSheets().find((s) => s.id === sheetId)) || cfSheet()
+  if (!sheet?.id) return
+  const prev = sheet.data?.[row]?.[col]
+  const next = prev && typeof prev === 'object' ? { ...prev } : { v: prev ?? '', m: prev == null ? '' : String(prev) }
+  if (String(next.fc || '').toLowerCase() === '#3370ff') delete next.fc
+  if (next.un) delete next.un
+  const ops = [{ op: 'replace', id: sheet.id, path: ['data', row, col], value: next }]
+  const key = `${row}_${col}`
+  if (sheet.hyperlink?.[key]) {
+    if (Object.keys(sheet.hyperlink).length === 1) ops.push({ op: 'remove', id: sheet.id, path: ['hyperlink'] })
+    else ops.push({ op: 'remove', id: sheet.id, path: ['hyperlink', key] })
+  }
+  applyOpUndoable(ops)
+  linkBar.show = false
+}
+
+function editLinkFromBar() {
+  const sheet = liveSheets().find((s) => s.id === linkBar.sheetId) || cfSheet()
+  if (!sheet) return
+  if (sheet.name) setActiveSheet(sheet.name)
+  instRef.current?.setSelection?.([{ row: [linkBar.r, linkBar.r], column: [linkBar.c, linkBar.c] }])
+  const raw = sheet.data?.[linkBar.r]?.[linkBar.c]
+  const saved = sheet.hyperlink?.[`${linkBar.r}_${linkBar.c}`]
+  linkPop.row = linkBar.r
+  linkPop.col = linkBar.c
+  linkPop.sheetId = sheet.id
+  linkPop.text = raw && typeof raw === 'object' ? String(raw.m ?? raw.v ?? '') : (raw == null ? '' : String(raw))
+  linkPop.address = saved?.linkAddress || ''
+  linkPop.type = saved?.linkType || 'webpage'
+  linkPop.sheetsOpen = false
+  linkPop.picking = false
+  linkPop.show = true
+  linkBar.show = false
+  nextTick(() => placeLinkPop())
+}
+
+function keepLinkBar() {
+  if (linkBarTimer) {
+    clearTimeout(linkBarTimer)
+    linkBarTimer = 0
+  }
+}
+
+function scheduleHideLinkBar() {
+  if (linkBarTimer) return
+  linkBarTimer = setTimeout(() => {
+    linkBarTimer = 0
+    linkBar.show = false
+  }, 180)
+}
+
+function syncLinkBar(g) {
+  if (!g || linkPop.show || linkPop.picking) {
+    scheduleHideLinkBar()
+    return
+  }
+  const sheet = instRef.current?.getSheet?.()
+  const item = sheet?.hyperlink?.[`${g.r}_${g.c}`]
+  if (!item?.linkAddress) {
+    scheduleHideLinkBar()
+    return
+  }
+  keepLinkBar()
+  const width = 280
+  let left = g.vx
+  let top = g.vy - 40
+  if (left < 8) left = 8
+  if (left + width > window.innerWidth - 8) left = Math.max(8, window.innerWidth - width - 8)
+  if (top < 48) top = g.vy + g.vh + 4
+  linkBar.show = true
+  linkBar.left = left
+  linkBar.top = top
+  linkBar.r = g.r
+  linkBar.c = g.c
+  linkBar.sheetId = sheet.id
+  linkBar.type = item.linkType || 'webpage'
+  linkBar.address = item.linkAddress
+}
+
+function applyLocationLink() {
+  if (locationLinkApplied) return
+  const params = new URLSearchParams(location.search)
+  const range = params.get('range')
+  if (!range) return
+  const sheet = params.get('sheet') || ''
+  const address = sheet ? `${quoteSheetName(sheet)}!${range}` : range
+  if (!parseRangeAddress(address)) return
+  locationLinkApplied = true
+  followCellRange(address)
+}
+
+function confirmLink() {
+  const address = linkPop.address.trim()
+  if (!address) return
+  const sheet = cfSheet()
+  if (!sheet || sheet.id !== linkPop.sheetId) {
+    Message.warning('请回到原来的单元格再确定')
+    return
+  }
+  const resolved = resolveLink(address)
+  const text = linkPop.text.trim() || address
+  const prev = sheet.data?.[linkPop.row]?.[linkPop.col]
+  const base = prev && typeof prev === 'object' ? { ...prev } : {}
+  delete base.f
+  const next = {
+    ...base,
+    v: text,
+    m: text,
+    fc: '#3370ff',
+    un: 1,
+    ct: { fa: '@', t: 's' },
+  }
+  const item = { linkType: resolved.type, linkAddress: resolved.address }
+  const key = `${linkPop.row}_${linkPop.col}`
+  const ops = [
+    { op: 'replace', id: sheet.id, path: ['data', linkPop.row, linkPop.col], value: next },
+  ]
+  if (sheet.hyperlink?.[key]) ops.push({ op: 'replace', id: sheet.id, path: ['hyperlink', key], value: item })
+  else if (sheet.hyperlink) ops.push({ op: 'add', id: sheet.id, path: ['hyperlink', key], value: item })
+  else ops.push({ op: 'add', id: sheet.id, path: ['hyperlink'], value: { [key]: item } })
+  applyOpUndoable(ops)
+  linkPop.show = false
+  linkPop.sheetsOpen = false
 }
 
 function openPop(kind, el) {
@@ -1785,6 +2731,30 @@ function applyCellColor(color) {
   scheduleDataBars()
 }
 
+let paintingFmt = false
+function paintCellFormat(r, c) {
+  const api = instRef.current
+  const sheet = api?.getSheet?.()
+  const cell = sheet?.data?.[r]?.[c]
+  if (!cell || typeof cell !== 'object') return
+  const fa = cell.ct?.fa
+  if (!fa || fa === 'General' || fa === '@') return
+  const raw = cell.v != null && cell.v !== '' ? cell.v : ''
+  if (raw === '') return
+  const shown = formatByCode(raw, fa)
+  if (shown === String(cell.m ?? '')) return
+  api.applyOp?.([{ op: 'replace', id: sheet.id, path: ['data', r, c, 'm'], value: shown }])
+}
+function paintSelectionFormat(sel) {
+  if (!sel?.row || !sel?.column) return
+  paintingFmt = true
+  const [r0, r1] = sel.row
+  const [c0, c1] = sel.column
+  for (let r = r0; r <= r1; r += 1) {
+    for (let c = c0; c <= c1; c += 1) paintCellFormat(r, c)
+  }
+  setTimeout(() => { paintingFmt = false }, 80)
+}
 function applyNumFmt(item) {
   if (!item?.fa) {
     pop.show = false
@@ -1796,6 +2766,7 @@ function applyNumFmt(item) {
   if (api?.setCellFormatByRange && sel?.row && sel?.column) {
     // 单次整块调用：一次调用 = 一步撤销（此前逐格循环会产生 N 步）
     api.setCellFormatByRange('ct', { fa: item.fa, t: item.t }, { row: sel.row, column: sel.column })
+    setTimeout(() => paintSelectionFormat(sel), 40)
   }
   const box = hostRef.value?.querySelector('[data-tips="格式"]')?.closest('.fortune-toobar-combo-container')
   const label = box?.querySelector('.fortune-toolbar-combo-text')
@@ -1821,21 +2792,19 @@ function fmtFa() {
   if (fmtDlg.cat === 'special') return { fa: '000000', t: 'n', short: '特殊' }
   return { fa: fmtDlg.custom || 'General', t: 'g', short: '自定义' }
 }
-function fmtSampleText() {
-  const cat = fmtDlg.cat
-  if (cat === 'general') return ''
-  if (cat === 'text') return '文本'
-  if (cat === 'date') return FMT_DATES.find((x) => x.fa === fmtDlg.dateFa)?.sample || '2017-08-01'
-  if (cat === 'time') return FMT_TIMES.find((x) => x.fa === fmtDlg.timeFa)?.sample || '23:24:25'
-  if (cat === 'percent') return fmtDlg.decimals ? '12.00%' : '12%'
-  if (cat === 'fraction') return '1/2'
-  if (cat === 'sci') return '1.23E+03'
-  if (cat === 'special') return '000123'
-  if (cat === 'custom') return fmtDlg.custom
-  const body = fmtDlg.thousand ? '1,234' : '1234'
-  const dec = fmtDlg.decimals ? `.${'0'.repeat(Math.min(6, fmtDlg.decimals))}` : ''
-  const sign = fmtDlg.cat === 'currency' || fmtDlg.cat === 'accounting' ? fmtDlg.symbol : ''
-  return `${sign}${body}${dec}`
+function fmtSampleRaw() {
+  if (fmtDlg.raw !== '' && fmtDlg.raw != null) return fmtDlg.raw
+  if (fmtDlg.cat === 'date' || fmtDlg.cat === 'time') return FMT_PREVIEW_AT
+  if (fmtDlg.cat === 'text' || (fmtDlg.cat === 'custom' && fmtDlg.custom.includes('@') && !/[0#]/.test(fmtDlg.custom))) return '人事'
+  if (fmtDlg.cat === 'percent') return 0.12
+  return 12345
+}
+function fmtPreview() {
+  const item = fmtFa()
+  return formatByCode(fmtSampleRaw(), item.fa)
+}
+function fmtDateLabel(fa) {
+  return formatByCode(FMT_PREVIEW_AT, fa)
 }
 function openFmtDlg() {
   pop.show = false
@@ -1844,6 +2813,7 @@ function openFmtDlg() {
   const sel = api?.getSelection?.()?.[0]
   const cell = sheet?.data?.[sel?.row?.[0] ?? 0]?.[sel?.column?.[0] ?? 0]
   const fa = cell?.ct?.fa || 'General'
+  fmtDlg.raw = cell?.v != null && cell.v !== '' ? cell.v : ''
   fmtDlg.tab = 'number'
   fmtDlg.cat = 'general'
   if (fa === '@') fmtDlg.cat = 'text'
@@ -2315,6 +3285,7 @@ function openCfRules() {
   cfState.ruleScope = 'sel'
   cfState.scopeOpen = false
   refreshCfFlags()
+  beauty.show = false
   cfState.side = true
   cfState.panel = 'rules'
   cfState.dlg = 'rules'
@@ -3511,11 +4482,8 @@ function onFreezeCapture(e) {
   if (filterHit && hostRef.value?.contains(filterHit)) {
     e.preventDefault()
     e.stopPropagation()
-    if (filterPop.show) {
-      filterPop.show = false
-      return
-    }
-    openFilter(filterHit)
+    if (e.target.closest?.('.fortune-toolbar-combo-arrow')) toggleFilterMenu(filterHit)
+    else enableFilter()
     return
   }
   const commentHit = e.target?.closest?.(
@@ -3604,6 +4572,9 @@ const sheetListPop = reactive({
   activeId: '',
   rev: 0,
 })
+const sheetMore = reactive({ show: false, left: 0, top: 0 })
+let sheetTabFrame = 0
+let sheetTabObs = null
 const sheetDrag = reactive({
   id: '',
   overId: '',
@@ -3696,10 +4667,33 @@ let copiedCells = null
 const cellLog = new Map()
 const ctxDlg = reactive({ show: false, title: '', text: '', mode: '', lines: [] })
 const DV_CONDS = ['单选', '多选', '数字', '日期', '文本', '复选框', '手机号', '邮箱']
+const DV_NUM_OPS = [
+  ['between', '介于'],
+  ['notBetween', '不介于'],
+  ['eq', '等于'],
+  ['ne', '不等于'],
+  ['gt', '大于'],
+  ['gte', '大于或等于'],
+  ['lt', '小于'],
+  ['lte', '小于或等于'],
+]
+const DV_TEXT_OPS = [
+  ['contains', '包含'],
+  ['notContains', '不包含'],
+  ['eq', '等于'],
+  ['starts', '开头是'],
+  ['ends', '结尾是'],
+  ['lenEq', '长度等于'],
+  ['lenGt', '长度大于'],
+  ['lenLt', '长度小于'],
+]
 const dvDlg = reactive({
   show: false,
   tab: 'set',
   cond: '单选',
+  op: 'between',
+  v1: '',
+  v2: '',
   source: 'custom',
   text: '',
   refText: '',
@@ -3715,6 +4709,10 @@ const dvDlg = reactive({
   warnTitle: '',
   warnText: '',
 })
+const dvArrow = reactive({ show: false, left: 0, top: 0, r: 0, c: 0 })
+const dvList = reactive({ show: false, left: 0, top: 0, options: [], multi: false, r: 0, c: 0, colors: {}, picked: [] })
+const dvHint = reactive({ show: false, left: 0, top: 0, title: '', text: '' })
+const dvCheck = reactive({ show: false, left: 0, top: 0, on: false, r: 0, c: 0 })
 
 function selectionBox() {
   const api = instRef.current
@@ -3940,12 +4938,20 @@ function confirmCtxDlg() {
 function dvOptionList() {
   return dvDlg.text.split(/[\n,，]/).map((s) => s.trim()).filter(Boolean)
 }
+function onDvCond() {
+  if (dvDlg.cond === '文本' && !DV_TEXT_OPS.some(([k]) => k === dvDlg.op)) dvDlg.op = 'contains'
+  if ((dvDlg.cond === '数字' || dvDlg.cond === '日期') && !DV_NUM_OPS.some(([k]) => k === dvDlg.op)) dvDlg.op = 'between'
+}
 function openValidation() {
   const box = selectionBox()
   const rule = box?.sheet?.dataVerification?.[`${box.r0}_${box.c0}`]
+  const condByType = { dropdown: '单选', number: '数字', date: '日期', text: '文本', checkbox: '复选框', phone: '手机号', email: '邮箱' }
   dvDlg.tab = 'set'
   dvDlg.colorEdit = false
   dvDlg.cond = '单选'
+  dvDlg.op = 'between'
+  dvDlg.v1 = ''
+  dvDlg.v2 = ''
   dvDlg.source = 'custom'
   dvDlg.text = ''
   dvDlg.refText = ''
@@ -3959,13 +4965,18 @@ function openValidation() {
   dvDlg.warnStyle = 'stop'
   dvDlg.warnTitle = ''
   dvDlg.warnText = ''
-  if (rule?.type === 'dropdown') {
-    dvDlg.cond = rule.type2 ? '多选' : '单选'
-    const value = String(rule.value1 || '')
-    const isRef = /^\$?[A-Z]+\d+:\$?[A-Z]+\d+$/i.test(value)
-    dvDlg.source = isRef ? 'ref' : 'custom'
-    if (isRef) dvDlg.refText = value
-    else dvDlg.text = value.split(',').join('\n')
+  if (rule) {
+    dvDlg.cond = rule.type === 'dropdown' && rule.type2 ? '多选' : (condByType[rule.type] || '单选')
+    dvDlg.op = rule.op || (dvDlg.cond === '文本' ? 'contains' : 'between')
+    dvDlg.v1 = rule.type === 'dropdown' ? '' : String(rule.value1 || '')
+    dvDlg.v2 = String(rule.value2 || '')
+    if (rule.type === 'dropdown') {
+      const value = String(rule.value1 || '')
+      const isRef = rule.source === 'ref' || /^\$?[A-Z]+\d+:\$?[A-Z]+\d+$/i.test(value)
+      dvDlg.source = isRef ? 'ref' : 'custom'
+      if (isRef) dvDlg.refText = value
+      else dvDlg.text = value.split(',').join('\n')
+    }
     dvDlg.optionColor = !!rule.optionColor
     dvDlg.showArrow = rule.showArrow !== false
     dvDlg.colors = { ...(rule.colors || {}) }
@@ -3973,10 +4984,10 @@ function openValidation() {
     dvDlg.hintTitle = rule.hintTitle || ''
     dvDlg.hintText = rule.hintText || ''
     dvDlg.warnOn = rule.prohibitInput !== false
+    dvDlg.warnStyle = rule.warnStyle || (rule.prohibitInput === false ? 'warn' : 'stop')
     dvDlg.warnText = rule.warnText || ''
-  } else if (rule?.type === 'checkbox') dvDlg.cond = '复选框'
-  else if (rule?.type === 'number') dvDlg.cond = '数字'
-  else if (rule?.type === 'date') dvDlg.cond = '日期'
+    dvDlg.warnTitle = rule.warnTitle || ''
+  }
   dvDlg.show = true
 }
 function openDvColor(opt, e) {
@@ -3995,18 +5006,25 @@ function confirmValidation() {
     dvDlg.show = false
     return
   }
-  const list = ['单选', '多选'].includes(dvDlg.cond)
+  const typeMap = { 单选: 'dropdown', 多选: 'dropdown', 数字: 'number', 日期: 'date', 文本: 'text', 复选框: 'checkbox', 手机号: 'phone', 邮箱: 'email' }
+  const list = dvDlg.cond === '单选' || dvDlg.cond === '多选'
   const value1 = list
     ? (dvDlg.source === 'ref' ? dvDlg.refText.trim() : dvOptionList().join(','))
-    : ''
+    : String(dvDlg.v1 || '').trim()
   const rule = {
-    type: dvDlg.cond === '复选框' ? 'checkbox' : (dvDlg.cond === '数字' ? 'number' : (dvDlg.cond === '日期' ? 'date' : 'dropdown')),
+    type: typeMap[dvDlg.cond] || 'dropdown',
     type2: dvDlg.cond === '多选',
+    op: dvDlg.op,
     value1,
-    prohibitInput: dvDlg.warnOn,
+    value2: String(dvDlg.v2 || '').trim(),
+    source: list ? dvDlg.source : '',
+    prohibitInput: dvDlg.warnStyle === 'stop',
+    warnStyle: dvDlg.warnStyle,
     hintShow: dvDlg.hintOn,
     hintTitle: dvDlg.hintTitle,
-    hintText: dvDlg.hintText || dvDlg.warnText,
+    hintText: dvDlg.hintText,
+    warnTitle: dvDlg.warnTitle,
+    warnText: dvDlg.warnText,
     optionColor: dvDlg.optionColor,
     showArrow: dvDlg.showArrow,
     colors: { ...dvDlg.colors },
@@ -4017,6 +5035,7 @@ function confirmValidation() {
   }
   applyOpUndoable([{ id: box.id, op: 'replace', path: ['dataVerification'], value: dv }])
   dvDlg.show = false
+  setTimeout(syncDvChrome, 40)
 }
 function clearValidation() {
   const box = selectionBox()
@@ -4029,6 +5048,214 @@ function clearValidation() {
     applyOpUndoable([{ id: box.id, op: 'replace', path: ['dataVerification'], value: dv }])
   }
   dvDlg.show = false
+  dvList.show = false
+  setTimeout(syncDvChrome, 40)
+}
+
+function dvRefOptions(ref) {
+  const raw = String(ref || '').trim()
+  const m = raw.match(/^(?:(?:'([^']+)'|([^!]+))!)?\$?([A-Za-z]+)\$?(\d+)(?::\$?([A-Za-z]+)\$?(\d+))?$/)
+  if (!m) return []
+  const api = instRef.current
+  const name = m[1] || m[2] || ''
+  const sheet = name
+    ? (api?.getAllSheets?.() || []).find((s) => s.name === name)
+    : api?.getSheet?.()
+  if (!sheet) return []
+  const c0 = colIndexFromName(m[3])
+  const r0 = Number(m[4]) - 1
+  const c1 = m[5] ? colIndexFromName(m[5]) : c0
+  const r1 = m[6] ? Number(m[6]) - 1 : r0
+  const out = []
+  for (let r = Math.min(r0, r1); r <= Math.max(r0, r1); r += 1) {
+    for (let c = Math.min(c0, c1); c <= Math.max(c0, c1); c += 1) {
+      const text = cellLabel(sheet.data?.[r]?.[c])
+      if (text) out.push(text)
+    }
+  }
+  return out
+}
+function dvRuleOptions(rule) {
+  if (!rule) return []
+  if (rule.source === 'ref' || /[A-Za-z]+\d+:[A-Za-z]+\d+/.test(String(rule.value1 || ''))) return dvRefOptions(rule.value1)
+  return String(rule.value1 || '').split(',').map((s) => s.trim()).filter(Boolean)
+}
+function dvDateNum(text) {
+  const s = String(text ?? '').trim()
+  if (!s) return NaN
+  const n = Number(s)
+  if (Number.isFinite(n) && n > 20000 && n < 80000) return n
+  const t = Date.parse(s.replace(/[年.]/g, '-').replace(/月/g, '-').replace(/日/g, ''))
+  return Number.isFinite(t) ? t / 86400000 : NaN
+}
+function dvCompare(op, left, a, b) {
+  if (!Number.isFinite(left) || !Number.isFinite(a)) return false
+  if (op === 'between' || op === 'notBetween') {
+    if (!Number.isFinite(b)) return false
+    const lo = Math.min(a, b)
+    const hi = Math.max(a, b)
+    const inside = left >= lo && left <= hi
+    return op === 'between' ? inside : !inside
+  }
+  if (op === 'eq') return left === a
+  if (op === 'ne') return left !== a
+  if (op === 'gt') return left > a
+  if (op === 'gte') return left >= a
+  if (op === 'lt') return left < a
+  if (op === 'lte') return left <= a
+  return true
+}
+function dvTextOk(op, text, raw) {
+  const s = String(text)
+  const p = String(raw ?? '')
+  if (op === 'contains') return s.includes(p)
+  if (op === 'notContains') return !s.includes(p)
+  if (op === 'eq') return s === p
+  if (op === 'starts') return s.startsWith(p)
+  if (op === 'ends') return s.endsWith(p)
+  if (op === 'lenEq') return s.length === Number(p)
+  if (op === 'lenGt') return s.length > Number(p)
+  if (op === 'lenLt') return s.length < Number(p)
+  return true
+}
+function dvIncoming(value) {
+  if (value == null) return ''
+  if (typeof value === 'object') return cellLabel(value)
+  return String(value)
+}
+function dvAccept(r, c, value) {
+  const sheet = instRef.current?.getSheet?.()
+  const rule = sheet?.dataVerification?.[`${r}_${c}`]
+  if (!rule) return true
+  const text = dvIncoming(value).trim()
+  if (!text || text.startsWith('=')) return true
+  let ok = true
+  if (rule.type === 'dropdown') {
+    const options = dvRuleOptions(rule)
+    const parts = rule.type2 ? text.split(/[,，]/).map((s) => s.trim()).filter(Boolean) : [text]
+    ok = parts.length > 0 && parts.every((part) => options.includes(part))
+  } else if (rule.type === 'number') {
+    ok = dvCompare(rule.op || 'between', parseLooseNumber(text), parseLooseNumber(rule.value1), parseLooseNumber(rule.value2))
+  } else if (rule.type === 'date') {
+    ok = dvCompare(rule.op || 'between', dvDateNum(text), dvDateNum(rule.value1), dvDateNum(rule.value2))
+  } else if (rule.type === 'text') {
+    ok = dvTextOk(rule.op || 'contains', text, rule.value1)
+  } else if (rule.type === 'phone') {
+    ok = /^1\d{10}$/.test(text)
+  } else if (rule.type === 'email') {
+    ok = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(text)
+  } else if (rule.type === 'checkbox') {
+    ok = ['✓', '✔', 'true', 'false', '是', '否', '1', '0'].includes(text)
+  }
+  if (ok) return true
+  const title = rule.warnTitle || '数据验证'
+  const body = rule.warnText || rule.hintText || '输入的内容不符合数据验证条件'
+  const style = rule.warnStyle || (rule.prohibitInput === false ? 'warn' : 'stop')
+  if (style === 'stop') {
+    Message.error(`${title}：${body}`)
+    return false
+  }
+  if (style === 'info') Message.info(`${title}：${body}`)
+  else Message.warning(`${title}：${body}`)
+  return true
+}
+function hideDvChrome() {
+  dvArrow.show = false
+  dvList.show = false
+  dvHint.show = false
+  dvCheck.show = false
+}
+function syncDvChrome() {
+  const api = instRef.current
+  const sel = api?.getSelection?.()?.[0]
+  const sheet = api?.getSheet?.()
+  const box = hostRef.value?.querySelector('.luckysheet-cell-selected')
+  if (!sel || !sheet || !box) {
+    hideDvChrome()
+    return
+  }
+  const r0 = sel.row?.[0] ?? 0
+  const r1 = sel.row?.[1] ?? r0
+  const c0 = sel.column?.[0] ?? 0
+  const c1 = sel.column?.[1] ?? c0
+  if (r0 !== r1 || c0 !== c1) {
+    hideDvChrome()
+    return
+  }
+  const rule = sheet.dataVerification?.[`${r0}_${c0}`]
+  if (dvList.show && (dvList.r !== r0 || dvList.c !== c0)) dvList.show = false
+  if (!rule) {
+    dvArrow.show = false
+    dvHint.show = false
+    dvCheck.show = false
+    dvList.show = false
+    return
+  }
+  const rect = box.getBoundingClientRect()
+  if (rule.hintShow && (rule.hintText || rule.hintTitle)) {
+    dvHint.show = true
+    dvHint.left = rect.left
+    dvHint.top = Math.min(rect.bottom + 4, window.innerHeight - 72)
+    dvHint.title = rule.hintTitle || ''
+    dvHint.text = rule.hintText || ''
+  } else dvHint.show = false
+  if (rule.type === 'checkbox') {
+    dvArrow.show = false
+    dvList.show = false
+    dvCheck.show = true
+    dvCheck.left = rect.left + 4
+    dvCheck.top = rect.top + Math.max(2, (rect.height - 16) / 2)
+    dvCheck.r = r0
+    dvCheck.c = c0
+    const label = cellLabel(sheet.data?.[r0]?.[c0])
+    dvCheck.on = label === '✓' || label === '✔' || label === 'true' || label === '是' || label === '1'
+    return
+  }
+  dvCheck.show = false
+  if (rule.type === 'dropdown' && rule.showArrow !== false) {
+    dvArrow.show = true
+    dvArrow.left = rect.right - 20
+    dvArrow.top = rect.top + Math.max(0, (rect.height - 16) / 2)
+    dvArrow.r = r0
+    dvArrow.c = c0
+  } else {
+    dvArrow.show = false
+    dvList.show = false
+  }
+}
+function openDvList() {
+  const sheet = instRef.current?.getSheet?.()
+  const rule = sheet?.dataVerification?.[`${dvArrow.r}_${dvArrow.c}`]
+  if (!rule) return
+  dvList.options = dvRuleOptions(rule)
+  dvList.multi = !!rule.type2
+  dvList.r = dvArrow.r
+  dvList.c = dvArrow.c
+  dvList.colors = rule.optionColor ? (rule.colors || {}) : {}
+  const current = cellLabel(sheet.data?.[dvArrow.r]?.[dvArrow.c])
+  dvList.picked = current ? current.split(/[,，]/).map((s) => s.trim()).filter(Boolean) : []
+  dvList.left = Math.min(dvArrow.left - 8, window.innerWidth - 180)
+  dvList.top = Math.min(dvArrow.top + 20, window.innerHeight - 180)
+  dvList.show = true
+}
+function pickDvOption(opt) {
+  const api = instRef.current
+  if (dvList.multi) {
+    const set = new Set(dvList.picked)
+    if (set.has(opt)) set.delete(opt)
+    else set.add(opt)
+    dvList.picked = [...set]
+    api?.setCellValue?.(dvList.r, dvList.c, dvList.picked.join(','))
+    return
+  }
+  api?.setCellValue?.(dvList.r, dvList.c, opt)
+  dvList.show = false
+  setTimeout(syncDvChrome, 40)
+}
+function toggleDvCheck() {
+  const next = dvCheck.on ? '' : '✓'
+  instRef.current?.setCellValue?.(dvCheck.r, dvCheck.c, next)
+  dvCheck.on = !dvCheck.on
 }
 
 function removeDuplicates() {
@@ -4105,7 +5332,13 @@ async function onCtxAction(id) {
   } else if (id === 'numfmt') {
     openFmtDlg()
   } else if (id === 'link' && box) {
-    await copyText(`${location.origin}${location.pathname}?range=${colLetter(box.c0)}${box.r0 + 1}:${colLetter(box.c1)}${box.r1 + 1}`)
+    const a = `${colLetter(box.c0)}${box.r0 + 1}`
+    const b = `${colLetter(box.c1)}${box.r1 + 1}`
+    const url = new URL(location.href)
+    url.searchParams.set('sheet', box.sheet?.name || getActiveSheetName())
+    url.searchParams.set('range', a === b ? a : `${a}:${b}`)
+    await copyText(url.toString())
+    Message.success('已复制选区链接')
   } else if (id === 'protectOn' && box) {
     api?.setCellFormatByRange?.('lo', 1, { row: [box.r0, box.r1], column: [box.c0, box.c1] }, { id: box.id })
   } else if (id === 'protectOff' && box) {
@@ -4162,14 +5395,17 @@ function closeSheetListPop() {
 }
 
 function openSheetListPop(anchor) {
-  const el = anchor?.closest?.('.sheet-list-container, .fortune-sheettab-button') || anchor
+  const el = anchor?.closest?.('.sheet-list-container, .fortune-sheettab-button, .fs-sheet-more') || anchor
   const r = el?.getBoundingClientRect?.()
   if (!r) return
   closeSheetTabMenu()
   sheetListPop.query = ''
   try { sheetListPop.activeId = instRef.current?.getSheet?.()?.id || '' }
   catch { sheetListPop.activeId = '' }
-  sheetListPop.left = Math.round(r.left)
+  const popW = 220
+  let left = r.left
+  if (left + popW > window.innerWidth - 8) left = window.innerWidth - popW - 8
+  sheetListPop.left = Math.max(8, Math.round(left))
   sheetListPop.top = Math.round(r.top - 8)
   sheetListPop.open = true
   nextTick(() => {
@@ -4177,7 +5413,59 @@ function openSheetListPop(anchor) {
     if (!pop) return
     const h = pop.getBoundingClientRect().height
     sheetListPop.top = Math.max(8, Math.round(r.top - h - 4))
+    pop.querySelector('input')?.focus()
   })
+}
+
+function toggleSheetMore() {
+  if (sheetListPop.open) closeSheetListPop()
+  else openSheetListPop(document.querySelector('.fs-sheet-more'))
+}
+
+function scheduleSheetTabs() {
+  cancelAnimationFrame(sheetTabFrame)
+  sheetTabFrame = requestAnimationFrame(layoutSheetTabs)
+}
+
+/** 底栏放不下全部工作表时，标签保持原名，末尾露出「...」 */
+function layoutSheetTabs() {
+  const content = hostRef.value?.querySelector('#luckysheet-sheet-content')
+  const wrap = content?.querySelector('.fortune-sheettab-container')
+  const box = content?.querySelector('#fortune-sheettab-container-c')
+  if (!content || !wrap || !box) {
+    sheetMore.show = false
+    return
+  }
+  // 标签容器的 max-width / margin 在样式表里是 !important，这里用 important 才能让出「...」的空位。
+  wrap.style.removeProperty('max-width')
+  const gap = 36
+  const held = parseFloat(wrap.style.marginRight) || 0
+  const overflow = box.scrollWidth > box.clientWidth + held + 1
+  if (overflow) wrap.style.setProperty('margin-right', `${gap}px`, 'important')
+  else wrap.style.removeProperty('margin-right')
+  sheetMore.show = overflow
+  if (overflow) {
+    const r = wrap.getBoundingClientRect()
+    sheetMore.left = Math.round(r.right + 4)
+    sheetMore.top = Math.round(r.top + 2)
+    const active = box.querySelector('.luckysheet-sheets-item-active')
+    if (active) {
+      const left = active.offsetLeft
+      const right = left + active.offsetWidth
+      const view = box.clientWidth
+      if (left < box.scrollLeft) box.scrollLeft = left
+      else if (right > box.scrollLeft + view) box.scrollLeft = right - view
+    }
+  }
+}
+
+function bindSheetTabLayout() {
+  scheduleSheetTabs()
+  const content = hostRef.value?.querySelector('#luckysheet-sheet-content')
+  if (!content || sheetTabObs) return
+  sheetTabObs = new ResizeObserver(() => scheduleSheetTabs())
+  sheetTabObs.observe(content)
+  window.addEventListener('resize', scheduleSheetTabs)
 }
 
 function onSheetListBtnClick(e) {
@@ -4208,6 +5496,7 @@ function activateFromSheetList(sheet) {
     }
     instRef.current?.activateSheet?.({ id: sheet.id })
     sheetListPop.activeId = sheet.id
+    setTimeout(scheduleSheetTabs, 60)
   } catch { /* */ }
   closeSheetListPop()
 }
@@ -4646,10 +5935,16 @@ function onTipLeave() {
 function onWrapDown(e) {
   fsTip.show = false
   if (e.button === 2) return
-  if (e.target.closest?.('.cp, .fs-pop, .fs-fold, .fs-cf-dlg, .fs-cf-fly, .fs-find, .fs-ctx, .fs-ctx-dlg, .fs-filter, .fs-style-cluster, .fs-align-cluster, .fs-fmt-cluster, .fs-data-cluster, .fs-ht-menu, .fs-sheet-ctx, .fs-sheet-list, .fs-font-menu, .sheet-list-container, #all-sheets, .arco-trigger-popup')) return
+  if (e.target.closest?.('.cp, .fs-pop, .fs-link, .fs-link-bar, .fs-link-pick, .fs-fold, .fs-beauty, .fs-view-tools, .fs-filter, .fs-filter-menu, .fs-cf-dlg, .fs-cf-fly, .fs-find, .fs-ctx, .fs-ctx-dlg, .fs-style-cluster, .fs-align-cluster, .fs-fmt-cluster, .fs-data-cluster, .fs-ht-menu, .fs-sheet-ctx, .fs-sheet-list, .fs-font-menu, .sheet-list-container, #all-sheets, .arco-trigger-popup')) return
   // 颜色按钮由 onFreezeCapture 负责开关，避免 mousedown 先关掉、click 再打开时被冲掉
   if (findColorCombo(e.target)) return
   pop.show = false
+  viewState.menu = false
+  filterMenu.show = false
+  if (!linkPop.picking) {
+    linkPop.show = false
+    linkPop.sheetsOpen = false
+  }
   filterPop.show = false
   colorPop.show = false
   borderState.styleOpen = false
@@ -4704,6 +5999,7 @@ function renderBook(data) {
     root = null
   }
   hostRef.value.innerHTML = ''
+  zoomReady.value = false
   const box = document.createElement('div')
   box.className = 'fortune-box'
   hostRef.value.appendChild(box)
@@ -4733,21 +6029,56 @@ function renderBook(data) {
         icon: toolIcon(FEISHU_INSERT_PATHS),
         onClick: (e) => openPop('insert', e?.currentTarget || hostRef.value?.querySelector('[data-tips="插入"]')),
       },
+      {
+        key: 'feishu-beauty',
+        tooltip: '美化表格',
+        icon: toolIcon([
+          'M12 2.2 13.55 7.7 19.2 9.15 13.55 10.6 12 16.1 10.45 10.6 4.8 9.15 10.45 7.7Z',
+          'M18.4 13.6 19.15 16.05 21.6 16.8 19.15 17.55 18.4 20 17.65 17.55 15.2 16.8 17.65 16.05Z',
+        ]),
+        onClick: () => openBeauty(),
+      },
     ],
     hooks: {
+      beforeUpdateCell: (r, c, value) => dvAccept(r, c, value),
+      afterUpdateCell: (r, c) => {
+        setTimeout(() => {
+          if (!paintingFmt) paintCellFormat(r, c)
+          syncDvChrome()
+        }, 30)
+      },
       afterSelectionChange: (_id, sel) => {
         syncCfRangeFromSelection(sel)
         scheduleDataBars()
+        refreshSheetStat(sel)
         if (cfState.side && cfState.panel === 'rules') refreshCfFlags()
+        requestAnimationFrame(syncDvChrome)
       },
     },
-    onChange: (next) => { latest = next || latest; markActiveTools(); scheduleDataBars(); syncBarStore() },
+    onChange: (next) => {
+      latest = next || latest
+      markActiveTools()
+      scheduleDataBars()
+      refreshSheetStat()
+      scheduleSheetTabs()
+      syncBarStore()
+      const on = instRef.current?.getSheet?.()?.showGridLines !== false
+      viewState.grid = on
+      beauty.grid = on
+    },
   }))
   requestAnimationFrame(() => {
     watchToolbarLabels()
     bindFreezeClick()
     fixInitialSelection()
-    ;[120, 400, 1000].forEach((d) => setTimeout(fixInitialSelection, d))
+    ;[120, 400, 1000].forEach((d) => setTimeout(() => {
+      fixInitialSelection()
+      zoomReady.value = !!hostRef.value?.querySelector('.fortune-zoom-container')
+      drawCrosshair()
+      refreshSheetStat()
+      applyLocationLink()
+      scheduleSheetTabs()
+    }, d))
     const native = cfRules().filter((rule) => rule.type !== 'dataBar')
     if (native.length !== cfRules().length) patchCf(native, false)
     const sheet = instRef.current?.getSheet?.()
@@ -4757,8 +6088,31 @@ function renderBook(data) {
     }
     drawDataBars()
     drawIconSets()
+    viewState.grid = sheet?.showGridLines !== false
+    zoomReady.value = !!hostRef.value?.querySelector('.fortune-zoom-container')
+    drawCrosshair()
+    bindSheetTabLayout()
   })
-  const redrawBars = () => scheduleDataBars()
+  const redrawBars = () => {
+    scheduleDataBars()
+    syncDvChrome()
+  }
+  filterIconObs?.disconnect()
+  filterIconObs = new MutationObserver(() => {
+    if (dataBar.filter) scheduleFilterIcons()
+  })
+  filterIconObs.observe(box, { childList: true, subtree: true })
+  box.addEventListener('click', (e) => {
+    const caret = e.target.closest?.('.luckysheet-filter-options')
+    if (caret) {
+      e.preventDefault()
+      e.stopPropagation()
+      openColumnFilter(caret)
+      return
+    }
+    if (!e.target.closest?.('.fs-dv-list, .fs-dv-arrow')) dvList.show = false
+    if (e.target.closest?.('.fortune-zoom-button')) setTimeout(drawCrosshair, 60)
+  }, true)
   box.addEventListener('wheel', redrawBars, { passive: true })
   box.addEventListener('scroll', redrawBars, { passive: true, capture: true })
   box.addEventListener('mouseup', redrawBars)
@@ -4859,7 +6213,30 @@ function setActiveSheet(name) {
   if (api && sh?.id) api.activateSheet({ id: sh.id })
 }
 
-function writeBlock(name, startRow, startCol, matrix, headerRows = 0) {
+const PIVOT_TOTAL_BG = '#DCE6F1'
+
+function paintPivotSummary(startRow, startCol, layout) {
+  const api = instRef.current
+  if (!api?.setCellFormatByRange || !layout?.rows || !layout?.cols) return
+  const paint = (r, c0, c1) => {
+    const range = { row: [r, r], column: [c0, c1] }
+    api.setCellFormatByRange('bg', PIVOT_TOTAL_BG, range)
+    api.setCellFormatByRange('bl', 1, range)
+  }
+  layout.rows.forEach((meta, ri) => {
+    if (meta?.type !== 'total' && meta?.type !== 'sub') return
+    paint(startRow + ri, startCol, startCol + layout.cols.length - 1)
+  })
+  const totalCols = []
+  layout.cols.forEach((col, ci) => { if (col?.type === 'total') totalCols.push(ci) })
+  if (!totalCols.length) return
+  layout.rows.forEach((meta, ri) => {
+    if (!meta || meta.type === 'head' || meta.type === 'total' || meta.type === 'sub') return
+    totalCols.forEach((ci) => paint(startRow + ri, startCol + ci, startCol + ci))
+  })
+}
+
+function writeBlock(name, startRow, startCol, matrix, headerRows = 0, layout = null) {
   const api = instRef.current
   if (!api || !matrix?.length || !matrix[0]?.length) return false
   if (name) setActiveSheet(name)
@@ -4869,6 +6246,16 @@ function writeBlock(name, startRow, startCol, matrix, headerRows = 0) {
   }
   try {
     api.setCellValuesByRange(matrix, range)
+    matrix.forEach((line, r) => {
+      line.forEach((val, c) => {
+        if (typeof val === 'string' && /%$/.test(val.trim())) {
+          api.setCellFormatByRange('ct', { fa: '0.00%', t: 'n' }, {
+            row: [startRow + r, startRow + r],
+            column: [startCol + c, startCol + c],
+          })
+        }
+      })
+    })
     if (headerRows) {
       const head = {
         row: [startRow, startRow + headerRows - 1],
@@ -4877,6 +6264,7 @@ function writeBlock(name, startRow, startCol, matrix, headerRows = 0) {
       api.setCellFormatByRange('bl', 1, head)
       api.setCellFormatByRange('bg', '#E8F3FF', head)
     }
+    paintPivotSummary(startRow, startCol, layout)
     return true
   } catch {
     return false
@@ -4940,8 +6328,222 @@ function normalizeFormulaTyping() {
     try { sel.collapse(anchor, offset) } catch { /* 光标节点被重建时忽略 */ }
   }
 }
+function sheetContextDispatch() {
+  const box = hostRef.value?.querySelector?.('.fortune-box')
+  if (!box) return null
+  try {
+    const key = Object.keys(box).find((k) => k.startsWith('__reactContainer'))
+    if (!key) return null
+    const seen = new Set()
+    const stack = [box[key]]
+    while (stack.length) {
+      const fiber = stack.pop()
+      if (!fiber || seen.has(fiber)) continue
+      seen.add(fiber)
+      let hook = fiber.memoizedState
+      for (let i = 0; i < 80 && hook; i += 1) {
+        const st = hook.memoizedState
+        if (st && typeof st === 'object' && Array.isArray(st.luckysheetfile) && Array.isArray(st.luckysheetCellUpdate) && hook.queue?.dispatch) {
+          return hook.queue.dispatch
+        }
+        hook = hook.next
+      }
+      if (fiber.child) stack.push(fiber.child)
+      if (fiber.sibling) stack.push(fiber.sibling)
+    }
+  } catch { /* */ }
+  return null
+}
+
+function exitCellEdit() {
+  hideFuncTip()
+  hideFuncSug()
+  const dispatch = sheetContextDispatch()
+  if (dispatch) {
+    dispatch((ctx) => {
+      if (!ctx?.luckysheetCellUpdate?.length) return ctx
+      return { ...ctx, luckysheetCellUpdate: [], formulaRangeHighlight: [] }
+    })
+  }
+  const ed = document.getElementById('luckysheet-rich-text-editor')
+  const fx = document.getElementById('luckysheet-functionbox-cell')
+  if (ed) ed.innerHTML = ''
+  if (fx) fx.innerHTML = ''
+  ed?.blur()
+  fx?.blur()
+  const focusEl = hostRef.value?.querySelector('.luckysheet-cell-input, .fortune-container')
+  if (focusEl && focusEl !== ed) focusEl.focus()
+}
+
+function colIndexFromName(letters) {
+  let n = 0
+  for (const ch of letters.toUpperCase()) n = n * 26 + (ch.charCodeAt(0) - 64)
+  return n - 1
+}
+
+function colNameFromIndex(index) {
+  let n = index + 1
+  let s = ''
+  while (n > 0) {
+    const m = (n - 1) % 26
+    s = String.fromCharCode(65 + m) + s
+    n = Math.floor((n - 1) / 26)
+  }
+  return s
+}
+
+/** Excel 填充：相对引用随目标单元格偏移，$ 锁定的行列不动 */
+function shiftFormula(formula, dr, dc) {
+  if ((!dr && !dc) || !formula || formula[0] !== '=') return formula
+  let out = ''
+  let i = 0
+  while (i < formula.length) {
+    if (formula[i] === '"') {
+      let j = i + 1
+      while (j < formula.length) {
+        if (formula[j] === '"') {
+          j += 1
+          if (formula[j] === '"') { j += 1; continue }
+          break
+        }
+        j += 1
+      }
+      out += formula.slice(i, j)
+      i = j
+      continue
+    }
+    const prev = i > 0 ? formula[i - 1] : ''
+    const rest = formula.slice(i)
+    const m = rest.match(/^(?:(?:'(?:[^']|'')+'|[A-Za-z_\u4e00-\u9fff][\w.\u4e00-\u9fff]*)!)?(\$?)([A-Za-z]{1,3})(\$?)(\d{1,7})(?!\d)/)
+    if (!m || rest[m[0].length] === '(' || (prev && /[\w\u4e00-\u9fff]/.test(prev))) {
+      out += formula[i]
+      i += 1
+      continue
+    }
+    const colAbs = m[1]
+    const col = m[2]
+    const rowAbs = m[3]
+    const row = m[4]
+    const prefix = m[0].slice(0, m[0].length - (colAbs.length + col.length + rowAbs.length + row.length))
+    let ci = colIndexFromName(col)
+    let ri = Number(row) - 1
+    if (!colAbs) ci += dc
+    if (!rowAbs) ri += dr
+    if (ci < 0 || ri < 0 || ci > 16383 || ri > 1048575) out += `${prefix}#REF!`
+    else out += `${prefix}${colAbs}${colNameFromIndex(ci)}${rowAbs}${ri + 1}`
+    i += m[0].length
+  }
+  return out
+}
+
+function sheetHasFocus(e) {
+  if (!hostRef.value || e.isComposing || e.keyCode === 229) return false
+  const el = document.activeElement
+  const tag = el?.tagName
+  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return false
+  if (el?.closest?.('.fs-filter, .fs-sheet-list, .pv-panel, .pv-pop, .arco-modal, .arco-trigger-popup')) return false
+  if (el?.isContentEditable && !el.closest?.('#luckysheet-rich-text-editor, #luckysheet-functionbox-cell')) return false
+  if (hostRef.value.contains(el) || hostRef.value.contains(e.target)) return true
+  const ctx = reactStateBy((st) => Array.isArray(st.luckysheetfile))
+  return !!ctx?.sheetFocused
+}
+
+function editingInputText() {
+  const ed = document.getElementById('luckysheet-rich-text-editor')
+  const fx = document.getElementById('luckysheet-functionbox-cell')
+  const active = document.activeElement
+  const fromFx = !!(fx && (active === fx || fx.contains(active)))
+  const fromEd = !!(ed && (active === ed || ed.contains(active)))
+  const ctx = reactStateBy((st) => Array.isArray(st.luckysheetfile) && Array.isArray(st.luckysheetCellUpdate))
+  if (!fromFx && !fromEd && !(ctx?.luckysheetCellUpdate?.length)) return null
+  const node = fromFx ? fx : ed
+  if (!node) return null
+  let text = (node.innerText || '').replace(/\u00a0/g, ' ')
+  if (text.endsWith('\n')) text = text.slice(0, -1)
+  return { text: fwFixed(text), ctx }
+}
+
+/** Ctrl+Enter：把正在输入的内容填进整个选区，相对公式随单元格偏移，选区不移动 */
+function fillSelectionFromEdit(text, ctx) {
+  const api = instRef.current
+  const sheet = api?.getSheet?.()
+  if (!api?.setCellValuesByRange || !sheet) return false
+  const ranges = (ctx?.luckysheet_select_save?.length ? ctx.luckysheet_select_save : api.getSelection?.()) || []
+  if (!ranges.length) return false
+  const origin = ctx?.luckysheetCellUpdate?.length >= 2
+    ? { r: ctx.luckysheetCellUpdate[0], c: ctx.luckysheetCellUpdate[1] }
+    : {
+      r: ranges[0].row_focus ?? ranges[0].row?.[0] ?? 0,
+      c: ranges[0].column_focus ?? ranges[0].column?.[0] ?? 0,
+    }
+  const formula = text.startsWith('=')
+  let count = 0
+  const boxes = ranges.map((sel) => {
+    const r0 = Math.min(sel.row[0], sel.row[1] ?? sel.row[0])
+    const r1 = Math.max(sel.row[0], sel.row[1] ?? sel.row[0])
+    const c0 = Math.min(sel.column[0], sel.column[1] ?? sel.column[0])
+    const c1 = Math.max(sel.column[0], sel.column[1] ?? sel.column[0])
+    count += (r1 - r0 + 1) * (c1 - c0 + 1)
+    return { r0, r1, c0, c1 }
+  })
+  if (count > 8000) {
+    Message.warning('选区过大，无法一次填充')
+    return false
+  }
+  boxes.forEach((box) => {
+    const matrix = []
+    for (let r = box.r0; r <= box.r1; r += 1) {
+      const line = []
+      for (let c = box.c0; c <= box.c1; c += 1) {
+        line.push(formula ? shiftFormula(text, r - origin.r, c - origin.c) : text)
+      }
+      matrix.push(line)
+    }
+    api.setCellValuesByRange(matrix, { row: [box.r0, box.r1], column: [box.c0, box.c1] }, { id: sheet.id })
+  })
+  exitCellEdit()
+  return true
+}
+
+/** Excel：Ctrl+Shift+L 开关筛选；Ctrl+Enter 把输入填充到选区 */
+function onSheetHotkey(e) {
+  if (e.repeat || !sheetHasFocus(e)) return false
+  const key = String(e.key || '')
+  const ctrl = e.ctrlKey || e.metaKey
+  if (ctrl && e.shiftKey && !e.altKey && (e.code === 'KeyL' || key.toLowerCase() === 'l')) {
+    e.preventDefault()
+    e.stopPropagation()
+    exitCellEdit()
+    enableFilter()
+    return true
+  }
+  if (key === 'Enter' && ctrl && !e.shiftKey && !e.altKey) {
+    const editing = editingInputText()
+    if (!editing) return false
+    e.preventDefault()
+    e.stopPropagation()
+    fillSelectionFromEdit(editing.text, editing.ctx)
+    return true
+  }
+  return false
+}
+
 /** Enter 捕获阶段：出现过全角等号且 DOM 里已丢失 '=' 时，补回完整公式再交给 fortune 提交 */
 function onDocFormulaKeydown(e) {
+  if (onSheetHotkey(e)) return
+  if (e.key === 'Escape' && (linkPop.picking || linkPop.show)) {
+    e.preventDefault()
+    e.stopPropagation()
+    if (linkPop.picking) {
+      linkPop.picking = false
+      linkPop.show = true
+      nextTick(() => placeLinkPop())
+    } else {
+      linkPop.show = false
+      linkPop.sheetsOpen = false
+    }
+    return
+  }
   // 补全列表打开时接管导航/确认/关闭键
   if (funcSug.visible && funcSug.items.length) {
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
@@ -5386,8 +6988,10 @@ function onMxMouseMove(e) {
     const g = geomFromPoint(ctxState() || {}, clientX, clientY)
     if (!g) {
       if (mxHover.r !== -1) { mxHover.r = -1; mxHover.c = -1; emit('cellhover', null) }
+      scheduleHideLinkBar()
       return
     }
+    syncLinkBar(g)
     if (g.r === mxHover.r && g.c === mxHover.c) return
     mxHover.r = g.r
     mxHover.c = g.c
@@ -5401,10 +7005,33 @@ function onMxMouseOut(e) {
     emit('cellhover', null)
   }
 }
+function onLinkArmDown(e) {
+  linkArmed = ''
+  if (e.button !== 0 || !inCellArea(e) || linkPop.picking || e.shiftKey || e.ctrlKey || e.metaKey) return
+  const g = geomFromPoint(ctxState() || {}, e.clientX, e.clientY)
+  const cur = activeCell()
+  if (!g || !cur || cur.row !== g.r || cur.col !== g.c) return
+  const item = instRef.current?.getSheet?.()?.hyperlink?.[`${g.r}_${g.c}`]
+  if (item?.linkAddress) linkArmed = `${g.r}_${g.c}`
+}
+function onLinkPickUp(e) {
+  if (!linkPop.picking || !e.target?.closest?.('.fortune-cell-area')) return
+  setTimeout(() => finishCellLinkPick(), 0)
+}
 function onMxClick(e) {
   if (!inCellArea(e)) return
   const g = geomFromPoint(ctxState() || {}, e.clientX, e.clientY)
+  if (g && linkArmed && linkArmed === `${g.r}_${g.c}` && !linkPop.picking && !e.shiftKey && !e.ctrlKey && !e.metaKey) {
+    const item = instRef.current?.getSheet?.()?.hyperlink?.[`${g.r}_${g.c}`]
+    if (item?.linkAddress) followLink(item)
+  }
+  linkArmed = ''
   if (g) emit('cellclick', { ...g, clientX: e.clientX, clientY: e.clientY })
+}
+function onMxDblClick(e) {
+  if (!inCellArea(e)) return
+  const g = geomFromPoint(ctxState() || {}, e.clientX, e.clientY)
+  if (g) emit('celldblclick', { ...g, clientX: e.clientX, clientY: e.clientY })
 }
 function onMxContext(e) {
   if (!props.suppressCellMenu || !inCellArea(e)) return
@@ -5416,7 +7043,10 @@ function onMxContext(e) {
 }
 document.addEventListener('mousemove', onMxMouseMove, true)
 document.addEventListener('mouseout', onMxMouseOut, true)
+document.addEventListener('mousedown', onLinkArmDown, true)
+document.addEventListener('mouseup', onLinkPickUp, true)
 document.addEventListener('click', onMxClick, true)
+document.addEventListener('dblclick', onMxDblClick, true)
 document.addEventListener('contextmenu', onMxContext, true)
 function rangeText(a, b) {
   const r1 = Math.min(a.r, b.r)
@@ -5510,10 +7140,19 @@ onBeforeUnmount(() => {
   document.removeEventListener('mousedown', onDocFxRangeDown, true)
   document.removeEventListener('mousemove', onDocFxRangeMove, true)
   document.removeEventListener('mouseup', onDocFxRangeUp, true)
+  document.removeEventListener('mousedown', onLinkArmDown, true)
+  document.removeEventListener('mouseup', onLinkPickUp, true)
   document.removeEventListener('selectionchange', onDocFuncSelChange, true)
   document.removeEventListener('scroll', onDocFuncScroll, true)
   labelObs?.disconnect()
   labelObs = null
+  filterIconObs?.disconnect()
+  filterIconObs = null
+  sheetTabObs?.disconnect()
+  sheetTabObs = null
+  window.removeEventListener('resize', scheduleSheetTabs)
+  if (sheetTabFrame) cancelAnimationFrame(sheetTabFrame)
+  if (filterIconFrame) cancelAnimationFrame(filterIconFrame)
   hostRef.value?.removeEventListener('mousedown', onColorToolbarCapture, true)
   hostRef.value?.removeEventListener('click', onColorToolbarCapture, true)
   hostRef.value?.removeEventListener('click', onFreezeCapture, true)
@@ -5523,6 +7162,7 @@ onBeforeUnmount(() => {
   document.removeEventListener('mousemove', onMxMouseMove, true)
   document.removeEventListener('mouseout', onMxMouseOut, true)
   document.removeEventListener('click', onMxClick, true)
+  document.removeEventListener('dblclick', onMxDblClick, true)
   document.removeEventListener('contextmenu', onMxContext, true)
   if (mxHover.frame) { cancelAnimationFrame(mxHover.frame); mxHover.frame = 0 }
   freezeClickBound = false
@@ -5531,6 +7171,530 @@ onBeforeUnmount(() => {
     root = null
   }
 })
+
+const BEAUTY_COLORS = [
+  { id: 'black', color: '#1f2329' },
+  { id: 'blue', color: '#3370ff' },
+  { id: 'red', color: '#f54a45' },
+  { id: 'green', color: '#34c724' },
+  { id: 'purple', color: '#7b61ff' },
+  { id: 'cyan', color: '#14c0ff' },
+  { id: 'orange', color: '#ff8800' },
+]
+const BEAUTY_LAYOUTS = [
+  { id: 'medium', label: '适中', row: 24 },
+  { id: 'compact', label: '紧凑', row: 20 },
+  { id: 'loose', label: '宽松', row: 32 },
+  { id: 'fit', label: '适屏', row: 24 },
+]
+const BEAUTY_FILTERS = [
+  { id: 'all', label: '全部' },
+  { id: 'header', label: '表头' },
+  { id: 'band', label: '条纹' },
+  { id: 'fill', label: '填充' },
+  { id: 'border', label: '边框' },
+]
+const BEAUTY_STYLES = [
+  { id: 'h-line', group: 'header', header: 'solid', band: 0, first: '', body: '', border: 'horizontal' },
+  { id: 'h-split', group: 'header', header: 'solid', band: 0, first: 'soft', body: '', border: 'horizontal' },
+  { id: 'plain', group: 'header', header: 'none', band: 0, first: '', body: '', border: 'horizontal' },
+  { id: 'h-white', group: 'header', header: 'solid', band: 0, first: '', body: '', border: 'none' },
+  { id: 'h-tint', group: 'header', header: 'solid', band: 0, first: '', body: 'tint', border: 'none' },
+  { id: 'col', group: 'header', header: 'none', band: 0, first: 'solid', body: '', border: 'horizontal' },
+  { id: 'soft', group: 'band', header: 'soft', band: 0.9, first: '', body: '', border: 'none' },
+  { id: 'stripe', group: 'band', header: 'none', band: 0.9, first: '', body: '', border: 'none' },
+  { id: 'h-band', group: 'band', header: 'solid', band: 0.86, first: '', body: '', border: 'none' },
+  { id: 'h-band-col', group: 'band', header: 'solid', band: 0.88, first: 'soft', body: '', border: 'horizontal' },
+  { id: 'fill', group: 'fill', header: 'solid', band: 0, first: 'solid', body: 'mid', border: 'all', borderInk: 'white' },
+  { id: 'fill-band', group: 'fill', header: 'solid', band: 0.22, first: '', body: 'mid', border: 'none' },
+  { id: 'fill-soft', group: 'fill', header: 'solid', band: 0, first: '', body: 'tint', border: 'all' },
+  { id: 'grid', group: 'border', header: 'solid', band: 0, first: '', body: '', border: 'all' },
+  { id: 'bottom', group: 'border', header: 'none', band: 0, first: '', body: '', border: 'bottom' },
+  { id: 'outside', group: 'border', header: 'soft', band: 0, first: '', body: '', border: 'outside' },
+  { id: 'dotted', group: 'border', header: 'none', band: 0, first: '', body: '', border: 'dotted' },
+]
+const zoomReady = ref(false)
+const viewState = reactive({
+  grid: true,
+  cross: false,
+  menu: false,
+  left: 0,
+  top: 0,
+})
+const sheetStat = reactive({ show: false, count: 0, sum: '0', avg: '0' })
+const beauty = reactive({
+  show: false,
+  layout: 'medium',
+  grid: true,
+  color: '#3370ff',
+  filter: 'all',
+  filterOpen: false,
+})
+const beautyColorRef = ref(null)
+const beautyStyles = computed(() => (
+  beauty.filter === 'all' ? BEAUTY_STYLES : BEAUTY_STYLES.filter((item) => item.group === beauty.filter)
+))
+
+function beautyMix(hex, t) {
+  const n = String(hex || '#3370ff').replace('#', '')
+  const r = parseInt(n.slice(0, 2), 16)
+  const g = parseInt(n.slice(2, 4), 16)
+  const b = parseInt(n.slice(4, 6), 16)
+  if ([r, g, b].some((v) => Number.isNaN(v))) return '#3370ff'
+  const m = (c) => Math.round(c + (255 - c) * t).toString(16).padStart(2, '0')
+  return `#${m(r)}${m(g)}${m(b)}`
+}
+
+function beautyInk(hex) {
+  const n = String(hex || '#3370ff').replace('#', '')
+  const y = (parseInt(n.slice(0, 2), 16) * 299 + parseInt(n.slice(2, 4), 16) * 587 + parseInt(n.slice(4, 6), 16) * 114) / 1000
+  return y > 170 ? '#1f2329' : '#ffffff'
+}
+
+function beautyPaint(style, color, r, c) {
+  const header = r === 0
+  let bg = '#ffffff'
+  if (!header && style.body === 'mid') bg = beautyMix(color, 0.42)
+  if (!header && style.body === 'tint') bg = beautyMix(color, 0.86)
+  if (!header && style.band && r % 2 === 1) bg = beautyMix(color, style.band)
+  if (header && style.header === 'solid') bg = color
+  else if (header && style.header === 'soft') bg = beautyMix(color, 0.82)
+  if (!header && c === 0 && style.first === 'soft') bg = beautyMix(color, 0.9)
+  if (!header && c === 0 && style.first === 'solid') bg = color
+  let fc = beautyInk(bg)
+  if (header && style.header === 'soft') fc = color
+  if (!header && c === 0 && style.first === 'soft') fc = '#1f2329'
+  return { bg, fc, bl: (header && style.header !== 'none') || (!header && c === 0 && style.first === 'solid') }
+}
+
+function beautyCells(style) {
+  const cells = []
+  for (let r = 0; r < 5; r += 1) {
+    for (let c = 0; c < 4; c += 1) {
+      const paint = beautyPaint(style, beauty.color, r, c)
+      const line = paint.fc === '#ffffff' ? 'rgba(255,255,255,.78)' : 'rgba(31,35,41,.32)'
+      cells.push({
+        backgroundColor: paint.bg,
+        backgroundImage: `linear-gradient(${line}, ${line})`,
+        backgroundRepeat: 'no-repeat',
+        backgroundPosition: 'center',
+        backgroundSize: r === 0 ? '68% 2px' : '56% 2px',
+      })
+    }
+  }
+  return cells
+}
+
+function beautyBorderTone(style) {
+  if (style.borderInk === 'white') return '#ffffff'
+  if (style.border === 'horizontal') return '#dee0e3'
+  return beauty.color
+}
+
+function beautyDots() {
+  const list = BEAUTY_COLORS.map((item) => ({ ...item }))
+  if (!list.some((item) => item.color.toLowerCase() === beauty.color.toLowerCase())) {
+    list.push({ id: 'custom', color: beauty.color })
+  }
+  return list
+}
+
+function onBeautyDown(e) {
+  if (!e.target.closest?.('.fs-beauty-filter')) beauty.filterOpen = false
+}
+
+function openBeauty() {
+  pop.show = false
+  if (!linkPop.picking) {
+    linkPop.show = false
+    linkPop.sheetsOpen = false
+  }
+  cfState.fly = ''
+  if (beauty.show) {
+    beauty.show = false
+    beauty.filterOpen = false
+    return
+  }
+  cfState.side = false
+  cfState.dlg = ''
+  const sheet = cfSheet()
+  beauty.grid = sheet?.showGridLines !== false
+  viewState.grid = beauty.grid
+  const h = sheet?.config?.rowlen?.[0]
+  if (h == null || (h >= 23 && h <= 26)) beauty.layout = 'medium'
+  else if (h <= 22) beauty.layout = 'compact'
+  else beauty.layout = 'loose'
+  beauty.filterOpen = false
+  beauty.show = true
+}
+
+function beautyRange(sheet) {
+  const sel = getSelection()
+  if (sel) return { r0: sel.startRow, r1: sel.endRow, c0: sel.startColumn, c1: sel.endColumn }
+  let r0 = Infinity
+  let r1 = -1
+  let c0 = Infinity
+  let c1 = -1
+  ;(sheet?.data || []).forEach((row, r) => {
+    ;(row || []).forEach((cell, c) => {
+      if (!cellPlain(cell).trim()) return
+      r0 = Math.min(r0, r)
+      r1 = Math.max(r1, r)
+      c0 = Math.min(c0, c)
+      c1 = Math.max(c1, c)
+    })
+  })
+  if (r1 < 0) return null
+  return { r0, r1, c0, c1 }
+}
+
+function beautyCell(cell, paint) {
+  const base = cell && typeof cell === 'object'
+    ? { ...cell }
+    : (cell != null && cell !== '' ? { v: cell, m: String(cell) } : {})
+  base.bg = paint.bg
+  base.fc = paint.fc
+  base.bl = paint.bl ? 1 : 0
+  delete base.bd
+  return base
+}
+
+function beautyBorderHits(info, box) {
+  const ranges = Array.isArray(info?.range) ? info.range : []
+  return ranges.some((rg) => {
+    const a0 = rg?.row?.[0]
+    const a1 = rg?.row?.[1] ?? a0
+    const b0 = rg?.column?.[0]
+    const b1 = rg?.column?.[1] ?? b0
+    if (a0 == null || b0 == null) return false
+    return !(a1 < box.r0 || a0 > box.r1 || b1 < box.c0 || b0 > box.c1)
+  })
+}
+
+function beautyBorderItem(type, color, style, box, row, column) {
+  return {
+    rangeType: 'range',
+    borderType: type,
+    color,
+    style,
+    range: [{ row: row || [box.r0, box.r1], column: column || [box.c0, box.c1] }],
+  }
+}
+
+function beautyBorders(style, color, box) {
+  const items = []
+  if (style.border === 'none') items.push(beautyBorderItem('border-none', '#dee0e3', '1', box))
+  else if (style.border === 'horizontal') items.push(beautyBorderItem('border-horizontal', '#dee0e3', '1', box))
+  else if (style.border === 'all') items.push(beautyBorderItem('border-all', style.borderInk === 'white' ? '#ffffff' : color, '1', box))
+  else if (style.border === 'outside') items.push(beautyBorderItem('border-outside', color, '1', box))
+  else if (style.border === 'bottom') {
+    items.push(beautyBorderItem('border-none', '#dee0e3', '1', box))
+    items.push(beautyBorderItem('border-bottom', color, '8', box, [box.r0, box.r0], [box.c0, box.c1]))
+  } else if (style.border === 'dotted') items.push(beautyBorderItem('border-all', color, '3', box))
+  if (style.header === 'solid' && style.border !== 'all' && style.border !== 'dotted' && style.border !== 'bottom') {
+    items.push(beautyBorderItem('border-bottom', color, '1', box, [box.r0, box.r0], [box.c0, box.c1]))
+  }
+  return items
+}
+
+function applyBeautyConfig(live, config) {
+  applyOpUndoable([
+    { op: 'replace', id: live.id, path: ['config'], value: config },
+    { op: 'replace', path: ['config'], value: config },
+  ])
+  scheduleDataBars()
+}
+
+function clearCrosshair() {
+  hostRef.value?.querySelectorAll('.fs-cross-layer, .fs-cross-rowhead, .fs-cross-colhead').forEach((el) => el.remove())
+}
+
+function drawCrosshair() {
+  const root = hostRef.value
+  if (!root) return
+  if (!viewState.cross) {
+    clearCrosshair()
+    return
+  }
+  const area = root.querySelector('.fortune-cell-area')
+  const focus = area?.querySelector('.luckysheet-cell-selected-focus')
+    || area?.querySelector('.luckysheet-cell-selected')
+  if (!area || !focus || focus.offsetWidth <= 0 || focus.offsetHeight <= 0) {
+    clearCrosshair()
+    return
+  }
+  const top = focus.offsetTop
+  const left = focus.offsetLeft
+  const width = focus.offsetWidth
+  const height = focus.offsetHeight
+  let layer = area.querySelector(':scope > .fs-cross-layer')
+  if (!layer) {
+    layer = document.createElement('div')
+    layer.className = 'fs-cross-layer'
+    area.appendChild(layer)
+  }
+  layer.innerHTML = ''
+  const col = document.createElement('i')
+  col.className = 'fs-cross-col'
+  col.style.left = `${left}px`
+  col.style.width = `${width}px`
+  const row = document.createElement('i')
+  row.className = 'fs-cross-row'
+  row.style.top = `${top}px`
+  row.style.height = `${height}px`
+  layer.appendChild(col)
+  layer.appendChild(row)
+  const rowMark = root.querySelector('.fortune-row-header-selected')
+  const colMark = root.querySelector('.fortune-col-header-selected')
+  const rowHead = root.querySelector('.fortune-row-header')
+  const colHead = root.querySelector('.fortune-col-header')
+  if (rowHead && rowMark) {
+    let band = rowHead.querySelector(':scope > .fs-cross-rowhead')
+    if (!band) {
+      band = document.createElement('i')
+      band.className = 'fs-cross-rowhead'
+      rowHead.appendChild(band)
+    }
+    band.style.top = `${rowMark.offsetTop}px`
+    band.style.height = `${rowMark.offsetHeight}px`
+  }
+  if (colHead && colMark) {
+    let band = colHead.querySelector(':scope > .fs-cross-colhead')
+    if (!band) {
+      band = document.createElement('i')
+      band.className = 'fs-cross-colhead'
+      colHead.appendChild(band)
+    }
+    band.style.left = `${colMark.offsetLeft}px`
+    band.style.width = `${colMark.offsetWidth}px`
+  }
+}
+
+function toggleViewMenu(e) {
+  if (viewState.menu) {
+    viewState.menu = false
+    return
+  }
+  const anchor = e.currentTarget?.closest?.('.fs-view-tools') || e.currentTarget
+  const rect = anchor?.getBoundingClientRect?.()
+  if (!rect) return
+  viewState.left = rect.left
+  viewState.top = rect.top - 6
+  viewState.menu = true
+}
+
+function toggleViewGrid() {
+  beauty.grid = !viewState.grid
+  viewState.grid = beauty.grid
+  applyBeautyGrid()
+}
+
+function toggleCrosshair() {
+  viewState.cross = !viewState.cross
+  drawCrosshair()
+}
+
+function applyBeautyGrid() {
+  viewState.grid = beauty.grid
+  const sheet = cfSheet()
+  if (!sheet?.id) return
+  const has = Object.prototype.hasOwnProperty.call(sheet, 'showGridLines')
+  const value = beauty.grid
+  applyOpUndoable([
+    {
+      op: has ? 'replace' : 'add',
+      id: sheet.id,
+      path: ['showGridLines'],
+      value,
+    },
+    { op: 'replace', path: ['showGridLines'], value },
+  ])
+  scheduleDataBars()
+}
+
+function textUnits(text) {
+  let n = 0
+  for (const ch of String(text || '')) n += ch.charCodeAt(0) > 255 ? 2 : 1
+  return n
+}
+
+function applyBeautyLayout(id) {
+  const live = cfSheet()
+  if (!live?.id) return
+  const box = beautyRange(live)
+  if (!box) {
+    Message.warning('当前工作表没有可排版的内容')
+    return
+  }
+  const spec = BEAUTY_LAYOUTS.find((item) => item.id === id) || BEAUTY_LAYOUTS[0]
+  beauty.layout = id
+  const config = {
+    ...(live.config || {}),
+    rowlen: { ...(live.config?.rowlen || {}) },
+  }
+  for (let r = box.r0; r <= box.r1; r += 1) config.rowlen[r] = spec.row
+  if (id === 'fit') {
+    const cols = box.c1 - box.c0 + 1
+    const widths = []
+    for (let c = box.c0; c <= box.c1; c += 1) {
+      let units = 4
+      for (let r = box.r0; r <= box.r1; r += 1) units = Math.max(units, textUnits(cellPlain(live.data?.[r]?.[c])))
+      widths.push(Math.min(240, Math.max(72, units * 7 + 20)))
+    }
+    const avail = Math.max(240, (hostRef.value?.clientWidth || 800) - 56)
+    const sum = widths.reduce((a, b) => a + b, 0)
+    const next = sum < avail
+      ? widths.map((w) => w + (avail - sum) / cols)
+      : widths.map((w) => Math.max(56, (w * avail) / sum))
+    config.columnlen = { ...(live.config?.columnlen || {}) }
+    next.forEach((w, i) => { config.columnlen[box.c0 + i] = Math.round(w) })
+  }
+  applyBeautyConfig(live, config)
+}
+
+function applyBeautyStyle(style) {
+  const live = cfSheet()
+  if (!live?.id) return
+  const box = beautyRange(live)
+  if (!box) {
+    Message.warning('当前工作表没有可美化的内容')
+    return
+  }
+  const count = (box.r1 - box.r0 + 1) * (box.c1 - box.c0 + 1)
+  if (count > 5000) {
+    Message.warning('范围太大，请先选中要美化的区域')
+    return
+  }
+  const ops = []
+  for (let r = box.r0; r <= box.r1; r += 1) {
+    const src = live.data?.[r]
+    if (!Array.isArray(src)) continue
+    const paintAt = (c) => beautyCell(src[c], beautyPaint(style, beauty.color, r - box.r0, c - box.c0))
+    if (src.length <= box.c1) {
+      const row = src.slice()
+      while (row.length <= box.c1) row.push(null)
+      for (let c = box.c0; c <= box.c1; c += 1) row[c] = beautyCell(row[c], beautyPaint(style, beauty.color, r - box.r0, c - box.c0))
+      ops.push({ op: 'replace', id: live.id, path: ['data', r], value: row })
+    } else {
+      for (let c = box.c0; c <= box.c1; c += 1) {
+        ops.push({ op: 'replace', id: live.id, path: ['data', r, c], value: paintAt(c) })
+      }
+    }
+  }
+  if (!ops.length) {
+    Message.warning('当前工作表没有可美化的内容')
+    return
+  }
+  const config = {
+    ...(live.config || {}),
+    borderInfo: [...(live.config?.borderInfo || [])].filter((info) => !beautyBorderHits(info, box)),
+  }
+  beautyBorders(style, beauty.color, box).forEach((info) => config.borderInfo.push(info))
+  ops.push({ op: 'replace', id: live.id, path: ['config'], value: config })
+  ops.push({ op: 'replace', path: ['config'], value: config })
+  applyOpUndoable(ops)
+  scheduleDataBars()
+}
+
+function formatStat(n) {
+  if (!Number.isFinite(n) || n === 0) return '0'
+  const nearest = Math.round(n)
+  if (Math.abs(n - nearest) <= Math.abs(n) * 1e-10) return String(nearest)
+  const s = n.toPrecision(15)
+  if (/e/i.test(s)) return s
+  return s.replace(/(\.\d*?)0+$/, '$1').replace(/\.$/, '')
+}
+
+function isDateCell(cell) {
+  if (cell?.ct?.t === 'd') return true
+  const fa = String(cell?.ct?.fa || '')
+  if (!fa || fa === 'General') return false
+  return /[yYdhHsS]/.test(fa)
+}
+
+function cellHasValue(cell) {
+  if (!cell) return false
+  const v = cell.v
+  const m = cell.m
+  return !((v == null || v === '') && (m == null || m === ''))
+}
+
+function numericValue(cell) {
+  if (!cellHasValue(cell) || isDateCell(cell)) return null
+  const v = cell.v
+  if (typeof v === 'number' && Number.isFinite(v)) return v
+  if (cell.ct?.t === 'n') {
+    const n = parseFloat(String(v ?? cell.m ?? '').replace(/,/g, ''))
+    if (Number.isFinite(n)) return n
+  }
+  const text = String(cell.m ?? v ?? '').trim().replace(/,/g, '')
+  if (/^-?\d+(\.\d+)?$/.test(text)) return Number(text)
+  return null
+}
+
+function selectionBoxes(sel) {
+  const list = Array.isArray(sel) ? sel : (sel ? [sel] : (instRef.current?.getSelection?.() || []))
+  const boxes = []
+  for (const cur of list) {
+    const r0 = cur?.row?.[0]
+    const c0 = cur?.column?.[0]
+    if (r0 == null || c0 == null) continue
+    const r1 = cur.row?.[1] ?? r0
+    const c1 = cur.column?.[1] ?? c0
+    boxes.push({
+      r0: Math.min(r0, r1),
+      r1: Math.max(r0, r1),
+      c0: Math.min(c0, c1),
+      c1: Math.max(c0, c1),
+    })
+  }
+  return boxes
+}
+
+function refreshSheetStat(sel) {
+  const sheet = instRef.current?.getSheet?.()
+  const boxes = selectionBoxes(sel)
+  if (!sheet || !boxes.length) {
+    sheetStat.show = false
+    return
+  }
+  const hiddenR = sheet.rowhidden || {}
+  const hiddenC = sheet.colhidden || {}
+  const seen = new Set()
+  let count = 0
+  let text = 0
+  let sum = 0
+  for (const box of boxes) {
+    for (let r = box.r0; r <= box.r1; r += 1) {
+      if (hiddenR[r] != null) continue
+      const row = sheet.data?.[r]
+      for (let c = box.c0; c <= box.c1; c += 1) {
+        if (hiddenC[c] != null) continue
+        const key = `${r}:${c}`
+        if (seen.has(key)) continue
+        seen.add(key)
+        const cell = row?.[c]
+        const n = numericValue(cell)
+        if (n != null) {
+          count += 1
+          sum += n
+        } else if (cellHasValue(cell)) {
+          count += 1
+          text += 1
+        }
+      }
+    }
+  }
+  if (!count) {
+    sheetStat.show = false
+    return
+  }
+  const numeric = text === 0
+  sheetStat.show = true
+  sheetStat.count = count
+  sheetStat.sum = numeric ? formatStat(sum) : '0'
+  sheetStat.avg = numeric ? formatStat(sum / count) : '0'
+}
 
 defineExpose({
   load,
@@ -5549,9 +7713,45 @@ defineExpose({
 </script>
 
 <template>
-  <div class="fortune-wrap" :class="{ 'fs-open': !folded, 'cf-side': cfState.side && cfState.dlg, 'cf-picking': cfState.pickingRange, 'fs-sheet-list-open': sheetListPop.open }" @mousedown="onWrapDown" @mouseover="onTipOver" @mouseleave="onTipLeave">
+  <div class="fortune-wrap" :class="{ 'fs-open': !folded, 'cf-side': cfState.side && cfState.dlg, 'beauty-side': beauty.show, 'cf-picking': cfState.pickingRange, 'fs-sheet-list-open': sheetListPop.open }" @mousedown="onWrapDown" @mouseover="onTipOver" @mouseleave="onTipLeave">
     <input ref="fileRef" type="file" accept=".xlsx,.xls" hidden @change="onImport">
     <div ref="hostRef" class="fortune-host"></div>
+    <button
+      v-show="sheetMore.show"
+      type="button"
+      class="fs-sheet-more"
+      title="更多工作表"
+      :style="{ left: `${sheetMore.left}px`, top: `${sheetMore.top}px` }"
+      @mousedown.stop
+      @click.stop="toggleSheetMore"
+    >...</button>
+    <div v-show="sheetStat.show" class="fs-sheet-stat" @mousedown.stop>
+      <span>计数值: {{ sheetStat.count }}</span>
+      <span>求和: {{ sheetStat.sum }}</span>
+      <span>平均值: {{ sheetStat.avg }}</span>
+    </div>
+    <Teleport v-if="zoomReady" to=".fortune-zoom-container">
+      <div class="fs-view-tools" :class="{ on: viewState.cross }" @mousedown.stop>
+        <button type="button" class="fs-view-main" title="高亮所在行列" @click="toggleCrosshair">
+          <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><rect x="1.6" y="1.6" width="12.8" height="12.8" rx="1.2" fill="none" stroke="currentColor" stroke-width="1.2"/><path d="M1.6 6.2h12.8M1.6 10.5h12.8M6.2 1.6v12.8M10.5 1.6v12.8" stroke="currentColor" stroke-width="1"/></svg>
+        </button>
+        <button type="button" class="fs-view-caret" title="视图" @click="toggleViewMenu">
+          <i />
+        </button>
+        <div v-if="viewState.menu" class="fs-view-menu" :style="{ left: `${viewState.left}px`, top: `${viewState.top}px` }">
+          <button type="button" @click="toggleViewGrid">
+            <svg v-if="viewState.grid" viewBox="0 0 16 16" width="16" height="16"><path d="M3.2 8.1 6.4 11.2 12.8 4.6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            <i v-else />
+            网格线
+          </button>
+          <button type="button" @click="toggleCrosshair">
+            <svg v-if="viewState.cross" viewBox="0 0 16 16" width="16" height="16"><path d="M3.2 8.1 6.4 11.2 12.8 4.6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            <i v-else />
+            高亮所在行列
+          </button>
+        </div>
+      </div>
+    </Teleport>
     <Teleport to="body">
       <div
         v-show="funcTip.visible"
@@ -5841,9 +8041,10 @@ defineExpose({
         <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M11 1a1 1 0 1 1 2 0v7h-2V1ZM1 3a1 1 0 0 1 2 0v18a1 1 0 1 1-2 0V3Zm12 20v-7h-2v7a1 1 0 1 0 2 0ZM5 12a1 1 0 0 1 1-1h11V8.555a.8.8 0 0 1 1.265-.651l4.824 3.445a.8.8 0 0 1 0 1.302l-4.824 3.445a.8.8 0 0 1-1.265-.65V13H6a1 1 0 0 1-1-1Z" fill="currentColor"/></svg>
         <span>冻结</span>
       </button>
-      <button type="button" class="fs-data-item" :class="{ on: dataBar.filter }" data-tip="筛选" @click="clickData('筛选')">
-        <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M16 11.431V21a1 1 0 1 1-2 0V11c0-.147.032-.287.089-.412a.96.96 0 0 1 .4-.467L20 6.83V4H4v2.866l5.345 3.195A1 1 0 0 1 10 11v6.5a1 1 0 1 1-2 0v-6.035c-.477-.285-3.369-1.867-4.957-2.735A2 2 0 0 1 2 6.975V4a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v2.945a2 2 0 0 1-1.035 1.752L16 11.43Z" fill="currentColor"/></svg>
+      <button type="button" class="fs-data-item" :class="{ on: dataBar.filter }" data-tip="筛选（Ctrl+Shift+L）" @click="enableFilter">
+        <svg viewBox="0 0 17 16" width="16" height="16" aria-hidden="true"><path fill-rule="evenodd" d="M3.322 2.61a.48.48 0 0 0-.306.658l3.842 4.557a.7.7 0 0 1 .141.387v4.522c0 .164.1.312.253.372l1.486.587a.48.48 0 0 0 .547-.372V8.211a.7.7 0 0 1 .141-.386l3.842-4.558a.48.48 0 0 0-.306-.657H3.322Zm-1.223 1.43C1.221 3 1.961 1.41 3.322 1.41h9.641c1.361 0 2.1 1.591 1.223 2.632L10.485 8.43v4.89c0 1.129-1.138 1.903-2.188 1.488l-1.486-.587a1.6 1.6 0 0 1-1.012-1.488V8.43L2.099 4.04Z" fill="currentColor"/></svg>
         <span>筛选</span>
+        <i class="fs-data-filter-caret" title="筛选菜单" @click.stop="toggleFilterMenu($event.currentTarget)" />
       </button>
       <button type="button" class="fs-data-item" data-tip="排序" @click="openPop('sort', $event.currentTarget)">
         <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M4.2 2.2h1.6l2.6 6.4H7.1l-.5-1.3H3.8l-.5 1.3H2Zm1.4 1.6L4.4 6.4h2.4L5.6 3.8Zm5.4-.2h1.3v7.3h2.1L11.3 14 8.2 10.9h2.8V3.6Z" fill="currentColor"/></svg>
@@ -5881,19 +8082,25 @@ defineExpose({
       class="fs-filter"
       :style="{ left: `${filterPop.left}px`, top: `${filterPop.top}px` }"
       @mousedown.stop
+      @keydown.stop
     >
       <div class="fs-filter-sort">
         <button type="button" @click="sortFromFilter(true)">升序</button>
         <button type="button" @click="sortFromFilter(false)">降序</button>
       </div>
       <div class="fs-filter-tabs">
-        <button type="button" :class="{ on: filterPop.tab === 'value' }" @click="filterPop.tab = 'value'">按值筛选</button>
-        <button type="button" :class="{ on: filterPop.tab === 'cond' }" @click="filterPop.tab = 'cond'">按条件筛选</button>
+        <button type="button" :class="{ on: filterPop.tab === 'value' }" @click="openFilterTab('value')">按值</button>
+        <button type="button" :class="{ on: filterPop.tab === 'color' }" @click="openFilterTab('color')">按颜色</button>
+        <button type="button" :class="{ on: filterPop.tab === 'cond' }" @click="openFilterTab('cond')">按条件</button>
       </div>
       <template v-if="filterPop.tab === 'value'">
         <label class="fs-filter-search">
           <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M7 1.6a5.4 5.4 0 0 1 4.28 8.66l2.7 2.7-1 1-2.7-2.7A5.4 5.4 0 1 1 7 1.6Zm0 1.4a4 4 0 1 0 0 8 4 4 0 0 0 0-8Z" fill="currentColor"/></svg>
           <input v-model="filterPop.query" placeholder="可使用空格分隔多个关键词">
+        </label>
+        <label v-if="filterPop.query.trim()" class="fs-filter-add">
+          <input v-model="filterPop.addTo" type="checkbox">
+          <span>添加到已有筛选条件</span>
         </label>
         <label class="fs-filter-all">
           <input type="checkbox" :checked="filterAllOn" @change="toggleFilterAll">
@@ -5909,17 +8116,35 @@ defineExpose({
           <div v-if="!filterView.length" class="fs-filter-empty">没有可筛选的内容</div>
         </div>
       </template>
+      <div v-else-if="filterPop.tab === 'color'" class="fs-filter-colors">
+        <div class="fs-filter-color-title">单元格颜色</div>
+        <label v-for="item in filterPop.bgColors" :key="`bg-${item.color}`" class="fs-filter-item">
+          <input v-model="item.checked" type="checkbox">
+          <i :style="{ background: item.color }" />
+          <span>{{ item.color === '#ffffff' ? '无填充' : item.color }}</span>
+          <em>{{ item.count }}</em>
+        </label>
+        <div v-if="!filterPop.bgColors.length" class="fs-filter-empty">这一列没有可筛选的填充色</div>
+        <div class="fs-filter-color-title">字体颜色</div>
+        <label v-for="item in filterPop.fcColors" :key="`fc-${item.color}`" class="fs-filter-item">
+          <input v-model="item.checked" type="checkbox">
+          <i :style="{ background: item.color }" />
+          <span>{{ item.color }}</span>
+          <em>{{ item.count }}</em>
+        </label>
+        <div v-if="!filterPop.fcColors.length" class="fs-filter-empty">这一列没有可筛选的字体颜色</div>
+      </div>
       <div v-else class="fs-filter-cond">
-        <select v-model="filterPop.cond">
-          <option value="contains">包含</option>
-          <option value="eq">等于</option>
-          <option value="ne">不等于</option>
-          <option value="gt">大于</option>
-          <option value="lt">小于</option>
-          <option value="empty">为空</option>
-          <option value="notEmpty">不为空</option>
+        <select v-model="filterPop.kind" @change="onFilterKind" @keydown="onFilterSelectKey">
+          <option value="text">文本</option>
+          <option value="num">数字</option>
+          <option value="date">日期</option>
         </select>
-        <input v-if="filterPop.cond !== 'empty' && filterPop.cond !== 'notEmpty'" v-model="filterPop.condValue" placeholder="输入条件">
+        <select v-model="filterPop.cond" @change="focusFilterCondInput" @keydown="onFilterSelectKey">
+          <option v-for="[id, label] in filterCondOps" :key="id" :value="id">{{ label }}</option>
+        </select>
+        <input v-if="filterPop.cond !== 'empty' && filterPop.cond !== 'notEmpty'" v-model="filterPop.condValue" :type="filterPop.kind === 'date' ? 'date' : 'text'" :inputmode="filterPop.kind === 'num' ? 'decimal' : 'text'" autocomplete="off" :placeholder="filterPop.cond === 'between' ? '开始' : '输入条件'" @keydown.stop>
+        <input v-if="filterPop.cond === 'between'" v-model="filterPop.condValue2" :type="filterPop.kind === 'date' ? 'date' : 'text'" :inputmode="filterPop.kind === 'num' ? 'decimal' : 'text'" autocomplete="off" placeholder="结束" @keydown.stop>
       </div>
       <div class="fs-filter-mine">
         <span>筛选结果仅我可见</span>
@@ -5929,6 +8154,69 @@ defineExpose({
         <button type="button" class="fs-filter-clear" @click="clearFilter">清除筛选</button>
         <button type="button" class="fs-filter-cancel" @click="filterPop.show = false">取消</button>
         <button type="button" class="fs-filter-ok" @click="applyFilter">确认</button>
+      </div>
+    </div>
+    <div
+      v-if="filterMenu.show"
+      class="fs-filter-menu"
+      :style="{ left: `${filterMenu.left}px`, top: `${filterMenu.top}px` }"
+      @mousedown.stop
+    >
+      <button type="button" :disabled="!dataBar.filter" @click="cancelFilter">取消筛选</button>
+    </div>
+    <div v-if="linkPop.picking" class="fs-link-pick">框选要链接的单元格或单元格范围</div>
+    <div
+      v-if="linkBar.show"
+      class="fs-link-bar"
+      :style="{ left: `${linkBar.left}px`, top: `${linkBar.top}px` }"
+      @mousedown.stop
+      @mouseenter="keepLinkBar"
+      @mouseleave="scheduleHideLinkBar"
+    >
+      <button type="button" class="fs-link-bar-addr" :title="linkBar.address" @click="followLink({ linkType: linkBar.type, linkAddress: linkBar.address })">{{ linkBar.address }}</button>
+      <button type="button" @click="editLinkFromBar">编辑链接</button>
+      <button type="button" @click="removeLinkAt(linkBar.r, linkBar.c, linkBar.sheetId)">删除链接</button>
+    </div>
+    <div
+      v-if="linkPop.show"
+      class="fs-link"
+      :style="{ left: `${linkPop.left}px`, top: `${linkPop.top}px` }"
+      @mousedown.stop
+    >
+      <label class="fs-link-row">
+        <span>文本</span>
+        <input v-model="linkPop.text" class="fs-link-input" placeholder="输入文本" spellcheck="false">
+      </label>
+      <div class="fs-link-row">
+        <span>链接</span>
+        <input
+          v-model="linkPop.address"
+          class="fs-link-input focus"
+          placeholder="插入链接"
+          spellcheck="false"
+          @keydown.enter.prevent="confirmLink"
+        >
+        <button type="button" class="fs-link-ok" :disabled="!linkPop.address.trim()" @click="confirmLink">确定</button>
+      </div>
+      <div class="fs-link-menu">
+        <button type="button" class="fs-link-item" @click="startSheetLink">
+          <i class="fs-link-caret" :class="{ open: linkPop.sheetsOpen }" />
+          链接到工作表
+        </button>
+        <div v-if="linkPop.sheetsOpen" class="fs-link-sheets">
+          <button
+            v-for="name in linkSheetNames()"
+            :key="name"
+            type="button"
+            class="fs-link-item sub"
+            @click="pickSheetLink(name)"
+          >{{ name }}</button>
+          <div v-if="!linkSheetNames().length" class="fs-link-empty">没有工作表</div>
+        </div>
+        <button type="button" class="fs-link-item" @click="startCellLink">
+          <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><rect x="2" y="2" width="12" height="12" rx="1.2" fill="none" stroke="currentColor" stroke-width="1.2"/><path d="M2 6.2h12M2 10.2h12M6.2 2v12M10.2 2v12" stroke="currentColor" stroke-width="1"/></svg>
+          链接到单元格
+        </button>
       </div>
     </div>
     <div
@@ -5945,7 +8233,7 @@ defineExpose({
         <button type="button" @click="clickFortune('插入图片')">插入图片</button>
         <button type="button" @click="emit('chart'); pop.show = false">图表</button>
         <button type="button" @click="emit('pivot'); pop.show = false">插入透视表</button>
-        <button type="button" @click="clickFortune('插入链接')">插入链接</button>
+        <button type="button" @click="openLinkPop()">插入链接</button>
       </template>
       <template v-else-if="pop.kind === 'sort'">
         <button type="button" @click="applySort(true)">升序</button>
@@ -5963,7 +8251,7 @@ defineExpose({
           <span>{{ item.label }}</span>
           <em v-if="item.sample">{{ item.sample }}</em>
         </button>
-        <button type="button" class="fs-num more" @click="pop.show = false">更多格式</button>
+        <button type="button" class="fs-num more" @click="openFmtDlg">更多格式</button>
       </template>
       <template v-else-if="pop.kind === 'freeze'">
         <button type="button" @click="applyFreeze('row')">
@@ -6195,6 +8483,86 @@ defineExpose({
         {{ sub.label }}
       </button>
     </div>
+    <aside v-if="beauty.show" class="fs-beauty" @mousedown.stop="onBeautyDown">
+      <header class="fs-beauty-head">
+        <span>美化助手</span>
+        <button type="button" aria-label="关闭" @click="beauty.show = false">×</button>
+      </header>
+      <div class="fs-beauty-body">
+        <div class="fs-beauty-sec-head">
+          <span>表格排版方式</span>
+          <label class="fs-beauty-check">
+            <input v-model="beauty.grid" type="checkbox" @change="applyBeautyGrid">
+            <span>网格线</span>
+          </label>
+        </div>
+        <div class="fs-beauty-layouts">
+          <button
+            v-for="item in BEAUTY_LAYOUTS"
+            :key="item.id"
+            type="button"
+            class="fs-beauty-layout"
+            :class="{ on: beauty.layout === item.id }"
+            @click="applyBeautyLayout(item.id)"
+          >
+            <i class="ico">
+              <svg v-if="item.id === 'medium'" viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M4 5h16v1.6H4zm0 4.1h16v1.6H4zm0 4.1h16v1.6H4zm0 4.2h16V19H4z"/></svg>
+              <svg v-else-if="item.id === 'compact'" viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M4 4h16v1.3H4zm0 3h16v1.3H4zm0 3h16v1.3H4zm0 3h16v1.3H4zm0 3h16v1.3H4z"/></svg>
+              <svg v-else-if="item.id === 'loose'" viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M4 4.5h16v2H4zm0 6.5h16v2H4zm0 6.5h16v2H4z"/></svg>
+              <svg v-else viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M4 9V4h5v1.8H5.8V9H4zm11 0V5.8H13.2V4H18v5h-3zM4 15h1.8v3.2H9V20H4v-5zm10.2 5v-1.8H18V15h1.8v5H14.2z"/></svg>
+            </i>
+            <span>{{ item.label }}</span>
+          </button>
+        </div>
+        <div class="fs-beauty-filter" :class="{ open: beauty.filterOpen }">
+          <button type="button" @click="beauty.filterOpen = !beauty.filterOpen">
+            <svg viewBox="0 0 16 16" width="14" height="14"><path fill="currentColor" d="M2 3.2h12l-4.4 5.1v4.2l-3.2-1.5V8.3L2 3.2z"/></svg>
+            筛选
+            <i />
+          </button>
+          <div v-if="beauty.filterOpen" class="fs-beauty-filter-menu">
+            <button
+              v-for="item in BEAUTY_FILTERS"
+              :key="item.id"
+              type="button"
+              :class="{ on: beauty.filter === item.id }"
+              @click="beauty.filter = item.id; beauty.filterOpen = false"
+            >{{ item.label }}</button>
+          </div>
+        </div>
+        <div class="fs-beauty-colors">
+          <button
+            v-for="item in beautyDots()"
+            :key="item.id + item.color"
+            type="button"
+            class="fs-beauty-dot"
+            :class="{ on: beauty.color.toLowerCase() === item.color.toLowerCase() }"
+            :style="{ background: item.color }"
+            @click="beauty.color = item.color"
+          >
+            <svg v-if="beauty.color.toLowerCase() === item.color.toLowerCase()" viewBox="0 0 16 16" width="12" height="12">
+              <path d="M3.2 8.1 6.5 11.3 12.8 4.8" fill="none" :stroke="beautyInk(item.color)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </button>
+          <button type="button" class="fs-beauty-plus" aria-label="自定义颜色" @click="beautyColorRef?.click()">+</button>
+          <input ref="beautyColorRef" class="fs-beauty-color-input" type="color" :value="beauty.color" @input="beauty.color = $event.target.value">
+        </div>
+        <div class="fs-beauty-grid">
+          <button
+            v-for="style in beautyStyles"
+            :key="style.id"
+            type="button"
+            class="fs-beauty-card"
+            @click="applyBeautyStyle(style)"
+          >
+            <span class="fs-beauty-thumb" :class="`b-${style.border}`" :style="{ color: beautyBorderTone(style) }">
+              <i v-for="(cell, i) in beautyCells(style)" :key="i" :style="cell" />
+            </span>
+            <em>立即使用</em>
+          </button>
+        </div>
+      </div>
+    </aside>
     <aside v-if="cfState.side && cfState.dlg" class="fs-cf-side" @mousedown.stop="onCfSideDown">
         <div class="fs-cf-side-head">
           <button v-if="cfState.panel === 'edit'" type="button" title="返回" @click="backCf">
@@ -6678,13 +9046,14 @@ defineExpose({
         class="fs-sheet-list"
         :style="{ left: `${sheetListPop.left}px`, top: `${sheetListPop.top}px` }"
         @mousedown.stop
+        @keydown.stop
       >
         <div class="fs-sheet-list-search">
           <icon-search class="fs-sheet-list-search-ico" />
           <input
             v-model="sheetListPop.query"
             type="text"
-            placeholder="查找"
+            placeholder="请输入内容"
             @keydown.esc.stop="closeSheetListPop"
           >
         </div>
@@ -6788,7 +9157,7 @@ defineExpose({
           <button v-for="c in FMT_CATS" :key="c.id" type="button" :class="{ on: fmtDlg.cat === c.id }" @click="fmtDlg.cat = c.id">{{ c.label }}</button>
         </div>
         <div class="fs-fmt-main">
-          <div class="fs-fmt-sample"><span>示例</span><b>{{ fmtSampleText() }}</b></div>
+          <div class="fs-fmt-sample"><span>示例</span><b>{{ fmtPreview() }}</b></div>
           <p>{{ FMT_CATS.find((c) => c.id === fmtDlg.cat)?.hint }}</p>
           <div v-if="fmtDlg.cat === 'number' || fmtDlg.cat === 'currency' || fmtDlg.cat === 'accounting' || fmtDlg.cat === 'percent'" class="fs-fmt-opts">
             <label>小数位数 <input v-model.number="fmtDlg.decimals" type="number" min="0" max="6"></label>
@@ -6798,12 +9167,17 @@ defineExpose({
             </label>
           </div>
           <div v-else-if="fmtDlg.cat === 'date'" class="fs-fmt-list">
-            <button v-for="d in FMT_DATES" :key="d.fa" type="button" :class="{ on: fmtDlg.dateFa === d.fa }" @click="fmtDlg.dateFa = d.fa">{{ d.sample }}</button>
+            <button v-for="fa in FMT_DATES" :key="fa" type="button" :class="{ on: fmtDlg.dateFa === fa }" @click="fmtDlg.dateFa = fa">{{ fmtDateLabel(fa) }}</button>
           </div>
           <div v-else-if="fmtDlg.cat === 'time'" class="fs-fmt-list">
-            <button v-for="d in FMT_TIMES" :key="d.fa" type="button" :class="{ on: fmtDlg.timeFa === d.fa }" @click="fmtDlg.timeFa = d.fa">{{ d.sample }}</button>
+            <button v-for="fa in FMT_TIMES" :key="fa" type="button" :class="{ on: fmtDlg.timeFa === fa }" @click="fmtDlg.timeFa = fa">{{ fmtDateLabel(fa) }}</button>
           </div>
-          <input v-else-if="fmtDlg.cat === 'custom'" v-model="fmtDlg.custom" class="fs-dv-input" placeholder="格式代码">
+          <template v-else-if="fmtDlg.cat === 'custom'">
+            <div class="fs-fmt-list fs-fmt-custom">
+              <button v-for="fa in FMT_CUSTOM" :key="fa" type="button" :class="{ on: fmtDlg.custom === fa }" @click="fmtDlg.custom = fa">{{ fa }}</button>
+            </div>
+            <input v-model="fmtDlg.custom" class="fs-dv-input" placeholder="格式代码，例如 0.00 或 yyyy年m月d日">
+          </template>
         </div>
       </div>
       <div v-else-if="fmtDlg.tab === 'align'" class="fs-fmt-pane">
@@ -6856,7 +9230,7 @@ defineExpose({
       <div v-if="dvDlg.tab === 'set'" class="fs-dv-body">
         <div class="fs-dv-row">
           <span class="fs-dv-lab">验证条件</span>
-          <select v-model="dvDlg.cond">
+          <select v-model="dvDlg.cond" @change="onDvCond">
             <option v-for="c in DV_CONDS" :key="c">{{ c }}</option>
           </select>
         </div>
@@ -6885,7 +9259,19 @@ defineExpose({
             <span v-if="!dvOptionList().length" class="fs-dv-empty">先填写选项</span>
           </div>
         </template>
-        <p v-else class="fs-dv-note">当前条件会作用到选中单元格。</p>
+        <template v-else-if="dvDlg.cond === '数字' || dvDlg.cond === '日期' || dvDlg.cond === '文本'">
+          <div class="fs-dv-row">
+            <span class="fs-dv-lab">条件</span>
+            <select v-model="dvDlg.op">
+              <option v-for="[k, lab] in (dvDlg.cond === '文本' ? DV_TEXT_OPS : DV_NUM_OPS)" :key="k" :value="k">{{ lab }}</option>
+            </select>
+          </div>
+          <input v-model="dvDlg.v1" class="fs-dv-input" :type="dvDlg.cond === '日期' ? 'date' : 'text'" :placeholder="dvDlg.cond === '文本' ? '内容' : '值'">
+          <input v-if="dvDlg.cond !== '文本' && (dvDlg.op === 'between' || dvDlg.op === 'notBetween')" v-model="dvDlg.v2" class="fs-dv-input" :type="dvDlg.cond === '日期' ? 'date' : 'text'" placeholder="到">
+        </template>
+        <p v-else-if="dvDlg.cond === '手机号'" class="fs-dv-note">只允许 11 位手机号，以 1 开头。</p>
+        <p v-else-if="dvDlg.cond === '邮箱'" class="fs-dv-note">只允许邮箱地址，例如 name@example.com。</p>
+        <p v-else class="fs-dv-note">选中单元格后可直接勾选，值为 ✓ 或留空。</p>
       </div>
       <div v-else class="fs-dv-body">
         <label class="fs-dv-check"><input v-model="dvDlg.hintOn" type="checkbox">选定单元格时显示</label>
@@ -6893,7 +9279,7 @@ defineExpose({
         <textarea v-model="dvDlg.hintText" class="fs-dv-area" placeholder="输入提示内容" />
         <label class="fs-dv-check"><input v-model="dvDlg.warnOn" type="checkbox">输入无效数据时显示出错警告</label>
         <select v-model="dvDlg.warnStyle">
-          <option value="stop">停止</option>
+          <option value="stop">拒绝输入</option>
           <option value="warn">警告</option>
           <option value="info">信息</option>
         </select>
@@ -6906,6 +9292,46 @@ defineExpose({
         <button type="button" class="fs-dv-cancel" @click="dvDlg.show = false">取消</button>
         <button type="button" class="fs-dv-ok" @click="confirmValidation">确定</button>
       </div>
+    </div>
+    <button
+      v-if="dvArrow.show"
+      type="button"
+      class="fs-dv-arrow"
+      :style="{ left: `${dvArrow.left}px`, top: `${dvArrow.top}px` }"
+      @mousedown.stop.prevent="openDvList"
+    >▾</button>
+    <div
+      v-if="dvList.show"
+      class="fs-dv-list"
+      :style="{ left: `${dvList.left}px`, top: `${dvList.top}px` }"
+      @mousedown.stop
+    >
+      <button
+        v-for="opt in dvList.options"
+        :key="opt"
+        type="button"
+        :class="{ on: dvList.picked.includes(opt) }"
+        @click="pickDvOption(opt)"
+      >
+        <i v-if="dvList.colors[opt]" :style="{ background: dvList.colors[opt] }" />{{ opt }}
+      </button>
+      <span v-if="!dvList.options.length" class="fs-dv-empty">没有可选项</span>
+    </div>
+    <button
+      v-if="dvCheck.show"
+      type="button"
+      class="fs-dv-checkbtn"
+      :class="{ on: dvCheck.on }"
+      :style="{ left: `${dvCheck.left}px`, top: `${dvCheck.top}px` }"
+      @mousedown.stop.prevent="toggleDvCheck"
+    >{{ dvCheck.on ? '✓' : '' }}</button>
+    <div
+      v-if="dvHint.show"
+      class="fs-dv-hint"
+      :style="{ left: `${dvHint.left}px`, top: `${dvHint.top}px` }"
+    >
+      <b v-if="dvHint.title">{{ dvHint.title }}</b>
+      <span>{{ dvHint.text }}</span>
     </div>
     <Teleport to="body">
     <div v-if="ctxDlg.show" class="fs-ctx-dlg" @mousedown.stop>

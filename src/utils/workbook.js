@@ -461,7 +461,7 @@ const EXCEL_ICON_SET = {
   'ic-f2': '3Flags',
   'ic-f3': '3Flags',
   'ic-st3': '3Stars',
-  'ic-b3': '5Boxes',
+  'ic-b3': '5Rating',
   'ic-h3': '5Quarters',
   'ic-h5': '5Quarters',
 }
@@ -481,7 +481,7 @@ function excelIconSet(rule) {
   const marks = (rule.marks || []).join('')
   const preview = rule.preview
   if (special === 'pie' || preview === 'pie3' || preview === 'pie5' || /[◕◑◔]/.test(marks)) return '5Quarters'
-  if (special === 'signal' || preview === 'signal3' || /[▂▃▄]/.test(marks)) return '5Boxes'
+  if (special === 'signal' || preview === 'signal3' || /[▂▃▄]/.test(marks)) return '5Rating'
   if (kinds.includes('star') || kinds.includes('starEmpty') || marks.includes('★') || marks.includes('☆')) return '3Stars'
   if (kinds.includes('flag') || marks.includes('⚑')) return '3Flags'
   if (kinds.includes('triUp') || kinds.includes('triDown') || marks.includes('▲') || marks.includes('▼')) return '3Triangles'
@@ -514,11 +514,24 @@ function pie3Icons(rule) {
   return glyphs.length === 3 && glyphs.every((g) => g?.special === 'pie')
 }
 
+function signal3Icons(rule) {
+  if (rule.iconId === 'ic-b3' || rule.preview === 'signal3') return true
+  const glyphs = Array.isArray(rule.glyphs) ? rule.glyphs : []
+  if (glyphs.length > 0 && glyphs.every((g) => g?.special === 'signal')) return true
+  return /[▂▃▄]/.test((rule.marks || []).join(''))
+}
+
+function customIconIds(rule, iconSet) {
+  if (iconSet === '5Quarters' && pie3Icons(rule)) return [0, 2, 4]
+  if (iconSet === '5Rating' && signal3Icons(rule)) return [0, 1, 2]
+  return null
+}
+
 function applyFortuneIconSets(ws, rules) {
   let priority = 20
   ;(rules || []).filter((rule) => rule.type === 'icons').forEach((rule) => {
     const iconSet = excelIconSet(rule)
-    const picked = iconSet === '5Quarters' && pie3Icons(rule) ? [0, 2, 4] : null
+    const picked = customIconIds(rule, iconSet)
     const count = picked?.length || EXCEL_ICON_SIZE[iconSet] || rule.marks?.length || rule.glyphs?.length || rule.format?.length || 3
     const cfvo = iconPercentStops(count)
     const icons = picked?.map((iconId) => ({ iconSet, iconId }))
@@ -572,6 +585,15 @@ function excelCellToUniver(cell) {
   } else if (raw && typeof raw === 'object' && raw.text != null && raw.hyperlink) {
     out.v = raw.text
     out.t = 1
+    const href = typeof raw.hyperlink === 'string' ? raw.hyperlink : ''
+    if (href.startsWith('#')) {
+      const inner = href.slice(1).replace(/^'([^']+)'!/, '$1!')
+      out.link = inner.includes('!')
+        ? { type: 'cellrange', address: inner }
+        : { type: 'sheet', address: inner.replace(/!A1$/, '') }
+    } else if (href) {
+      out.link = { type: 'webpage', address: href }
+    }
   } else if (raw instanceof Date) {
     out.v = raw.toISOString().slice(0, 10)
     out.t = 1
@@ -591,6 +613,7 @@ function excelCellToUniver(cell) {
   if (bg) s.bg = { rgb: bg }
   if (fg) s.cl = { rgb: fg }
   if (cell.font?.bold) s.bl = 1
+  if (cell.font?.underline) s.un = 1
   if (cell.font?.size) s.fs = cell.font.size
   if (cell.font?.name) s.ff = cell.font.name
   if (cell.alignment?.horizontal === 'center') s.ht = 2
@@ -649,7 +672,15 @@ export function univerToBook(wb) {
         const raw = cellData[rk][ck]
         const cell = ws.getCell(r + 1, c + 1)
         if (raw?.f) cell.value = { formula: String(raw.f).replace(/^=/, ''), result: raw.v }
-        else if (raw?.t === 2 || typeof raw?.v === 'number') cell.value = Number(raw.v)
+        else if (raw?.link?.address) {
+          const text = cellText(raw) || raw.link.address
+          const target = raw.link.type === 'sheet'
+            ? `#'${String(raw.link.address).replace(/'/g, "''")}'!A1`
+            : raw.link.type === 'cellrange'
+              ? `#${raw.link.address}`
+              : raw.link.address
+          cell.value = { text, hyperlink: target }
+        } else if (raw?.t === 2 || typeof raw?.v === 'number') cell.value = Number(raw.v)
         else {
           const text = cellText(raw)
           if (text !== '') cell.value = text
@@ -734,18 +765,80 @@ function rewriteIconIds(xml, fixes) {
   return out
 }
 
+// exceljs 把自定义图标只写进 x14 扩展。Excel 要在主条件格式里看到同 id 的规则，图标才会出现。
+function linkExtIconRules(xml) {
+  if (!xml.includes('<x14:iconSet')) return xml
+  const main = xml.split('<extLst')[0]
+  const stubs = []
+  const re = /<x14:cfRule\b([^>]*)>([\s\S]*?)<\/x14:cfRule>\s*<xm:sqref>([^<]*)<\/xm:sqref>/g
+  let match = re.exec(xml)
+  while (match) {
+    const attrs = match[1]
+    const body = match[2]
+    const sqref = match[3]
+    if (!body.includes('<x14:iconSet') || !/\btype="iconSet"/.test(attrs)) {
+      match = re.exec(xml)
+      continue
+    }
+    const id = (attrs.match(/\bid="(\{[^"]+\})"/) || [])[1]
+    const priority = (attrs.match(/\bpriority="(\d+)"/) || [])[1] || '1'
+    if (!id || main.includes(`id="${id}"`)) {
+      match = re.exec(xml)
+      continue
+    }
+    const cfvos = [...body.matchAll(/<x14:cfvo type="([^"]+)">\s*<xm:f>([^<]*)<\/xm:f>/g)]
+    const n = cfvos.length || 3
+    const base = n >= 5 ? '5Arrows' : n === 4 ? '4Arrows' : '3Arrows'
+    const cfvoXml = (cfvos.length ? cfvos : [['', 'percent', '0'], ['', 'percent', '33'], ['', 'percent', '67']])
+      .map((item) => `<cfvo type="${item[1]}" val="${item[2]}"/>`)
+      .join('')
+    stubs.push(
+      `<conditionalFormatting sqref="${sqref}">`
+      + `<cfRule type="iconSet" priority="${priority}" id="${id}">`
+      + `<iconSet iconSet="${base}" showValue="1">${cfvoXml}</iconSet>`
+      + '<extLst><ext uri="{B025F937-C7B1-47D3-B67F-A62EFF666E3E}" xmlns:x14="http://schemas.microsoft.com/office/spreadsheetml/2009/9/main">'
+      + `<x14:id>${id}</x14:id></ext></extLst>`
+      + '</cfRule></conditionalFormatting>',
+    )
+    match = re.exec(xml)
+  }
+  if (!stubs.length) return xml
+  const block = stubs.join('')
+  const lastCf = xml.lastIndexOf('</conditionalFormatting>')
+  if (lastCf >= 0 && lastCf < xml.indexOf('<extLst')) {
+    const at = lastCf + '</conditionalFormatting>'.length
+    return xml.slice(0, at) + block + xml.slice(at)
+  }
+  const merge = xml.lastIndexOf('</mergeCells>')
+  if (merge >= 0) {
+    const at = merge + '</mergeCells>'.length
+    return xml.slice(0, at) + block + xml.slice(at)
+  }
+  const data = xml.indexOf('</sheetData>')
+  if (data >= 0) {
+    const at = data + '</sheetData>'.length
+    return xml.slice(0, at) + block + xml.slice(at)
+  }
+  return xml.replace('</worksheet>', `${block}</worksheet>`)
+}
+
 export async function workbookXlsxBuffer(book) {
   const buf = await book.xlsx.writeBuffer()
   const perSheet = book.worksheets.map((ws) => iconIdFixes.get(ws) || [])
-  if (perSheet.every((list) => !list.length)) return buf
   const zip = await JSZip.loadAsync(buf)
+  let changed = false
   for (let i = 0; i < perSheet.length; i += 1) {
-    if (!perSheet[i].length) continue
     const name = `xl/worksheets/sheet${i + 1}.xml`
     const file = zip.file(name)
     if (!file) continue
-    zip.file(name, rewriteIconIds(await file.async('string'), perSheet[i]))
+    let xml = await file.async('string')
+    if (perSheet[i].length) xml = rewriteIconIds(xml, perSheet[i])
+    const linked = linkExtIconRules(xml)
+    if (linked === xml && !perSheet[i].length) continue
+    zip.file(name, linked)
+    changed = true
   }
+  if (!changed) return buf
   return zip.generateAsync({ type: 'arraybuffer' })
 }
 
@@ -900,6 +993,14 @@ function cellToFortune(raw, styles) {
   if (s?.ct) v.ct = s.ct
   if (s?.fs) v.fs = Number(s.fs)
   if (s?.ff) v.ff = s.ff
+  if (raw?.link?.address) {
+    v.fc = v.fc || '#3370ff'
+    v.un = 1
+    if (v.v == null && v.m == null) {
+      v.v = raw.link.address
+      v.m = String(raw.link.address)
+    }
+  }
   if (v.v == null && v.m == null && !v.f && !v.bg && !v.bl && !v.it && !v.un && !v.cl && !v.ct) return null
   return v
 }
@@ -1031,6 +1132,15 @@ export function univerToFortune(wb) {
       })
     })
     stampMergeCells(celldata, merge)
+    const hyperlink = {}
+    Object.keys(cellData).forEach((rk) => {
+      const r = Number(rk)
+      Object.keys(cellData[rk] || {}).forEach((ck) => {
+        const link = cellData[rk][ck]?.link
+        if (!link?.address) return
+        hyperlink[`${r}_${Number(ck)}`] = { linkType: link.type || 'webpage', linkAddress: link.address }
+      })
+    })
     Object.values(merge).forEach((m) => {
       maxR = Math.max(maxR, m.r + m.rs - 1)
       maxC = Math.max(maxC, m.c + m.cs - 1)
@@ -1054,6 +1164,10 @@ export function univerToFortune(wb) {
       },
       ...(sh.fortune?.frozen ? { frozen: sh.fortune.frozen } : {}),
       ...(sh.fortune?.conditionformat ? { luckysheet_conditionformat_save: sh.fortune.conditionformat } : {}),
+      ...(sh.fortune?.filterSelect ? { filter_select: sh.fortune.filterSelect } : {}),
+      ...(sh.fortune?.filter ? { filter: sh.fortune.filter } : {}),
+      ...(sh.fortune?.fsFilter ? { fs_filter: sh.fortune.fsFilter } : {}),
+      ...(Object.keys(hyperlink).length ? { hyperlink } : {}),
     }
   })
 }
@@ -1070,6 +1184,8 @@ export function fortuneToUniver(sheets, meta = {}) {
       if (!mapped) return
       const r = Number(item.r)
       const c = Number(item.c)
+      const link = sh.hyperlink?.[`${r}_${c}`]
+      if (link?.linkAddress) mapped.link = { type: link.linkType || 'webpage', address: link.linkAddress }
       if (!cellData[r]) cellData[r] = {}
       cellData[r][c] = mapped
     })
@@ -1083,12 +1199,22 @@ export function fortuneToUniver(sheets, meta = {}) {
     if (sh.config?.borderInfo?.length) fortune.borderInfo = sh.config.borderInfo
     if (sh.config?.rowlen) fortune.rowlen = sh.config.rowlen
     if (sh.config?.columnlen) fortune.columnlen = sh.config.columnlen
-    if (sh.config?.rowhidden) fortune.rowhidden = sh.config.rowhidden
+    if (sh.config?.rowhidden) {
+      const hidden = { ...sh.config.rowhidden }
+      const range = sh.filter_select
+      if (sh.fs_filter?.onlyMine && range?.row) {
+        for (let r = range.row[0] + 1; r <= range.row[1]; r += 1) delete hidden[r]
+      }
+      if (Object.keys(hidden).length) fortune.rowhidden = hidden
+    }
     if (sh.config?.colhidden) fortune.colhidden = sh.config.colhidden
     if (sh.frozen) fortune.frozen = sh.frozen
     if (sh.luckysheet_conditionformat_save?.length) fortune.conditionformat = sh.luckysheet_conditionformat_save
     const dataBars = sh.config?.fs_data_bars || sh.fs_data_bars
     if (dataBars?.length) fortune.dataBars = dataBars
+    if (sh.filter_select && !sh.fs_filter?.onlyMine) fortune.filterSelect = sh.filter_select
+    if (sh.filter && !sh.fs_filter?.onlyMine) fortune.filter = sh.filter
+    if (sh.fs_filter && !sh.fs_filter.onlyMine) fortune.fsFilter = sh.fs_filter
     out[id] = {
       id,
       name: sh.name || `Sheet${i + 1}`,
