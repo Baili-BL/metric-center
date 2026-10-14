@@ -289,10 +289,18 @@ const mxFiltered = computed(() => {
   })
 })
 
-function onMxInsert(kind) {
+function onMxInsert(kindOrPayload) {
   mxDataOpen.value = false
+  const kind = typeof kindOrPayload === 'string' ? kindOrPayload : kindOrPayload?.kind
+  const cell = typeof kindOrPayload === 'string' ? null : kindOrPayload?.cell
+  if (kind === 'clear') {
+    if (!cell) return
+    mxCtxCell = cell
+    ctxClearBinding()
+    return
+  }
   if (kind === 'tpl') openMxTpl()
-  else openMx(kind)
+  else openMx(kind, cell || undefined)
 }
 function openMx(kind, targetCell) {
   mxDataOpen.value = false
@@ -2292,7 +2300,6 @@ onBeforeUnmount(() => {
           :key="`${tableId}-fold`"
           ref="sheetRef"
           :table-type="table?.type"
-          :suppress-cell-menu="isMixed"
           @cellhover="onCellHover"
           @cellclick="onCellClick"
           @cellcontext="onCellContext"

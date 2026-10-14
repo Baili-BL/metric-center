@@ -1398,16 +1398,36 @@ function startOfDay(ms) {
   return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime()
 }
 
+function cellFillColor(cell) {
+  return normColor(cell?.bg) || '#ffffff'
+}
+
+/** 整格字体色，以及富文本每一段自己的颜色。没设过的按默认字色。 */
+function cellFontColors(cell) {
+  const found = []
+  const push = (color) => {
+    const next = normColor(color)
+    if (next && !found.includes(next)) found.push(next)
+  }
+  push(cell?.fc)
+  const runs = cell?.ct?.s
+  if (Array.isArray(runs)) runs.forEach((run) => push(run?.fc))
+  if (!found.length) found.push('#1f2329')
+  return found
+}
+
 function columnRejects(cell, rule) {
   if (!rule) return false
   if (rule.mode === 'value') {
     const label = cellLabel(cell) || '(空白)'
     return (rule.unchecked || []).includes(label)
   }
-  if (rule.kind === 'bg' || rule.kind === 'fc') {
-    const color = rule.kind === 'bg' ? (normColor(cell?.bg) || '#ffffff') : (normColor(cell?.fc) || '#1f2329')
-    const keep = rule.colors || []
-    return keep.length > 0 && !keep.includes(color)
+  if (rule.kind === 'bg' || rule.kind === 'fc' || rule.kind === 'color') {
+    const bgKeep = rule.kind === 'bg' ? (rule.colors || []) : (rule.bg || null)
+    const fcKeep = rule.kind === 'fc' ? (rule.colors || []) : (rule.fc || null)
+    if (bgKeep?.length && !bgKeep.includes(cellFillColor(cell))) return true
+    if (fcKeep?.length && !cellFontColors(cell).some((color) => fcKeep.includes(color))) return true
+    return false
   }
   if (rule.kind === 'date') {
     const text = cellLabel(cell).trim()
@@ -1656,13 +1676,14 @@ function openColumnFilter(btn) {
     const cell = sheet.data?.[r]?.[col]
     const label = cellLabel(cell) || '(空白)'
     counts.set(label, (counts.get(label) || 0) + 1)
-    const bg = normColor(cell?.bg) || '#ffffff'
-    const fc = normColor(cell?.fc) || '#1f2329'
+    const bg = cellFillColor(cell)
     if (!bgMap.has(bg)) bgMap.set(bg, 0)
     bgMap.set(bg, bgMap.get(bg) + 1)
     if (label !== '(空白)') {
-      if (!fcMap.has(fc)) fcMap.set(fc, 0)
-      fcMap.set(fc, fcMap.get(fc) + 1)
+      cellFontColors(cell).forEach((fc) => {
+        if (!fcMap.has(fc)) fcMap.set(fc, 0)
+        fcMap.set(fc, fcMap.get(fc) + 1)
+      })
     }
   }
   const unchecked = new Set(rule?.mode === 'value' ? (rule.unchecked || []) : [])
@@ -1675,18 +1696,18 @@ function openColumnFilter(btn) {
   filterPop.query = ''
   filterPop.addTo = false
   filterPop.onlyMine = !!rules.onlyMine
-  if (rule?.kind === 'bg' || rule?.kind === 'fc') filterPop.tab = 'color'
+  if (rule?.kind === 'bg' || rule?.kind === 'fc' || rule?.kind === 'color') filterPop.tab = 'color'
   else if (rule?.mode === 'cond') filterPop.tab = 'cond'
   else filterPop.tab = 'value'
-  filterPop.kind = rule?.kind === 'bg' || rule?.kind === 'fc' ? 'text' : (rule?.kind || 'text')
+  filterPop.kind = rule?.kind === 'bg' || rule?.kind === 'fc' || rule?.kind === 'color' ? 'text' : (rule?.kind || 'text')
   filterPop.cond = rule?.cond || (filterPop.kind === 'num' ? 'gt' : filterPop.kind === 'date' ? 'before' : 'contains')
   filterPop.condValue = rule?.condValue || ''
   filterPop.condValue2 = rule?.condValue2 || ''
   filterPop.items = [...counts.entries()].map(([label, count]) => ({ label, count, checked: !unchecked.has(label) }))
-  const keptBg = new Set(rule?.kind === 'bg' ? (rule.colors || []) : [])
-  const keptFc = new Set(rule?.kind === 'fc' ? (rule.colors || []) : [])
-  filterPop.bgColors = [...bgMap.entries()].map(([color, count]) => ({ color, count, checked: rule?.kind === 'bg' ? keptBg.has(color) : true }))
-  filterPop.fcColors = [...fcMap.entries()].map(([color, count]) => ({ color, count, checked: rule?.kind === 'fc' ? keptFc.has(color) : true }))
+  const keptBg = rule?.kind === 'bg' ? rule.colors : rule?.kind === 'color' ? rule.bg : null
+  const keptFc = rule?.kind === 'fc' ? rule.colors : rule?.kind === 'color' ? rule.fc : null
+  filterPop.bgColors = [...bgMap.entries()].map(([color, count]) => ({ color, count, checked: keptBg ? keptBg.includes(color) : true }))
+  filterPop.fcColors = [...fcMap.entries()].map(([color, count]) => ({ color, count, checked: keptFc ? keptFc.includes(color) : true }))
   const rect = btn.getBoundingClientRect()
   filterPop.left = Math.max(8, Math.min(rect.left, window.innerWidth - 340))
   filterPop.top = rect.bottom + 360 > window.innerHeight ? Math.max(8, rect.top - 360) : rect.bottom + 4
@@ -1798,8 +1819,11 @@ function ruleFromPanel() {
     const fonts = filterPop.fcColors
     const fillOn = fills.filter((item) => item.checked)
     const fontOn = fonts.filter((item) => item.checked)
-    if (fills.length && fillOn.length < fills.length) return { mode: 'cond', kind: 'bg', colors: fillOn.map((item) => item.color) }
-    if (fonts.length && fontOn.length < fonts.length) return { mode: 'cond', kind: 'fc', colors: fontOn.map((item) => item.color) }
+    const bg = fills.length && fillOn.length && fillOn.length < fills.length ? fillOn.map((item) => item.color) : null
+    const fc = fonts.length && fontOn.length && fontOn.length < fonts.length ? fontOn.map((item) => item.color) : null
+    if (bg && fc) return { mode: 'cond', kind: 'color', bg, fc }
+    if (bg) return { mode: 'cond', kind: 'bg', colors: bg }
+    if (fc) return { mode: 'cond', kind: 'fc', colors: fc }
     return null
   }
   const needsValue = !['empty', 'notEmpty'].includes(filterPop.cond)
@@ -1812,6 +1836,17 @@ function ruleFromPanel() {
     condValue: filterPop.condValue,
     condValue2: filterPop.condValue2,
   }
+}
+
+/** 颜色都勾着时，第一次点某一色表示「只看这一色」，而不是把它取消。 */
+function toggleFilterColor(group, item) {
+  const list = group === 'fc' ? filterPop.fcColors : filterPop.bgColors
+  if (list.length && list.every((row) => row.checked)) {
+    list.forEach((row) => { row.checked = row === item })
+    return
+  }
+  item.checked = !item.checked
+  if (list.length && list.every((row) => !row.checked)) list.forEach((row) => { row.checked = true })
 }
 
 function applyFilter() {
@@ -4531,6 +4566,7 @@ function onFreezeCapture(e) {
 }
 
 const ctxMenu = reactive({ show: false, x: 0, y: 0, fly: '', fly2: '', subLeft: false })
+let ctxTarget = null
 const ctxMenuRef = ref(null)
 const ctxItems = computed(() => {
   if (props.tableType !== 'mixed') return CTX_ITEMS
@@ -4544,6 +4580,7 @@ const ctxItems = computed(() => {
         caret: true,
         children: MX_INSERT_ITEMS,
       })
+      out.push({ id: 'mx-clear', label: '清除该格关联', danger: true })
     }
   })
   return out
@@ -5281,7 +5318,7 @@ async function onCtxAction(id) {
   ctxMenu.fly2 = ''
   if (id.startsWith('mx-')) {
     const kind = id.slice(3)
-    emit('mx-insert', kind === 'tpl' ? 'tpl' : kind)
+    emit('mx-insert', { kind: kind === 'tpl' ? 'tpl' : kind, cell: ctxTarget })
     return
   }
   if (id === 'copy') {
@@ -5841,6 +5878,8 @@ function onSheetContext(e) {
     remove.children[0].label = a === b ? `删除第 ${a} 行` : `删除第 ${a} - ${b} 行`
     remove.children[1].label = box.c0 === box.c1 ? '删除列' : `删除 ${colLetter(box.c0)} - ${colLetter(box.c1)} 列`
   }
+  const g = geomFromPoint(ctxState() || {}, e.clientX, e.clientY)
+  ctxTarget = g ? { row: g.r, col: g.c } : null
   ctxMenu.x = e.clientX
   ctxMenu.y = e.clientY
   ctxMenu.fly = ''
@@ -8118,16 +8157,16 @@ defineExpose({
       </template>
       <div v-else-if="filterPop.tab === 'color'" class="fs-filter-colors">
         <div class="fs-filter-color-title">单元格颜色</div>
-        <label v-for="item in filterPop.bgColors" :key="`bg-${item.color}`" class="fs-filter-item">
-          <input v-model="item.checked" type="checkbox">
+        <label v-for="item in filterPop.bgColors" :key="`bg-${item.color}`" class="fs-filter-item" @click.prevent="toggleFilterColor('bg', item)">
+          <input type="checkbox" :checked="item.checked" tabindex="-1">
           <i :style="{ background: item.color }" />
           <span>{{ item.color === '#ffffff' ? '无填充' : item.color }}</span>
           <em>{{ item.count }}</em>
         </label>
         <div v-if="!filterPop.bgColors.length" class="fs-filter-empty">这一列没有可筛选的填充色</div>
         <div class="fs-filter-color-title">字体颜色</div>
-        <label v-for="item in filterPop.fcColors" :key="`fc-${item.color}`" class="fs-filter-item">
-          <input v-model="item.checked" type="checkbox">
+        <label v-for="item in filterPop.fcColors" :key="`fc-${item.color}`" class="fs-filter-item" @click.prevent="toggleFilterColor('fc', item)">
+          <input type="checkbox" :checked="item.checked" tabindex="-1">
           <i :style="{ background: item.color }" />
           <span>{{ item.color }}</span>
           <em>{{ item.count }}</em>
@@ -9003,6 +9042,7 @@ defineExpose({
           v-else
           type="button"
           class="fs-ctx-item"
+          :class="{ danger: item.danger }"
           @mouseenter="onCtxItemEnter(item)"
           @click="item.caret ? null : onCtxAction(item.id)"
         >

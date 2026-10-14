@@ -1494,6 +1494,7 @@
   cursor: pointer;
 }
 .fs-ctx-item:hover { background: rgba(31, 35, 41, 0.08); }
+.fs-ctx-item.danger { color: #f54a45; }
 .fs-ctx-ico { width: 16px; height: 16px; margin-right: 8px; flex-shrink: 0; }
 .fs-ctx-gap { width: 16px; margin-right: 8px; flex-shrink: 0; }
 .fs-ctx-new {
