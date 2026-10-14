@@ -965,23 +965,18 @@ function shortLabel(tip) {
 }
 
 let stamping = false
-let stampQueued = false
 function stampFeishuLabels() {
-  if (stamping || stampQueued) return
-  stampQueued = true
-  requestAnimationFrame(() => {
-    stampQueued = false
-    const box = hostRef.value
-    if (!box || stamping) return
-    stamping = true
-    labelObs?.disconnect()
-    try { stampFeishuLabelsNow(box) }
-    finally {
-      stamping = false
-      const tb = box.querySelector('.fortune-toolbar')
-      if (tb && labelObs) labelObs.observe(tb, { childList: true, subtree: true })
-    }
-  })
+  if (stamping) return
+  const box = hostRef.value
+  if (!box) return
+  stamping = true
+  labelObs?.disconnect()
+  try { stampFeishuLabelsNow(box) }
+  finally {
+    stamping = false
+    const tb = box.querySelector('.fortune-toolbar')
+    if (tb && labelObs) labelObs.observe(tb, { childList: true, subtree: true })
+  }
 }
 
 function stampFeishuLabelsNow(box) {
@@ -2779,6 +2774,75 @@ function paintCellFormat(r, c) {
   const shown = formatByCode(raw, fa)
   if (shown === String(cell.m ?? '')) return
   api.applyOp?.([{ op: 'replace', id: sheet.id, path: ['data', r, c, 'm'], value: shown }])
+}
+
+/** 公式原文（去掉开头的 =） */
+function formulaBody(f) {
+  const s = String(f || '').trim()
+  return s.startsWith('=') ? s.slice(1).trim() : s
+}
+function generalLabel(v) {
+  if (typeof v === 'number' && Number.isFinite(v)) {
+    const n = Math.round(v * 1e10) / 1e10
+    return String(n)
+  }
+  if (v == null) return ''
+  return String(v)
+}
+/**
+ * 首格录入后，Fortune 若发现 f 已经等于正在提交的公式，会直接 return，
+ * 格子上就一直画着 “D2*100”。下拉填充的新格子没有旧公式，会正常算出 34、36。
+ * 显示文本仍是公式本身时，按当前表重算并写回结果，公式栏继续保留 f。
+ */
+let fixingFormulas = false
+let formulaFixTimer = 0
+function scheduleFormulaFix() {
+  if (fixingFormulas) return
+  clearTimeout(formulaFixTimer)
+  formulaFixTimer = setTimeout(() => {
+    formulaFixTimer = 0
+    fixUncalculatedFormulas()
+  }, 40)
+}
+function fixUncalculatedFormulas() {
+  if (fixingFormulas) return
+  const api = instRef.current
+  const ctx = reactStateBy((st) => st?.formulaCache?.parser && Array.isArray(st.luckysheetfile))
+  const sheet = api?.getSheet?.()
+  if (!api?.applyOp || !ctx || !sheet?.data) return
+  if (ctx.luckysheetCellUpdate?.length) return
+  const parser = ctx.formulaCache.parser
+  const ops = []
+  sheet.data.forEach((row, r) => {
+    ;(row || []).forEach((cell, c) => {
+      if (!cell?.f) return
+      const body = formulaBody(cell.f)
+      if (!body) return
+      const shown = String(cell.m ?? cell.v ?? '').trim()
+      if (shown !== body && shown !== `=${body}` && shown !== String(cell.f).trim()) return
+      let parsed
+      try {
+        parser.context = ctx
+        parsed = parser.parse(body, { sheetId: sheet.id })
+      } catch {
+        return
+      }
+      if (!parsed || parsed.error != null || parsed.result == null || typeof parsed.result === 'object') return
+      const fa = cell.ct?.fa
+      const label = !fa || fa === 'General' || fa === '@' ? generalLabel(parsed.result) : formatByCode(parsed.result, fa)
+      if (!label || label === shown) return
+      ops.push({
+        op: 'replace',
+        id: sheet.id,
+        path: ['data', r, c],
+        value: { ...cell, v: parsed.result, m: label, f: cell.f.startsWith('=') ? cell.f : `=${cell.f}` },
+      })
+    })
+  })
+  if (!ops.length) return
+  fixingFormulas = true
+  try { api.applyOp(ops) }
+  finally { fixingFormulas = false }
 }
 function paintSelectionFormat(sel) {
   if (!sel?.row || !sel?.column) return
@@ -6090,6 +6154,7 @@ function renderBook(data) {
         syncCfRangeFromSelection(sel)
         scheduleDataBars()
         refreshSheetStat(sel)
+        scheduleFormulaFix()
         if (cfState.side && cfState.panel === 'rules') refreshCfFlags()
         requestAnimationFrame(syncDvChrome)
       },
@@ -6100,6 +6165,7 @@ function renderBook(data) {
       scheduleDataBars()
       refreshSheetStat()
       scheduleSheetTabs()
+      scheduleFormulaFix()
       syncBarStore()
       const on = instRef.current?.getSheet?.()?.showGridLines !== false
       viewState.grid = on
@@ -6117,6 +6183,7 @@ function renderBook(data) {
       refreshSheetStat()
       applyLocationLink()
       scheduleSheetTabs()
+      scheduleFormulaFix()
     }, d))
     const native = cfRules().filter((rule) => rule.type !== 'dataBar')
     if (native.length !== cfRules().length) patchCf(native, false)

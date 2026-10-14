@@ -33,6 +33,7 @@ const SEED = {
     { title: '螺纹钢现货共享表', dir: '钢材/螺纹' },
     { title: 'PVC现货报价共享表', dir: 'PVC/现货' },
     { title: '沪铜主力共享行情', dir: '沪铜/主力' },
+    { title: '筛选透视模拟表', dir: '钢材/螺纹' },
   ],
   custom: [
     { title: '螺纹利润测算表', dir: '钢材' },
@@ -136,20 +137,67 @@ export function sampleHeaders(typeId) {
   if (typeId === 'custom') return ['口径', '数值', '成本', '利润']
   return ['日期', '地区', '价格', '维护人']
 }
+const MOCK_MONTHS = ['2026-01', '2026-02', '2026-03', '2026-04', '2026-05', '2026-06', '2026-07', '2026-08', '2026-09', '2026-10', '2026-11', '2026-12']
+const MOCK_REGIONS = ['华东', '华南', '华北', '华中']
+
 export function sampleRows(typeId, seed) {
-  const months = ['2026-01', '2026-02', '2026-03', '2026-04', '2026-05', '2026-06']
+  const months = MOCK_MONTHS.slice(0, 6)
   if (typeId === 'timeseries') {
-    return months.map((m) => {
+    return MOCK_MONTHS.map((m) => {
       seed = (seed * 9301 + 49297) % 233280
       return [m, Math.round(3100 + seed / 233280 * 180), Math.round(80 + seed / 233280 * 20), '已更新']
     })
   }
   if (typeId === 'balance') return buildBalanceRows(seed)
   if (typeId === 'mixed') {
-    return months.slice(0, 4).map((m, i) => [m, 3200 + i * 40, 18 + i, +(0.32 + i * 0.02).toFixed(2)])
+    return MOCK_MONTHS.map((m, i) => [m, 3200 + i * 28, 16 + (i % 9), +((0.28 + (i % 6) * 0.03)).toFixed(2)])
   }
-  if (typeId === 'custom') return [['现货', 3180, 3050, 130], ['盘面', 3220, 3080, 140], ['基差', -40, -30, -10]]
-  return months.slice(0, 5).map((m, i) => [m, '华东', 3150 + i * 25, ME])
+  if (typeId === 'custom') {
+    return [
+      ['现货', 3180, 3050, 130],
+      ['盘面', 3220, 3080, 140],
+      ['基差', -40, -30, -10],
+      ['华东现货', 3260, 3110, 150],
+      ['华南现货', 3190, 3070, 120],
+      ['华北盘面', 3310, 3140, 170],
+    ]
+  }
+  return months.flatMap((m, mi) => MOCK_REGIONS.map((region, ri) => [
+    m,
+    region,
+    3150 + mi * 20 + ri * 15,
+    PEOPLE[(mi + ri) % PEOPLE.length],
+  ]))
+}
+
+/** 给筛选、透视用的一批带涨跌颜色的行情。负涨跌为粉色字，华南行有浅底。 */
+export function mockFilterRows() {
+  const products = ['螺纹', '热卷']
+  const rows = []
+  MOCK_MONTHS.slice(0, 6).forEach((month, mi) => {
+    MOCK_REGIONS.forEach((region, ri) => {
+      products.forEach((product, pi) => {
+        const price = 3120 + mi * 35 + ri * 20 + pi * 80
+        const prev = price - (18 + ((mi + ri + pi) % 7) * 8 - 24)
+        const change = price - prev
+        const down = change < 0
+        rows.push([
+          month,
+          region,
+          product,
+          { v: price, fc: down ? '#f5319d' : '#00b42a', bg: region === '华南' ? '#fcffe8' : (region === '华北' ? '#e8f3ff' : '') },
+          12 + ((mi * 3 + ri + pi) % 20),
+          { v: change, fc: down ? '#f5319d' : '#00b42a' },
+          PEOPLE[(mi + ri + pi) % PEOPLE.length],
+        ])
+      })
+    })
+  })
+  return rows
+}
+function plainCell(v) {
+  if (v && typeof v === 'object' && !Array.isArray(v) && ('v' in v)) return v.v
+  return v
 }
 function balanceCellStyle(rowName, col) {
   if (col === 0 && BALANCE_TOTALS.has(rowName)) {
@@ -168,12 +216,21 @@ export function makeWorkbook(title, headers, rows, opts = {}) {
   })
   ;(rows || []).forEach((row, r) => {
     cellData[r + 1] = {}
-    const rowName = String(row?.[0] ?? '')
-    row.forEach((v, c) => {
-      const n = typeof v === 'number'
+    const rowName = String(plainCell(row?.[0]) ?? '')
+    row.forEach((raw, c) => {
+      const styled = raw && typeof raw === 'object' && !Array.isArray(raw) && ('v' in raw)
+      const v = styled ? raw.v : raw
+      const n = typeof v === 'number' && Number.isFinite(v)
       const style = isBalance ? balanceCellStyle(rowName, c) : null
-      const cell = n ? { v, t: 2 } : { v: String(v), t: 1 }
-      if (style) cell.s = style
+      const cell = n ? { v, t: 2 } : { v: String(v ?? ''), t: 1 }
+      const s = style ? { ...style } : null
+      if (styled && (raw.fc || raw.bg || raw.bl)) {
+        const next = s || {}
+        if (raw.bl) next.bl = 1
+        if (raw.bg) next.bg = { rgb: raw.bg }
+        if (raw.fc) next.cl = { rgb: raw.fc }
+        cell.s = next
+      } else if (s) cell.s = s
       cellData[r + 1][c] = cell
     })
   })
@@ -231,7 +288,15 @@ function isLegacyBalanceSample(wb) {
   const legacy = ['产量', '进口', '出口', '表观消费', '库存变化']
   return legacy.every((k) => names.has(k)) && names.size <= 6
 }
+export function mockFilterWorkbook(title) {
+  return makeWorkbook(
+    title || '筛选透视模拟表',
+    ['日期', '地区', '品种', '价格', '成交量', '涨跌', '维护人'],
+    mockFilterRows(),
+  )
+}
 function defaultWorkbook(typeId, title) {
+  if (title === '筛选透视模拟表') return mockFilterWorkbook(title)
   if (typeId === 'balance') return balanceWorkbook(title, hashStr(title || 'balance'))
   return makeWorkbook(title, sampleHeaders(typeId), sampleRows(typeId, hashStr(title)))
 }

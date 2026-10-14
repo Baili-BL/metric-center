@@ -1283,21 +1283,18 @@ body.is-ind-dragging .ic-dir-tree .arco-tree-node-title-highlight {
   left: 196px;
   right: 0;
   bottom: 0;
-  width: calc(100vw - 196px);
-  height: calc(100vh - 52px);
   background: var(--bg);
   z-index: 60;
   display: none;
   padding: 14px 16px;
   gap: 14px;
-  transition: left .2s ease, width .2s ease;
+  transition: left .2s ease;
   flex: none;
 }
 .detail-view.show { display: flex; }
 .app-shell.nav-collapsed .detail-view,
 body:has(.app-shell.nav-collapsed) .detail-view {
   left: 56px;
-  width: calc(100vw - 56px);
 }
 .dv-left {
   width: 270px;

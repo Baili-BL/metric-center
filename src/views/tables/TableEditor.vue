@@ -1043,7 +1043,7 @@ watch(() => props.tableId, async (id, prev) => {
   }
   if (prev && prev !== id) capture()
   setPageIcon('/excel-file.svg')
-  await loadCurrent()
+  if (sheetRef.value) await loadCurrent()
 }, { immediate: true })
 watch(sheetRef, (el) => {
   if (el && props.tableId) loadCurrent()
