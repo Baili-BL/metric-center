@@ -4765,6 +4765,9 @@ const CTX_ITEMS = [
   { id: 'history', label: '单元格历史记录' },
 ]
 let copiedPack = null
+let copyMarkOn = false
+let copyMarkRaf = 0
+const copyMark = reactive({ show: false, left: 0, top: 0, width: 0, height: 0 })
 const cellLog = new Map()
 const ctxDlg = reactive({ show: false, title: '', text: '', mode: '', lines: [] })
 const DV_CONDS = ['单选', '多选', '数字', '日期', '文本', '复选框', '手机号', '邮箱']
@@ -4852,8 +4855,76 @@ function rememberCopy() {
   const box = selectionBox()
   const rows = readSelectionCells()
   const text = rows.map((line) => line.map(cellPlain).join('\t')).join('\n')
-  copiedPack = box ? { rows, r0: box.r0, c0: box.c0, text } : null
+  copiedPack = box ? {
+    rows, r0: box.r0, r1: box.r1, c0: box.c0, c1: box.c1, sheetId: box.id, text,
+  } : null
+  if (copiedPack) showCopyMark()
+  else hideCopyMark()
   return copiedPack
+}
+
+function hideCopyMark() {
+  copyMarkOn = false
+  copyMark.show = false
+  if (copyMarkRaf) cancelAnimationFrame(copyMarkRaf)
+  copyMarkRaf = 0
+}
+
+function syncCopyMark() {
+  const pack = copiedPack
+  if (!copyMarkOn || !pack || !Number.isInteger(pack.r0)) {
+    copyMark.show = false
+    return
+  }
+  const ctx = ctxState() || {}
+  const sheet = instRef.current?.getSheet?.()
+  if (sheet?.id && pack.sheetId && sheet.id !== pack.sheetId) {
+    copyMark.show = false
+    return
+  }
+  const a = geomByRC(ctx, pack.r0, pack.c0)
+  const b = geomByRC(ctx, pack.r1, pack.c1)
+  const cv = hostRef.value?.querySelector('.fortune-cell-area canvas') || hostRef.value?.querySelector('canvas')
+  if (!a || !b || !cv) {
+    copyMark.show = false
+    return
+  }
+  const rect = cv.getBoundingClientRect()
+  const viewL = rect.left + (ctx.rowHeaderWidth || 0)
+  const viewT = rect.top + (ctx.columnHeaderHeight || 0)
+  let left = Math.min(a.vx, b.vx)
+  let top = Math.min(a.vy, b.vy)
+  let right = Math.max(a.vx + a.vw, b.vx + b.vw)
+  let bottom = Math.max(a.vy + a.vh, b.vy + b.vh)
+  if (right <= viewL || bottom <= viewT || left >= rect.right || top >= rect.bottom) {
+    copyMark.show = false
+    return
+  }
+  left = Math.max(left, viewL)
+  top = Math.max(top, viewT)
+  right = Math.min(right, rect.right)
+  bottom = Math.min(bottom, rect.bottom)
+  copyMark.show = right - left > 1 && bottom - top > 1
+  copyMark.left = left
+  copyMark.top = top
+  copyMark.width = Math.max(0, right - left)
+  copyMark.height = Math.max(0, bottom - top)
+}
+
+function showCopyMark() {
+  copyMarkOn = true
+  syncCopyMark()
+  if (copyMarkRaf) return
+  const tick = () => {
+    if (!copyMarkOn) {
+      copyMarkRaf = 0
+      copyMark.show = false
+      return
+    }
+    syncCopyMark()
+    copyMarkRaf = requestAnimationFrame(tick)
+  }
+  copyMarkRaf = requestAnimationFrame(tick)
 }
 
 function logCell(r, c, value) {
@@ -4895,7 +4966,7 @@ function writeCells(pack, mode) {
   const api = instRef.current
   const box = selectionBox()
   const rows = pack?.rows
-  if (!api || !box || !rows?.length) return
+  if (!api || !box || !rows?.length) return false
   const kind = mode === 'clip' || !mode ? 'all' : mode
   const canShift = Number.isInteger(pack.r0) && Number.isInteger(pack.c0)
   rows.forEach((line, ri) => {
@@ -4918,6 +4989,7 @@ function writeCells(pack, mode) {
       }
     })
   })
+  return true
 }
 
 function clearSelection(mode) {
@@ -5059,20 +5131,20 @@ async function pasteFromClipboard(mode) {
       Message.warning('请先复制单元格')
       return
     }
-    writeCells(copiedPack, kind)
+    if (writeCells(copiedPack, kind)) hideCopyMark()
     return
   }
   let text = ''
   try { text = await navigator.clipboard.readText() } catch { /* */ }
   if (copiedPack?.rows?.length && (!text || sameClip(text, copiedPack.text))) {
-    writeCells(copiedPack, 'all')
+    if (writeCells(copiedPack, 'all')) hideCopyMark()
     return
   }
   if (!text) return
   const rows = text.replace(/\r/g, '').split('\n').filter((line, i, arr) => line || i < arr.length - 1).map((line) => (
     line.split('\t').map((v) => ({ v }))
   ))
-  writeCells({ rows }, 'value')
+  if (writeCells({ rows }, 'value')) hideCopyMark()
 }
 
 function openCtxDlg(mode, title, text = '', lines = []) {
@@ -6674,6 +6746,29 @@ function onSheetHotkey(e) {
   if (e.repeat || !sheetHasFocus(e)) return false
   const key = String(e.key || '')
   const ctrl = e.ctrlKey || e.metaKey
+  if (key === 'Escape' && copyMarkOn && !editingInputText()) {
+    hideCopyMark()
+    e.preventDefault()
+    e.stopPropagation()
+    return true
+  }
+  if (ctrl && !e.shiftKey && !e.altKey && (e.code === 'KeyC' || key.toLowerCase() === 'c')) {
+    if (editingInputText()) return false
+    e.preventDefault()
+    e.stopPropagation()
+    const pack = rememberCopy()
+    copyText(pack?.text || '')
+    return true
+  }
+  if (ctrl && !e.shiftKey && !e.altKey && (e.code === 'KeyX' || key.toLowerCase() === 'x')) {
+    if (editingInputText()) return false
+    e.preventDefault()
+    e.stopPropagation()
+    const pack = rememberCopy()
+    copyText(pack?.text || '')
+    clearSelection('all')
+    return true
+  }
   if (ctrl && !e.shiftKey && !e.altKey && (e.code === 'KeyV' || key.toLowerCase() === 'v')) {
     if (editingInputText()) return false
     e.preventDefault()
@@ -7303,6 +7398,7 @@ watch(() => cfState.scaleOpen || cfState.kindOpen || cfState.scopeOpen, (open) =
 })
 
 onBeforeUnmount(() => {
+  hideCopyMark()
   document.removeEventListener('mousedown', onDocScaleDown, true)
   document.removeEventListener('input', onDocFormulaInput, true)
   document.removeEventListener('compositionend', onDocFormulaInput, true)
@@ -9465,6 +9561,11 @@ defineExpose({
         <button type="button" class="fs-dv-ok" @click="confirmValidation">确定</button>
       </div>
     </div>
+    <div
+      v-if="copyMark.show"
+      class="fs-copy-mark"
+      :style="{ left: `${copyMark.left}px`, top: `${copyMark.top}px`, width: `${copyMark.width}px`, height: `${copyMark.height}px` }"
+    />
     <button
       v-if="dvArrow.show"
       type="button"

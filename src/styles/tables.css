@@ -2336,6 +2336,21 @@
 .fortune-filter-menu { display: none !important; }
 .fortune-wrap #luckysheet-dataVerification-dropdown-btn { display: none !important; }
 .fortune-wrap .header-arrow { display: none !important; }
+.fs-copy-mark {
+  position: fixed;
+  z-index: 14;
+  box-sizing: border-box;
+  pointer-events: none;
+  border: 1px dashed #3370ff;
+  background-color: rgba(51, 112, 255, 0.06);
+  background-image: repeating-linear-gradient(
+    -45deg,
+    transparent,
+    transparent 5px,
+    rgba(51, 112, 255, 0.16) 5px,
+    rgba(51, 112, 255, 0.16) 6px
+  );
+}
 .fs-dv-arrow, .fs-dv-checkbtn {
   position: fixed;
   z-index: 30;
