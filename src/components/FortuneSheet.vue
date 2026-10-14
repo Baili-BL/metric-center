@@ -4870,40 +4870,55 @@ function hideCopyMark() {
   copyMarkRaf = 0
 }
 
+function copyRangeBox(ctx, pack) {
+  const cols = ctx.visibledatacolumn
+  const rows = ctx.visibledatarow
+  if (!cols?.[pack.c1] || !rows?.[pack.r1]) return null
+  const left = pack.c0 <= 0 ? 0 : cols[pack.c0 - 1]
+  const top = pack.r0 <= 0 ? 0 : rows[pack.r0 - 1]
+  const right = cols[pack.c1]
+  const bottom = rows[pack.r1]
+  return {
+    left,
+    top,
+    width: Math.max(0, right - left - 1),
+    height: Math.max(0, bottom - top - 1),
+  }
+}
+
 function syncCopyMark() {
   const pack = copiedPack
   if (!copyMarkOn || !pack || !Number.isInteger(pack.r0)) {
     copyMark.show = false
     return
   }
-  const ctx = ctxState() || {}
+  const ctx = reactStateBy((st) => Array.isArray(st.visibledatarow) && Array.isArray(st.visibledatacolumn)) || ctxState() || {}
   const sheet = instRef.current?.getSheet?.()
   if (sheet?.id && pack.sheetId && sheet.id !== pack.sheetId) {
     copyMark.show = false
     return
   }
-  const a = geomByRC(ctx, pack.r0, pack.c0)
-  const b = geomByRC(ctx, pack.r1, pack.c1)
-  const cv = hostRef.value?.querySelector('.fortune-cell-area canvas') || hostRef.value?.querySelector('canvas')
-  if (!a || !b || !cv) {
+  const area = hostRef.value?.querySelector('.fortune-cell-area')
+  const box = copyRangeBox(ctx, pack)
+  if (!area || !box) {
     copyMark.show = false
     return
   }
-  const rect = cv.getBoundingClientRect()
-  const viewL = rect.left + (ctx.rowHeaderWidth || 0)
-  const viewT = rect.top + (ctx.columnHeaderHeight || 0)
-  let left = Math.min(a.vx, b.vx)
-  let top = Math.min(a.vy, b.vy)
-  let right = Math.max(a.vx + a.vw, b.vx + b.vw)
-  let bottom = Math.max(a.vy + a.vh, b.vy + b.vh)
-  if (right <= viewL || bottom <= viewT || left >= rect.right || top >= rect.bottom) {
+  const areaBox = area.getBoundingClientRect()
+  const scrollX = Number(ctx.scrollLeft) || 0
+  const scrollY = Number(ctx.scrollTop) || 0
+  let left = areaBox.left + box.left - scrollX
+  let top = areaBox.top + box.top - scrollY
+  let right = left + box.width
+  let bottom = top + box.height
+  if (right <= areaBox.left || bottom <= areaBox.top || left >= areaBox.right || top >= areaBox.bottom) {
     copyMark.show = false
     return
   }
-  left = Math.max(left, viewL)
-  top = Math.max(top, viewT)
-  right = Math.min(right, rect.right)
-  bottom = Math.min(bottom, rect.bottom)
+  left = Math.max(left, areaBox.left)
+  top = Math.max(top, areaBox.top)
+  right = Math.min(right, areaBox.right)
+  bottom = Math.min(bottom, areaBox.bottom)
   copyMark.show = right - left > 1 && bottom - top > 1
   copyMark.left = left
   copyMark.top = top
@@ -5084,39 +5099,84 @@ async function copyText(text) {
   try { await navigator.clipboard.writeText(text) } catch { /* */ }
 }
 
-async function copySelectionImage() {
-  const rows = readSelectionCells()
-  if (!rows.length) return
-  const canvas = document.createElement('canvas')
-  const colW = 88
-  const rowH = 28
-  canvas.width = rows[0].length * colW
-  canvas.height = rows.length * rowH
-  const g = canvas.getContext('2d')
+function captureSelectionImage() {
+  const box = selectionBox()
+  if (!box) return null
+  const state = ctxState() || {}
+  const a = geomByRC(state, box.r0, box.c0)
+  const b = geomByRC(state, box.r1, box.c1)
+  const canvases = [...(hostRef.value?.querySelectorAll('.fortune-sheet-container canvas, canvas') || [])]
+  if (!a || !b || !canvases.length) return null
+  const rect = canvases[0].getBoundingClientRect()
+  const x = a.vx - rect.left
+  const y = a.vy - rect.top
+  const w = Math.max(1, b.vx + b.vw - a.vx)
+  const h = Math.max(1, b.vy + b.vh - a.vy)
+  if (w < 2 || h < 2) return null
+  const out = document.createElement('canvas')
+  out.width = Math.round(w)
+  out.height = Math.round(h)
+  const g = out.getContext('2d')
+  if (!g) return null
   g.fillStyle = '#fff'
-  g.fillRect(0, 0, canvas.width, canvas.height)
-  g.font = '12px "微软雅黑", "Microsoft YaHei", sans-serif'
-  g.fillStyle = '#1f2329'
-  g.textBaseline = 'middle'
-  rows.forEach((line, r) => {
-    line.forEach((cell, c) => {
-      if (cell.bg) {
-        g.fillStyle = cell.bg
-        g.fillRect(c * colW, r * rowH, colW, rowH)
-      }
-      g.strokeStyle = '#dee0e3'
-      g.strokeRect(c * colW + 0.5, r * rowH + 0.5, colW - 1, rowH - 1)
-      g.fillStyle = cell.fc || '#1f2329'
-      g.fillText(cellPlain(cell), c * colW + 6, r * rowH + rowH / 2)
-    })
+  g.fillRect(0, 0, out.width, out.height)
+  canvases.forEach((cv) => {
+    try {
+      const box = cv.getBoundingClientRect()
+      const scaleX = cv.width / (box.width || w)
+      const scaleY = cv.height / (box.height || h)
+      g.drawImage(cv, x * scaleX, y * scaleY, w * scaleX, h * scaleY, 0, 0, out.width, out.height)
+    } catch { /* 某一层画布尺寸不一致时跳过 */ }
   })
-  const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'))
-  if (!blob) return
-  try {
-    await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })])
-  } catch {
-    await copyText(selectionText())
+  return { src: out.toDataURL('image/png'), width: out.width, height: out.height }
+}
+
+async function copySelectionImage() {
+  const pack = rememberCopy()
+  const image = captureSelectionImage()
+  if (!pack || !image) {
+    Message.warning('请先选中要复制的区域')
+    return
   }
+  pack.asImage = true
+  pack.image = image
+  pack.text = ''
+  try {
+    const blob = await (await fetch(image.src)).blob()
+    await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })])
+  } catch { /* 剪贴板不可用时，表内粘贴仍使用刚记下的图片 */ }
+  Message.success('已复制为图片')
+}
+
+function pasteCopiedImage() {
+  const image = copiedPack?.image
+  const box = selectionBox()
+  if (!copiedPack?.asImage || !image?.src || !box) return false
+  const dispatch = sheetContextDispatch()
+  if (!dispatch) return false
+  dispatch((ctx) => {
+    if (!ctx?.luckysheetfile) return ctx
+    const idx = ctx.luckysheetfile.findIndex((item) => item.id === box.id)
+    if (idx < 0) return ctx
+    const sheet = ctx.luckysheetfile[idx]
+    const left = box.c0 === 0 ? 0 : (ctx.visibledatacolumn?.[box.c0 - 1] ?? 0)
+    const top = box.r0 === 0 ? 0 : (ctx.visibledatarow?.[box.r0 - 1] ?? 0)
+    const img = {
+      id: `img_${Date.now().toString(36)}`,
+      src: image.src,
+      left,
+      top,
+      width: image.width,
+      height: image.height,
+      originWidth: image.width,
+      originHeight: image.height,
+    }
+    const images = [...(sheet.images || []), img]
+    const files = ctx.luckysheetfile.slice()
+    files[idx] = { ...sheet, images }
+    return { ...ctx, luckysheetfile: files, insertedImgs: images }
+  })
+  return true
 }
 
 function sameClip(a, b) {
@@ -5126,6 +5186,11 @@ function sameClip(a, b) {
 
 async function pasteFromClipboard(mode) {
   const kind = mode === 'clip' || !mode ? 'all' : mode
+  if (kind === 'all' && copiedPack?.asImage) {
+    if (pasteCopiedImage()) hideCopyMark()
+    else Message.warning('图片粘贴失败')
+    return
+  }
   if (kind !== 'all') {
     if (!copiedPack?.rows?.length) {
       Message.warning('请先复制单元格')

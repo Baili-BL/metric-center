@@ -1168,6 +1168,7 @@ export function univerToFortune(wb) {
       ...(sh.fortune?.filter ? { filter: sh.fortune.filter } : {}),
       ...(sh.fortune?.fsFilter ? { fs_filter: sh.fortune.fsFilter } : {}),
       ...(Object.keys(hyperlink).length ? { hyperlink } : {}),
+      ...(sh.fortune?.images?.length ? { images: sh.fortune.images } : {}),
     }
   })
 }
@@ -1215,6 +1216,7 @@ export function fortuneToUniver(sheets, meta = {}) {
     if (sh.filter_select && !sh.fs_filter?.onlyMine) fortune.filterSelect = sh.filter_select
     if (sh.filter && !sh.fs_filter?.onlyMine) fortune.filter = sh.filter
     if (sh.fs_filter && !sh.fs_filter.onlyMine) fortune.fsFilter = sh.fs_filter
+    if (sh.images?.length) fortune.images = sh.images
     out[id] = {
       id,
       name: sh.name || `Sheet${i + 1}`,
