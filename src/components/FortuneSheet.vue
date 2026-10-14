@@ -4764,7 +4764,7 @@ const CTX_ITEMS = [
   { sep: true },
   { id: 'history', label: '单元格历史记录' },
 ]
-let copiedCells = null
+let copiedPack = null
 const cellLog = new Map()
 const ctxDlg = reactive({ show: false, title: '', text: '', mode: '', lines: [] })
 const DV_CONDS = ['单选', '多选', '数字', '日期', '文本', '复选框', '手机号', '邮箱']
@@ -4827,6 +4827,13 @@ function selectionBox() {
   return { r0, r1, c0, c1, id: sheet.id, sheet }
 }
 
+function cloneCell(cell) {
+  if (cell && typeof cell === 'object') {
+    try { return JSON.parse(JSON.stringify(cell)) } catch { return { ...cell } }
+  }
+  return { v: cell ?? '' }
+}
+
 function readSelectionCells() {
   const box = selectionBox()
   if (!box) return []
@@ -4834,12 +4841,19 @@ function readSelectionCells() {
   for (let r = box.r0; r <= box.r1; r += 1) {
     const line = []
     for (let c = box.c0; c <= box.c1; c += 1) {
-      const cell = box.sheet.data?.[r]?.[c]
-      line.push(cell && typeof cell === 'object' ? { ...cell } : { v: cell ?? '' })
+      line.push(cloneCell(box.sheet.data?.[r]?.[c]))
     }
     rows.push(line)
   }
   return rows
+}
+
+function rememberCopy() {
+  const box = selectionBox()
+  const rows = readSelectionCells()
+  const text = rows.map((line) => line.map(cellPlain).join('\t')).join('\n')
+  copiedPack = box ? { rows, r0: box.r0, c0: box.c0, text } : null
+  return copiedPack
 }
 
 function logCell(r, c, value) {
@@ -4849,24 +4863,59 @@ function logCell(r, c, value) {
   cellLog.set(key, list.slice(-8))
 }
 
-function writeCells(rows, mode) {
+const PASTE_FMT = ['bg', 'fc', 'bl', 'it', 'un', 'cl', 'fs', 'ff', 'ht', 'vt', 'tb', 'ct']
+
+function pastedValue(cell) {
+  if (cell == null || cell === '') return ''
+  if (typeof cell !== 'object') return cell
+  if (cell.f) {
+    const body = formulaBody(cell.f)
+    const isFormulaText = (x) => {
+      const s = String(x ?? '').trim()
+      return s === body || s === `=${body}` || s === String(cell.f).trim()
+    }
+    if (cell.v != null && cell.v !== '' && !isFormulaText(cell.v)) return cell.v
+    if (cell.m != null && cell.m !== '' && !isFormulaText(cell.m)) return cell.m
+  }
+  if (cell.v != null && cell.v !== '') return cell.v
+  if (cell.m != null) return cell.m
+  return ''
+}
+
+function shiftedFormula(cell, dr, dc) {
+  if (!cell?.f) return ''
+  let f = String(cell.f).trim()
+  if (!f) return ''
+  if (!f.startsWith('=')) f = `=${f}`
+  if (dr || dc) f = shiftFormula(f, dr, dc)
+  return f
+}
+
+function writeCells(pack, mode) {
   const api = instRef.current
   const box = selectionBox()
+  const rows = pack?.rows
   if (!api || !box || !rows?.length) return
+  const kind = mode === 'clip' || !mode ? 'all' : mode
+  const canShift = Number.isInteger(pack.r0) && Number.isInteger(pack.c0)
   rows.forEach((line, ri) => {
     line.forEach((cell, ci) => {
       const r = box.r0 + ri
       const c = box.c0 + ci
       const range = { row: [r, r], column: [c, c] }
-      if (mode !== 'format') {
-        const value = mode === 'formula' && cell.f ? cell.f : (cell.v ?? cell.m ?? '')
+      const dr = canShift ? r - (pack.r0 + ri) : 0
+      const dc = canShift ? c - (pack.c0 + ci) : 0
+      if (kind !== 'format') {
+        const formula = kind === 'value' ? '' : shiftedFormula(cell, dr, dc)
+        const value = formula || pastedValue(cell)
         api.setCellValue?.(r, c, value, { id: box.id })
         logCell(r, c, value)
       }
-      if (mode === 'value') return
-      ;['bg', 'fc', 'bl', 'it', 'un', 'cl', 'fs', 'ff', 'ht', 'vt'].forEach((key) => {
-        if (cell[key] != null) api.setCellFormatByRange?.(key, cell[key], range, { id: box.id })
-      })
+      if (kind === 'all' || kind === 'format') {
+        PASTE_FMT.forEach((key) => {
+          if (cell?.[key] != null) api.setCellFormatByRange?.(key, cell[key], range, { id: box.id })
+        })
+      }
     })
   })
 }
@@ -4998,21 +5047,32 @@ async function copySelectionImage() {
   }
 }
 
+function sameClip(a, b) {
+  const norm = (s) => String(s || '').replace(/\r/g, '').replace(/\n$/, '')
+  return norm(a) === norm(b)
+}
+
 async function pasteFromClipboard(mode) {
-  if (copiedCells?.length && mode !== 'clip') {
-    writeCells(copiedCells, mode)
+  const kind = mode === 'clip' || !mode ? 'all' : mode
+  if (kind !== 'all') {
+    if (!copiedPack?.rows?.length) {
+      Message.warning('请先复制单元格')
+      return
+    }
+    writeCells(copiedPack, kind)
     return
   }
   let text = ''
   try { text = await navigator.clipboard.readText() } catch { /* */ }
-  if (!text) {
-    if (copiedCells?.length) writeCells(copiedCells, mode === 'clip' ? 'all' : mode)
+  if (copiedPack?.rows?.length && (!text || sameClip(text, copiedPack.text))) {
+    writeCells(copiedPack, 'all')
     return
   }
+  if (!text) return
   const rows = text.replace(/\r/g, '').split('\n').filter((line, i, arr) => line || i < arr.length - 1).map((line) => (
     line.split('\t').map((v) => ({ v }))
   ))
-  writeCells(rows, mode === 'clip' ? 'value' : mode)
+  writeCells({ rows }, 'value')
 }
 
 function openCtxDlg(mode, title, text = '', lines = []) {
@@ -5386,8 +5446,8 @@ async function onCtxAction(id) {
     return
   }
   if (id === 'copy') {
-    copiedCells = readSelectionCells()
-    await copyText(selectionText())
+    const pack = rememberCopy()
+    await copyText(pack?.text || '')
     return
   }
   if (id === 'copyImage') {
@@ -5395,18 +5455,16 @@ async function onCtxAction(id) {
     return
   }
   if (id === 'cut') {
-    copiedCells = readSelectionCells()
-    await copyText(selectionText())
+    const pack = rememberCopy()
+    await copyText(pack?.text || '')
     clearSelection('all')
     return
   }
-  if (id === 'paste') {
-    await pasteFromClipboard('clip')
+  if (id === 'paste' || id === 'pasteValue' || id === 'pasteFormat' || id === 'pasteFormula') {
+    const kind = id === 'pasteValue' ? 'value' : id === 'pasteFormat' ? 'format' : id === 'pasteFormula' ? 'formula' : 'all'
+    await pasteFromClipboard(kind)
     return
   }
-  if (id === 'pasteValue') writeCells(copiedCells, 'value')
-  else if (id === 'pasteFormat') writeCells(copiedCells, 'format')
-  else if (id === 'pasteFormula') writeCells(copiedCells, 'formula')
   else if (id === 'insertRowAbove') insertAxis('row', 'lefttop')
   else if (id === 'insertRowBelow') insertAxis('row', 'rightbottom')
   else if (id === 'insertColLeft') insertAxis('column', 'lefttop')
@@ -6616,6 +6674,13 @@ function onSheetHotkey(e) {
   if (e.repeat || !sheetHasFocus(e)) return false
   const key = String(e.key || '')
   const ctrl = e.ctrlKey || e.metaKey
+  if (ctrl && !e.shiftKey && !e.altKey && (e.code === 'KeyV' || key.toLowerCase() === 'v')) {
+    if (editingInputText()) return false
+    e.preventDefault()
+    e.stopPropagation()
+    pasteFromClipboard('all')
+    return true
+  }
   if (ctrl && e.shiftKey && !e.altKey && (e.code === 'KeyL' || key.toLowerCase() === 'l')) {
     e.preventDefault()
     e.stopPropagation()

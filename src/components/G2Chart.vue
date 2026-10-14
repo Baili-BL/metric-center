@@ -84,6 +84,8 @@ async function render() {
   clearClick()
   chart?.destroy?.()
   chart = null
+  lastWidth = 0
+  lastHeight = 0
   el.value.innerHTML = ''
   await nextTick()
   for (let i = 0; i < 20; i++) {
@@ -116,13 +118,14 @@ async function render() {
     hideViewCtrlDateLabels({ layer: layer.value })
   }
   bindClick()
+  fitChart()
 }
 
-/* 容器宽度变化（如折叠侧栏/面板）时 G2 的 autoFit 不总可靠，手动 forceFit 兜底 */
+/* 拖拽图表外框时，G2 的 autoFit 只听 window.resize，而且初次传入的 width/height 会盖住容器尺寸，forceFit 因此直接返回。按容器当前大小 changeSize。 */
 let resizeOb = null
 let lastWidth = 0
 let lastHeight = 0
-let resizeTimer = null
+let resizeRaf = 0
 
 function rebindSliderLabels() {
   clearLabels()
@@ -143,29 +146,45 @@ function rebindSliderLabels() {
   }
 }
 
-function onContainerResize() {
-  const w = wrap.value?.clientWidth || 0
-  const h = wrap.value?.clientHeight || 0
-  if (w === lastWidth && h === lastHeight) return
+function plotSize() {
+  const box = wrap.value
+  if (!box) return { w: 0, h: 0 }
+  const note = box.querySelector?.('.chart-src-note')
+  const noteH = note && getComputedStyle(note).display !== 'none' ? note.offsetHeight : 0
+  return {
+    w: Math.round(box.clientWidth),
+    h: Math.round(box.clientHeight - noteH),
+  }
+}
+
+function fitChart() {
+  if (!chart || !wrap.value) return
+  const { w, h } = plotSize()
+  if (w < 2 || h < 2 || (w === lastWidth && h === lastHeight)) return
   lastWidth = w
   lastHeight = h
-  clearTimeout(resizeTimer)
-  resizeTimer = setTimeout(() => {
-    if (!chart) return
-    if (typeof chart.forceFit === 'function') {
-      chart.forceFit()
-      rebindSliderLabels()
-    } else {
-      render()
-    }
-  }, 120)
+  if (typeof chart.changeSize !== 'function') {
+    render()
+    return
+  }
+  const opt = typeof chart.options === 'function' ? chart.options() : null
+  if (opt) opt.animation = false
+  Promise.resolve(chart.changeSize(w, h)).then(() => {
+    if (lastWidth === w && lastHeight === h) rebindSliderLabels()
+  }).catch(() => {})
+}
+
+function onContainerResize() {
+  if (resizeRaf) return
+  resizeRaf = requestAnimationFrame(() => {
+    resizeRaf = 0
+    fitChart()
+  })
 }
 
 function bindResize() {
   if (typeof ResizeObserver !== 'function' || !wrap.value) return
   resizeOb?.disconnect()
-  lastWidth = wrap.value.clientWidth
-  lastHeight = wrap.value.clientHeight
   resizeOb = new ResizeObserver(onContainerResize)
   resizeOb.observe(wrap.value)
 }
@@ -177,7 +196,8 @@ onMounted(() => {
 onBeforeUnmount(() => {
   resizeOb?.disconnect()
   resizeOb = null
-  clearTimeout(resizeTimer)
+  if (resizeRaf) cancelAnimationFrame(resizeRaf)
+  resizeRaf = 0
   clearLabels()
   clearClick()
   chart?.destroy?.()
