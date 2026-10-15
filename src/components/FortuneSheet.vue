@@ -357,7 +357,6 @@ const filterPop = reactive({
   tab: 'value',
   query: '',
   addTo: false,
-  onlyMine: false,
   col: 0,
   header: 0,
   c0: 0,
@@ -1418,10 +1417,10 @@ function columnRejects(cell, rule) {
     return (rule.unchecked || []).includes(label)
   }
   if (rule.kind === 'bg' || rule.kind === 'fc' || rule.kind === 'color') {
-    const bgKeep = rule.kind === 'bg' ? (rule.colors || []) : (rule.bg || null)
-    const fcKeep = rule.kind === 'fc' ? (rule.colors || []) : (rule.fc || null)
-    if (bgKeep?.length && !bgKeep.includes(cellFillColor(cell))) return true
-    if (fcKeep?.length && !cellFontColors(cell).some((color) => fcKeep.includes(color))) return true
+    const bgKeep = rule.kind === 'bg' ? (rule.colors || []) : (rule.kind === 'color' ? (rule.bg || null) : null)
+    const fcKeep = rule.kind === 'fc' ? (rule.colors || []) : (rule.kind === 'color' ? (rule.fc || null) : null)
+    if (Array.isArray(bgKeep) && !bgKeep.includes(cellFillColor(cell))) return true
+    if (Array.isArray(fcKeep) && !cellFontColors(cell).some((color) => fcKeep.includes(color))) return true
     return false
   }
   if (rule.kind === 'date') {
@@ -1690,7 +1689,6 @@ function openColumnFilter(btn) {
   filterPop.r1 = r1
   filterPop.query = ''
   filterPop.addTo = false
-  filterPop.onlyMine = !!rules.onlyMine
   if (rule?.kind === 'bg' || rule?.kind === 'fc' || rule?.kind === 'color') filterPop.tab = 'color'
   else if (rule?.mode === 'cond') filterPop.tab = 'cond'
   else filterPop.tab = 'value'
@@ -1810,12 +1808,13 @@ function ruleFromPanel() {
     return { mode: 'value', unchecked }
   }
   if (filterPop.tab === 'color') {
-    const fills = filterPop.bgColors
-    const fonts = filterPop.fcColors
-    const fillOn = fills.filter((item) => item.checked)
-    const fontOn = fonts.filter((item) => item.checked)
-    const bg = fills.length && fillOn.length && fillOn.length < fills.length ? fillOn.map((item) => item.color) : null
-    const fc = fonts.length && fontOn.length && fontOn.length < fonts.length ? fontOn.map((item) => item.color) : null
+    const picked = (list) => {
+      if (!list.length) return null
+      const on = list.filter((item) => item.checked).map((item) => item.color)
+      return on.length === list.length ? null : on
+    }
+    const bg = picked(filterPop.bgColors)
+    const fc = picked(filterPop.fcColors)
     if (bg && fc) return { mode: 'cond', kind: 'color', bg, fc }
     if (bg) return { mode: 'cond', kind: 'bg', colors: bg }
     if (fc) return { mode: 'cond', kind: 'fc', colors: fc }
@@ -1833,17 +1832,6 @@ function ruleFromPanel() {
   }
 }
 
-/** 颜色都勾着时，第一次点某一色表示「只看这一色」，而不是把它取消。 */
-function toggleFilterColor(group, item) {
-  const list = group === 'fc' ? filterPop.fcColors : filterPop.bgColors
-  if (list.length && list.every((row) => row.checked)) {
-    list.forEach((row) => { row.checked = row === item })
-    return
-  }
-  item.checked = !item.checked
-  if (list.length && list.every((row) => !row.checked)) list.forEach((row) => { row.checked = true })
-}
-
 function applyFilter() {
   const sheet = instRef.current?.getSheet?.()
   if (!sheet?.filter_select) {
@@ -1851,7 +1839,7 @@ function applyFilter() {
     return
   }
   const rules = rulesOf(sheet)
-  rules.onlyMine = filterPop.onlyMine
+  rules.onlyMine = false
   const next = ruleFromPanel()
   if (next) rules.cols[filterPop.col] = next
   else delete rules.cols[filterPop.col]
@@ -8560,16 +8548,16 @@ defineExpose({
       </template>
       <div v-else-if="filterPop.tab === 'color'" class="fs-filter-colors">
         <div class="fs-filter-color-title">单元格颜色</div>
-        <label v-for="item in filterPop.bgColors" :key="`bg-${item.color}`" class="fs-filter-item" @click.prevent="toggleFilterColor('bg', item)">
-          <input type="checkbox" :checked="item.checked" tabindex="-1">
+        <label v-for="item in filterPop.bgColors" :key="`bg-${item.color}`" class="fs-filter-item">
+          <input v-model="item.checked" type="checkbox">
           <i :style="{ background: item.color }" />
           <span>{{ item.color === '#ffffff' ? '无填充' : item.color }}</span>
           <em>{{ item.count }}</em>
         </label>
         <div v-if="!filterPop.bgColors.length" class="fs-filter-empty">这一列没有可筛选的填充色</div>
         <div class="fs-filter-color-title">字体颜色</div>
-        <label v-for="item in filterPop.fcColors" :key="`fc-${item.color}`" class="fs-filter-item" @click.prevent="toggleFilterColor('fc', item)">
-          <input type="checkbox" :checked="item.checked" tabindex="-1">
+        <label v-for="item in filterPop.fcColors" :key="`fc-${item.color}`" class="fs-filter-item">
+          <input v-model="item.checked" type="checkbox">
           <i :style="{ background: item.color }" />
           <span>{{ item.color }}</span>
           <em>{{ item.count }}</em>
@@ -8587,10 +8575,6 @@ defineExpose({
         </select>
         <input v-if="filterPop.cond !== 'empty' && filterPop.cond !== 'notEmpty'" v-model="filterPop.condValue" :type="filterPop.kind === 'date' ? 'date' : 'text'" :inputmode="filterPop.kind === 'num' ? 'decimal' : 'text'" autocomplete="off" :placeholder="filterPop.cond === 'between' ? '开始' : '输入条件'" @keydown.stop>
         <input v-if="filterPop.cond === 'between'" v-model="filterPop.condValue2" :type="filterPop.kind === 'date' ? 'date' : 'text'" :inputmode="filterPop.kind === 'num' ? 'decimal' : 'text'" autocomplete="off" placeholder="结束" @keydown.stop>
-      </div>
-      <div class="fs-filter-mine">
-        <span>筛选结果仅我可见</span>
-        <button type="button" class="fs-filter-switch" :class="{ on: filterPop.onlyMine }" @click="filterPop.onlyMine = !filterPop.onlyMine" />
       </div>
       <div class="fs-filter-foot">
         <button type="button" class="fs-filter-clear" @click="clearFilter">清除筛选</button>

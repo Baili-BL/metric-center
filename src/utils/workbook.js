@@ -1205,22 +1205,15 @@ export function fortuneToUniver(sheets, meta = {}) {
     if (sh.config?.borderInfo?.length) fortune.borderInfo = sh.config.borderInfo
     if (sh.config?.rowlen) fortune.rowlen = sh.config.rowlen
     if (sh.config?.columnlen) fortune.columnlen = sh.config.columnlen
-    if (sh.config?.rowhidden) {
-      const hidden = { ...sh.config.rowhidden }
-      const range = sh.filter_select
-      if (sh.fs_filter?.onlyMine && range?.row) {
-        for (let r = range.row[0] + 1; r <= range.row[1]; r += 1) delete hidden[r]
-      }
-      if (Object.keys(hidden).length) fortune.rowhidden = hidden
-    }
+    if (sh.config?.rowhidden && Object.keys(sh.config.rowhidden).length) fortune.rowhidden = sh.config.rowhidden
     if (sh.config?.colhidden) fortune.colhidden = sh.config.colhidden
     if (sh.frozen) fortune.frozen = sh.frozen
     if (sh.luckysheet_conditionformat_save?.length) fortune.conditionformat = sh.luckysheet_conditionformat_save
     const dataBars = sh.config?.fs_data_bars || sh.fs_data_bars
     if (dataBars?.length) fortune.dataBars = dataBars
-    if (sh.filter_select && !sh.fs_filter?.onlyMine) fortune.filterSelect = sh.filter_select
-    if (sh.filter && !sh.fs_filter?.onlyMine) fortune.filter = sh.filter
-    if (sh.fs_filter && !sh.fs_filter.onlyMine) fortune.fsFilter = sh.fs_filter
+    if (sh.filter_select) fortune.filterSelect = sh.filter_select
+    if (sh.filter) fortune.filter = sh.filter
+    if (sh.fs_filter) fortune.fsFilter = { ...sh.fs_filter, onlyMine: false }
     if (sh.images?.length) fortune.images = sh.images
     out[id] = {
       id,
