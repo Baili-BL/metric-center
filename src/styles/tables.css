@@ -507,9 +507,13 @@
   outline: none;
   box-shadow: 0 0 0 2px rgba(22, 100, 255, .12);
 }
+#pv-design-host {
+  position: relative;
+  z-index: 6;
+}
 .pv-design {
   position: relative;
-  z-index: 5;
+  z-index: 6;
   display: flex;
   align-items: center;
   gap: 4px;

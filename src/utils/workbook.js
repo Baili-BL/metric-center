@@ -750,8 +750,13 @@ export function bookToUniver(book, meta = {}) {
 
 export async function xlsxToUniver(buf, title = '') {
   const book = new ExcelJS.Workbook()
+  const { readExcelPivot } = await import('./excelPivot')
+  const copy = buf instanceof ArrayBuffer ? buf.slice(0) : buf
+  const pivotConfig = await readExcelPivot(copy).catch(() => null)
   await book.xlsx.load(buf)
-  return bookToUniver(book, { name: title })
+  const data = bookToUniver(book, { name: title })
+  if (pivotConfig) data.pivotConfig = pivotConfig
+  return data
 }
 
 function rewriteIconIds(xml, fixes) {

@@ -287,10 +287,10 @@ async function downloadXlsx(t) {
   if (!t) return
   const charts = t.sheetCharts || []
   try {
-    const result = await runWithExportLoading(() => exportTableExcel(t.workbook, charts, `${t.title}.xlsx`, t.title))
-    Message.success(result?.chartCount
-      ? '已导出 Excel：图表已放在原数据表上（可编辑）'
-      : '已导出 Excel（.xlsx）')
+    const result = await runWithExportLoading(() => exportTableExcel(t.workbook, charts, `${t.title}.xlsx`, t.title, t.pivotConfig))
+    Message.success(result?.pivot
+      ? (result.chartCount ? '已导出 Excel：透视表可继续编辑，图表已放在原数据表上' : '已导出 Excel：透视表可在 Excel 中继续编辑')
+      : (result?.chartCount ? '已导出 Excel：图表已放在原数据表上（可编辑）' : '已导出 Excel（.xlsx）'))
   } catch (e) {
     Message.error(e?.message || '导出失败，请稍后重试')
   }

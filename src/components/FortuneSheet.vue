@@ -50,7 +50,7 @@ const props = defineProps({
   // 混合表：屏蔽 fortune 原生单元格右键菜单，改由父组件渲染自定义菜单（cellcontext 事件）
   suppressCellMenu: { type: Boolean, default: false },
 })
-const emit = defineEmits(['pivot', 'chart', 'cellhover', 'cellclick', 'celldblclick', 'cellcontext', 'mx-insert'])
+const emit = defineEmits(['pivot', 'chart', 'cellhover', 'cellclick', 'celldblclick', 'cellcontext', 'mx-insert', 'pivot-config'])
 
 const TOOLBAR_ITEMS = [
   'undo', 'redo', 'format-painter', 'clear-format', '|',
@@ -1044,6 +1044,27 @@ function stampFeishuLabelsNow(box) {
   }
   placeFontBar(box)
   placeAlignBar(box)
+  ensurePivotDesignHost(box)
+}
+
+function ensurePivotDesignHost(box) {
+  const tb = box.querySelector('.fortune-toolbar')
+  const work = tb?.closest('.fortune-workarea')
+  const anchor = tb?.parentElement
+  if (!work || !anchor) return
+  let host = work.querySelector(':scope > #pv-design-host')
+  if (!host) {
+    host = document.createElement('div')
+    host.id = 'pv-design-host'
+    anchor.after(host)
+    pivotBarReady.value = false
+    nextTick(() => {
+      if (host.isConnected) pivotBarReady.value = true
+    })
+    return
+  }
+  if (host.previousElementSibling !== anchor) anchor.after(host)
+  if (!pivotBarReady.value) pivotBarReady.value = true
 }
 
 function overlayPos(wrap, el, height) {
@@ -4820,14 +4841,22 @@ const dvCheck = reactive({ show: false, left: 0, top: 0, on: false, r: 0, c: 0 }
 
 function selectionBox() {
   const api = instRef.current
-  const sel = api?.getSelection?.()?.[0]
   const sheet = api?.getSheet?.()
+  const sel = api?.getSelection?.()?.[0]
+    || ctxState()?.luckysheet_select_save?.[0]
   if (!sel || !sheet) return null
-  const r0 = sel.row?.[0] ?? 0
-  const r1 = sel.row?.[1] ?? r0
-  const c0 = sel.column?.[0] ?? 0
-  const c1 = sel.column?.[1] ?? c0
-  return { r0, r1, c0, c1, id: sheet.id, sheet }
+  const ra = sel.row?.[0] ?? 0
+  const rb = sel.row?.[1] ?? ra
+  const ca = sel.column?.[0] ?? 0
+  const cb = sel.column?.[1] ?? ca
+  return {
+    r0: Math.min(ra, rb),
+    r1: Math.max(ra, rb),
+    c0: Math.min(ca, cb),
+    c1: Math.max(ca, cb),
+    id: sheet.id,
+    sheet,
+  }
 }
 
 function cloneCell(cell) {
@@ -6497,13 +6526,17 @@ function getSelection() {
     const sel = instRef.current?.getSelection?.()
     const cur = sel?.[0]
     if (!cur) return null
-    const r0 = cur.row?.[0]
-    const r1 = cur.row?.[1] ?? r0
-    const c0 = cur.column?.[0]
-    const c1 = cur.column?.[1] ?? c0
-    if (r0 == null || c0 == null) return null
-    if (r0 === r1 && c0 === c1) return null
-    return { startRow: r0, startColumn: c0, endRow: r1, endColumn: c1 }
+    const ra = cur.row?.[0]
+    const rb = cur.row?.[1] ?? ra
+    const ca = cur.column?.[0]
+    const cb = cur.column?.[1] ?? ca
+    if (ra == null || ca == null) return null
+    const startRow = Math.min(ra, rb)
+    const endRow = Math.max(ra, rb)
+    const startColumn = Math.min(ca, cb)
+    const endColumn = Math.max(ca, cb)
+    if (startRow === endRow && startColumn === endColumn) return null
+    return { startRow, startColumn, endRow, endColumn }
   } catch {
     return null
   }
@@ -6622,6 +6655,7 @@ async function onImport(ev) {
   const buf = await file.arrayBuffer()
   const snap = await xlsxToUniver(buf, file.name.replace(/\.xlsx?$/i, ''))
   load(snap)
+  emit('pivot-config', snap.pivotConfig || null)
 }
 
 /** 中文输入法会把 = + ( ) , 等打成全角，fortune 只认半角公式。IME 插入的文本不经过 fortune 的 keydown 缓冲，
@@ -6785,6 +6819,7 @@ function sheetHasFocus(e) {
   const el = document.activeElement
   const tag = el?.tagName
   if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return false
+  if (el?.closest?.('.pv-panel, .pv-design, .pv-pop') && selectionBox()) return true
   if (el?.closest?.('.fs-filter, .fs-sheet-list, .pv-panel, .pv-pop, .arco-modal, .arco-trigger-popup')) return false
   if (el?.isContentEditable && !el.closest?.('#luckysheet-rich-text-editor, #luckysheet-functionbox-cell')) return false
   if (hostRef.value.contains(el) || hostRef.value.contains(e.target)) return true
@@ -7589,6 +7624,7 @@ const BEAUTY_STYLES = [
   { id: 'dotted', group: 'border', header: 'none', band: 0, first: '', body: '', border: 'dotted' },
 ]
 const zoomReady = ref(false)
+const pivotBarReady = ref(false)
 const viewState = reactive({
   grid: true,
   cross: false,
@@ -8105,6 +8141,9 @@ defineExpose({
       <span>求和: {{ sheetStat.sum }}</span>
       <span>平均值: {{ sheetStat.avg }}</span>
     </div>
+    <Teleport v-if="pivotBarReady" to="#pv-design-host">
+      <slot name="pivot-design" />
+    </Teleport>
     <Teleport v-if="zoomReady" to=".fortune-zoom-container">
       <div class="fs-view-tools" :class="{ on: viewState.cross }" @mousedown.stop>
         <button type="button" class="fs-view-main" title="高亮所在行列" @click="toggleCrosshair">

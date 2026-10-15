@@ -1158,6 +1158,13 @@ async function onSave() {
   else Message.success(`已保存「${t.title}」`)
 }
 
+function exportExcelNote(result) {
+  if (result?.pivot && result?.chartCount) return '已导出 Excel：透视表可继续编辑，图表已放在原数据表上'
+  if (result?.pivot) return '已导出 Excel：透视表可在 Excel 中继续编辑'
+  if (result?.chartCount) return '已导出 Excel：图表已放在原数据表上（可编辑）'
+  return '已导出 Excel（.xlsx）'
+}
+
 async function onExport() {
   if (exporting.value) return
   exporting.value = true
@@ -1167,10 +1174,8 @@ async function onExport() {
     const t = table.value
     if (!t) return Message.error('请先打开一张表格')
     const charts = t.sheetCharts || []
-    const result = await runWithExportLoading(() => exportTableExcel(t.workbook, charts, `${t.title}.xlsx`, t.title))
-    Message.success(result?.chartCount
-      ? '已导出 Excel：图表已放在原数据表上（可编辑）'
-      : '已导出 Excel（.xlsx）')
+    const result = await runWithExportLoading(() => exportTableExcel(t.workbook, charts, `${t.title}.xlsx`, t.title, t.pivotConfig))
+    Message.success(exportExcelNote(result))
   } catch (e) {
     Message.error(e?.message || '导出失败，请稍后重试')
   } finally {
@@ -1226,9 +1231,17 @@ function openPivotWizard() {
 }
 function syncPvSrcFromSheet() {
   const sel = liveSelectionRange()
-  if (!sel) return false
+  if (!sel || sel.endRow <= sel.startRow) return false
   wizard.srcRange = absRangeRef(liveSheetName(), sel)
   return true
+}
+function currentPivotRange() {
+  const live = parseA1Range(wizard.srcRange)
+  if (live && live.endRow > live.startRow) return live
+  const sel = liveSelectionRange()
+  if (!sel || sel.endRow <= sel.startRow) return null
+  wizard.srcRange = absRangeRef(liveSheetName(), sel)
+  return sel
 }
 function onPvPickPointerUp() {
   if (!pvPick.active || pvPick.field !== 'src') return
@@ -1264,17 +1277,26 @@ function endPvPick(reopen) {
   if (reopen) wizard.visible = true
 }
 function finishPvSrc() {
-  if (!syncPvSrcFromSheet()) return Message.warning('请框选至少两格，需包含表头和一行数据')
+  syncPvSrcFromSheet()
+  if (!currentPivotRange()) return Message.warning('请框选至少两格，需包含表头和一行数据')
   endPvPick(true)
+}
+function selectedAnchorCell() {
+  const cell = sheetRef.value?.activeCell?.()
+  if (!cell) return ''
+  return absCellRef(liveSheetName(), cell.row, cell.col)
 }
 function confirmPvRef() {
   if (pvPick.field === 'src') return finishPvSrc()
   if (pvPick.field === 'dst') {
+    if (!String(wizard.dstCell || '').trim()) wizard.dstCell = selectedAnchorCell()
     if (!String(wizard.dstCell || '').trim()) return Message.warning('请点选放置数据透视表的单元格')
     endPvPick(true)
     return
   }
-  Message.info('请在表格中点选单元格')
+  const cell = sheetRef.value?.activeCell?.()
+  if (!cell) return Message.info('请在表格中点选单元格')
+  onCellClick({ r: cell.row, c: cell.col })
 }
 function cancelPvPick() {
   const field = pvPick.field
@@ -1458,6 +1480,10 @@ function hideChartPanel() {
 }
 watch(pivotOpen, (open) => {
   if (open) hideChartPanel()
+  nextTick(() => setTimeout(() => window.dispatchEvent(new Event('resize')), 40))
+})
+watch(() => pivot.open, () => {
+  nextTick(() => setTimeout(() => window.dispatchEvent(new Event('resize')), 40))
 })
 watch(() => chartDlg.visible, () => {
   nextTick(() => setTimeout(() => window.dispatchEvent(new Event('resize')), 40))
@@ -1784,6 +1810,20 @@ async function confirmWizard() {
 }
 function persistPivot() {
   if (props.tableId) store.savePivotConfig(props.tableId, toPivotConfig(pivot))
+}
+function resetPivot() {
+  const blank = emptyPivot()
+  Object.keys(blank).forEach((key) => { pivot[key] = blank[key] })
+}
+function onImportedPivot(cfg) {
+  if (cfg) applyPivotConfig(pivot, cfg)
+  else resetPivot()
+  pivot.open = false
+  pivotOpen.value = false
+  nextTick(() => {
+    ensurePivotSource()
+    persistPivot()
+  })
 }
 function closePivot(skipResize) {
   pivot.open = false
@@ -2368,47 +2408,6 @@ onBeforeUnmount(() => {
           <button type="button" class="btn" :disabled="exporting" @click="onExport">{{ exporting ? '导出中…' : '导出' }}</button>
         </div>
       </div>
-      <div v-if="pivotOpen && pivot.open" class="pv-design" @mousedown.stop>
-        <div class="pv-design-item">
-          <button type="button" class="pv-design-btn" :class="{ on: pvMenu === 'sub' }" @click="pickPvMenu('sub')">分类汇总</button>
-          <div v-if="pvMenu === 'sub'" class="pv-design-menu">
-            <button type="button" :class="{ on: !pivot.showSubTotal }" @click="setSubtotalPos('off')">不显示分类汇总</button>
-            <button type="button" :class="{ on: pivot.showSubTotal && pivot.subtotalPos !== 'top' }" @click="setSubtotalPos('bottom')">在组的底部显示</button>
-            <button type="button" :class="{ on: pivot.showSubTotal && pivot.subtotalPos === 'top' }" @click="setSubtotalPos('top')">在组的顶部显示</button>
-          </div>
-        </div>
-        <div class="pv-design-item">
-          <button type="button" class="pv-design-btn" :class="{ on: pvMenu === 'total' }" @click="pickPvMenu('total')">总计</button>
-          <div v-if="pvMenu === 'total'" class="pv-design-menu">
-            <button type="button" :class="{ on: pivot.showRowTotal && pivot.showColTotal }" @click="setPivotTotals('both')">对行和列启用</button>
-            <button type="button" :class="{ on: pivot.showRowTotal && !pivot.showColTotal }" @click="setPivotTotals('row')">仅对行启用</button>
-            <button type="button" :class="{ on: !pivot.showRowTotal && pivot.showColTotal }" @click="setPivotTotals('col')">仅对列启用</button>
-            <button type="button" :class="{ on: !pivot.showRowTotal && !pivot.showColTotal }" @click="setPivotTotals('off')">对行和列禁用</button>
-          </div>
-        </div>
-        <div class="pv-design-item">
-          <button type="button" class="pv-design-btn" :class="{ on: pvMenu === 'layout' }" @click="pickPvMenu('layout')">报表布局</button>
-          <div v-if="pvMenu === 'layout'" class="pv-design-menu">
-            <button type="button" :class="{ on: pivot.reportLayout === 'compact' }" @click="setReportLayout('compact')">以压缩形式显示</button>
-            <button type="button" :class="{ on: pivot.reportLayout === 'outline' }" @click="setReportLayout('outline')">以大纲形式显示</button>
-            <button type="button" :class="{ on: pivot.reportLayout === 'tabular' }" @click="setReportLayout('tabular')">以表格形式显示</button>
-            <i class="pv-design-split" />
-            <button type="button" :class="{ on: pivot.repeatLabels }" @click="setRepeatLabels(true)">重复所有项目标签</button>
-            <button type="button" :class="{ on: !pivot.repeatLabels }" @click="setRepeatLabels(false)">不显示重复项目标签</button>
-          </div>
-        </div>
-        <div class="pv-design-item">
-          <button type="button" class="pv-design-btn" :class="{ on: pvMenu === 'blank' }" @click="pickPvMenu('blank')">空行</button>
-          <div v-if="pvMenu === 'blank'" class="pv-design-menu">
-            <button type="button" :class="{ on: pivot.blankRows }" @click="setBlankRows(true)">在每个项目后插入空行</button>
-            <button type="button" :class="{ on: !pivot.blankRows }" @click="setBlankRows(false)">删除每个项目后的空行</button>
-          </div>
-        </div>
-        <label class="pv-design-check"><input v-model="pivot.rowHeaders" type="checkbox" @change="layoutChanged">行标题</label>
-        <label class="pv-design-check"><input v-model="pivot.colHeaders" type="checkbox" @change="layoutChanged">列标题</label>
-        <label class="pv-design-check"><input v-model="pivot.bandRows" type="checkbox" @change="layoutChanged">镶边行</label>
-        <label class="pv-design-check"><input v-model="pivot.bandCols" type="checkbox" @change="layoutChanged">镶边列</label>
-      </div>
       <div ref="stageEl" class="editor-stage">
         <div v-if="chPick.active" class="pv-pick-bar">
           <span>框选图表要使用的数据区域</span>
@@ -2428,7 +2427,52 @@ onBeforeUnmount(() => {
           @celldblclick="onPivotDbl"
           @chart="openChartDialog()"
           @mx-insert="onMxInsert"
-        />
+          @pivot-config="onImportedPivot"
+        >
+          <template #pivot-design>
+            <div v-if="pivotOpen && pivot.open" class="pv-design" @mousedown.stop>
+              <div class="pv-design-item">
+                <button type="button" class="pv-design-btn" :class="{ on: pvMenu === 'sub' }" @click="pickPvMenu('sub')">分类汇总</button>
+                <div v-if="pvMenu === 'sub'" class="pv-design-menu">
+                  <button type="button" :class="{ on: !pivot.showSubTotal }" @click="setSubtotalPos('off')">不显示分类汇总</button>
+                  <button type="button" :class="{ on: pivot.showSubTotal && pivot.subtotalPos !== 'top' }" @click="setSubtotalPos('bottom')">在组的底部显示</button>
+                  <button type="button" :class="{ on: pivot.showSubTotal && pivot.subtotalPos === 'top' }" @click="setSubtotalPos('top')">在组的顶部显示</button>
+                </div>
+              </div>
+              <div class="pv-design-item">
+                <button type="button" class="pv-design-btn" :class="{ on: pvMenu === 'total' }" @click="pickPvMenu('total')">总计</button>
+                <div v-if="pvMenu === 'total'" class="pv-design-menu">
+                  <button type="button" :class="{ on: pivot.showRowTotal && pivot.showColTotal }" @click="setPivotTotals('both')">对行和列启用</button>
+                  <button type="button" :class="{ on: pivot.showRowTotal && !pivot.showColTotal }" @click="setPivotTotals('row')">仅对行启用</button>
+                  <button type="button" :class="{ on: !pivot.showRowTotal && pivot.showColTotal }" @click="setPivotTotals('col')">仅对列启用</button>
+                  <button type="button" :class="{ on: !pivot.showRowTotal && !pivot.showColTotal }" @click="setPivotTotals('off')">对行和列禁用</button>
+                </div>
+              </div>
+              <div class="pv-design-item">
+                <button type="button" class="pv-design-btn" :class="{ on: pvMenu === 'layout' }" @click="pickPvMenu('layout')">报表布局</button>
+                <div v-if="pvMenu === 'layout'" class="pv-design-menu">
+                  <button type="button" :class="{ on: pivot.reportLayout === 'compact' }" @click="setReportLayout('compact')">以压缩形式显示</button>
+                  <button type="button" :class="{ on: pivot.reportLayout === 'outline' }" @click="setReportLayout('outline')">以大纲形式显示</button>
+                  <button type="button" :class="{ on: pivot.reportLayout === 'tabular' }" @click="setReportLayout('tabular')">以表格形式显示</button>
+                  <i class="pv-design-split" />
+                  <button type="button" :class="{ on: pivot.repeatLabels }" @click="setRepeatLabels(true)">重复所有项目标签</button>
+                  <button type="button" :class="{ on: !pivot.repeatLabels }" @click="setRepeatLabels(false)">不显示重复项目标签</button>
+                </div>
+              </div>
+              <div class="pv-design-item">
+                <button type="button" class="pv-design-btn" :class="{ on: pvMenu === 'blank' }" @click="pickPvMenu('blank')">空行</button>
+                <div v-if="pvMenu === 'blank'" class="pv-design-menu">
+                  <button type="button" :class="{ on: pivot.blankRows }" @click="setBlankRows(true)">在每个项目后插入空行</button>
+                  <button type="button" :class="{ on: !pivot.blankRows }" @click="setBlankRows(false)">删除每个项目后的空行</button>
+                </div>
+              </div>
+              <label class="pv-design-check"><input v-model="pivot.rowHeaders" type="checkbox" @change="layoutChanged">行标题</label>
+              <label class="pv-design-check"><input v-model="pivot.colHeaders" type="checkbox" @change="layoutChanged">列标题</label>
+              <label class="pv-design-check"><input v-model="pivot.bandRows" type="checkbox" @change="layoutChanged">镶边行</label>
+              <label class="pv-design-check"><input v-model="pivot.bandCols" type="checkbox" @change="layoutChanged">镶边列</label>
+            </div>
+          </template>
+        </FortuneSheet>
         <!-- 关联虚线框（pointer-events 穿透，仅视觉提示） -->
         <div
           v-for="(b, i) in mxDash.boxes"
@@ -2737,7 +2781,7 @@ onBeforeUnmount(() => {
       <label class="pv-radio"><input type="radio" v-model="wizard.srcType" value="multi"> 使用多重合并计算区域(M)</label>
       <div class="pv-range-row" :class="{ 'is-off': wizard.srcType !== 'multi' }">
         <button type="button" class="btn" disabled>选定区域(R)...</button>
-        <span class="pv-hint">未检索到选中区域。</span>
+        <span v-if="wizard.srcType === 'multi'" class="pv-hint">{{ wizard.srcRange || '未检索到选中区域。' }}</span>
       </div>
       <label class="pv-radio"><input type="radio" v-model="wizard.srcType" value="other"> 使用另一个数据透视表(P)</label>
       <div class="pv-other-box" :class="{ 'is-off': wizard.srcType !== 'other' }"></div>

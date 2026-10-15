@@ -1,5 +1,6 @@
 import ExcelJS from 'exceljs'
 import JSZip from 'jszip'
+import { injectExcelPivot } from './excelPivot'
 import { normalizeWorkbook, univerToBook, workbookXlsxBuffer } from './workbook'
 import { chartSourceRefs } from './sheetChart'
 import { migrateFmtToDisplay } from '../charts/fieldFmt'
@@ -1033,18 +1034,18 @@ async function injectChartsOntoSheets(buf, groups) {
 /**
  * 表格导出：原工作簿按单元格原样写入，图表作为原生图浮在同一张数据表上。
  */
-export async function exportTableExcel(workbook, charts, filename, title) {
+export async function exportTableExcel(workbook, charts, filename, title, pivotConfig) {
   const book = univerToBook(workbook)
   if (title) book.title = title
   const groups = tableChartGroups(workbook, charts)
   const buf = await workbookXlsxBuffer(book)
-  const blob = groups.size
-    ? await injectChartsOntoSheets(buf, groups)
-    : new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
-  downloadBlob(blob, filename || `${title || '表格'}.xlsx`)
+  const chartBlob = groups.size ? await injectChartsOntoSheets(buf, groups) : null
+  const base = chartBlob ? await chartBlob.arrayBuffer() : buf
+  const pivoted = await injectExcelPivot(base, workbook, pivotConfig)
+  downloadBlob(pivoted.blob, filename || `${title || '表格'}.xlsx`)
   let chartCount = 0
   groups.forEach((items) => { chartCount += items.length })
-  return { blob, chartCount }
+  return { blob: pivoted.blob, chartCount, pivot: pivoted.added }
 }
 
 /** 表格里的图表按图库同一套导出：Sheet「图表」原生可编辑图 + Sheet「明细数据」 */
