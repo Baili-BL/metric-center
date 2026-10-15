@@ -1,7 +1,9 @@
 export const PIVOT_AGGS = [
   { id: 'sum', name: '求和' },
   { id: 'count', name: '计数' },
+  { id: 'countUnique', name: '去重计数' },
   { id: 'avg', name: '平均值' },
+  { id: 'median', name: '中位数' },
   { id: 'max', name: '最大值' },
   { id: 'min', name: '最小值' },
 ]
@@ -270,9 +272,10 @@ export function fieldIsNumber(rows, idx) {
   let n = 0
   let t = 0
   rows.forEach((row) => {
-    if (row[idx] === '' || row[idx] == null) return
+    const v = row[idx]
+    if (v === '' || v == null) return
     t++
-    if (typeof row[idx] === 'number') n++
+    if (typeof v === 'number' || (typeof v === 'string' && /^-?\d+(\.\d+)?$/.test(v.trim()))) n++
   })
   return t > 0 && n * 2 >= t
 }
@@ -315,13 +318,13 @@ export function addFieldTo(state, idx, zone) {
   if (zone === 'values') addValueField(state, idx)
 }
 
-const VALUE_AGG_ORDER = ['sum', 'count', 'avg', 'max', 'min']
+const VALUE_AGG_ORDER = ['sum', 'count', 'countUnique', 'avg', 'median', 'max', 'min']
 
 export function addValueField(state, idx) {
   state.filters = state.filters.filter((f) => f.idx !== idx)
   const used = new Set(state.values.filter((v) => v.idx === idx).map((v) => v.agg))
   const numeric = isCalcId(idx) || fieldIsNumber(state.rows, idx)
-  const order = numeric ? VALUE_AGG_ORDER : ['count', 'sum', 'avg', 'max', 'min']
+  const order = numeric ? VALUE_AGG_ORDER : ['count', 'countUnique']
   const agg = order.find((id) => !used.has(id)) || order[0]
   state.values.push({ idx, agg, show: 'none' })
 }
@@ -784,10 +787,18 @@ function uniqueCombos(state, rows, idxs) {
 function round2(n) { return Math.round(n * 100) / 100 }
 
 function aggValues(arr, agg) {
-  if (agg === 'count') return arr.filter((v) => v !== '' && v != null).length
-  const nums = arr.map(Number).filter((n) => Number.isFinite(n))
+  const present = arr.filter((v) => v !== '' && v != null)
+  if (agg === 'count') return present.length
+  if (agg === 'countUnique') return new Set(present.map((v) => String(v))).size
+  const nums = present.map(Number).filter((n) => Number.isFinite(n))
   if (!nums.length) return ''
   if (agg === 'avg') return round2(nums.reduce((a, b) => a + b, 0) / nums.length)
+  if (agg === 'median') {
+    const sorted = nums.slice().sort((a, b) => a - b)
+    const mid = Math.floor(sorted.length / 2)
+    const value = sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2
+    return round2(value)
+  }
   if (agg === 'max') return Math.max(...nums)
   if (agg === 'min') return Math.min(...nums)
   return round2(nums.reduce((a, b) => a + b, 0))
