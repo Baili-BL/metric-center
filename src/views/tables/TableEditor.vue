@@ -11,9 +11,9 @@ import { exportChartPng } from '../../utils/exportPng'
 import { runWithExportLoading } from '../../utils/exportLoading'
 import FortuneSheet from '../../components/FortuneSheet.vue'
 import {
-  PIVOT_AGGS, PIVOT_COND, PIVOT_SHOWS, absCellRef, absRangeRef, addFieldTo, applyPivotConfig, buildPivotMatrix,
-  emptyPivot, extractPivotSource, fieldUsed, filterLabel, guessCondKind, guessZone, headerName, isCalcId,
-  listWorkbookSheets, parseA1Cell, parseA1Range, pivotDetailMatrix, removeField, removeFieldFrom,
+  PIVOT_AGGS, PIVOT_COND, PIVOT_SHOWS, absCellRef, absRangeRef, addFieldTo, addValueField, applyPivotConfig, buildPivotMatrix,
+  cellPlain, emptyPivot, extractPivotSource, fieldUsed, filterLabel, guessCondKind, guessZone, headerName, isCalcId,
+  listWorkbookSheets, locatePivotBlock, parseA1Cell, parseA1Range, parsePivotHeader, pivotDetailMatrix, removeField, removeFieldFrom,
   retargetFields, sheetUsedRange, toPivotConfig, uniqueFieldValues, validateCalcFormula, valueLabel, writePivotToSheet,
 } from '../../utils/pivot'
 import Icon from '../../components/Icon.vue'
@@ -44,6 +44,7 @@ const titleDraft = ref('')
 const titleInput = ref(null)
 const pivotOpen = ref(false)
 const pvMenu = ref('')
+const pvCfgTab = ref('fields')
 const sheetCharts = reactive([])
 const chartDrag = reactive({})
 const chartSel = ref('')
@@ -67,8 +68,8 @@ let chartRefreshTimer = 0
 let chartsReady = false
 const pivotKw = ref('')
 const pop = reactive({ show: false, left: '0px', top: '0px', kind: '', zone: '', index: -1, fieldIdx: null })
-const drag = reactive({ idx: -1, from: '' })
-const pvDrag = reactive({ on: false, idx: null, from: '', x: 0, y: 0, label: '' })
+const drag = reactive({ idx: -1, from: '', valueIndex: null })
+const pvDrag = reactive({ on: false, idx: null, from: '', valueIndex: null, x: 0, y: 0, label: '' })
 const overZone = ref('')
 let pvDragPending = null
 const wizard = reactive({
@@ -271,7 +272,7 @@ const mxDateInd = ref('')
 const mxDate = reactive({ src: 'indLatest', back: 0, periodShift: 0, cellRef: '', manual: '', days: 0, weeks: 0, months: 0, anchor: 'none', transforms: [] })
 const mxOp = reactive({ a: '', b: '', kind: 'diffDays' })
 // 右键菜单 / 悬浮提示 / 虚线框 / 选格拾取
-const mxCtx = reactive({ show: false, x: 0, y: 0 })
+const mxCtx = reactive({ show: false, x: 0, y: 0, kind: '' })
 let mxCtxCell = null
 const mxTip = reactive({ show: false, x: 0, y: 0, lines: [] })
 const mxDash = reactive({ boxes: [] })
@@ -577,11 +578,29 @@ function toggleCalcQuick(t) {
 
 // 右键菜单
 function onCellContext(g) {
+  const hit = pivotHit(g)
+  if (hit) {
+    mxCtxCell = { row: g.r, col: g.c }
+    mxCtx.x = Math.min(g.clientX, window.innerWidth - 190)
+    mxCtx.y = Math.min(g.clientY, window.innerHeight - 120)
+    mxCtx.kind = 'pivot'
+    mxCtx.show = true
+    return
+  }
   if (!isMixed.value) return
   mxCtxCell = { row: g.r, col: g.c }
   mxCtx.x = Math.min(g.clientX, window.innerWidth - 190)
   mxCtx.y = Math.min(g.clientY, window.innerHeight - 190)
+  mxCtx.kind = 'mixed'
   mxCtx.show = true
+}
+function openPivotPanel() {
+  mxCtx.show = false
+  ensurePivotSource()
+  if (!pivot._layout?.rows && pivot.headers.length && pivot.rows.length) buildPivotMatrix(pivot)
+  syncSrcDraft()
+  pivot.open = true
+  pivotOpen.value = true
 }
 function ctxOpen(kind) {
   const cell = mxCtxCell
@@ -645,12 +664,13 @@ function stageBox(g) {
 function geomCell(row, col) {
   return sheetRef.value?.cellGeomByRC?.(row, col)
 }
-function pivotHit(g) {
-  const out = pivot.out
-  if (!out?.rows || !out?.cols || !g) return null
-  if ((sheetRef.value?.getActiveSheetName?.() || '') !== pivot.outName) return null
-  if (g.r < out.startRow || g.r >= out.startRow + out.rows) return null
-  if (g.c < out.startColumn || g.c >= out.startColumn + out.cols) return null
+function pivotInside(out, g) {
+  if (!out?.rows || !out?.cols || !g) return false
+  if (g.r < out.startRow || g.r >= out.startRow + out.rows) return false
+  if (g.c < out.startColumn || g.c >= out.startColumn + out.cols) return false
+  return true
+}
+function pivotHitAt(out, g) {
   const layout = pivot._layout
   return {
     localR: g.r - out.startRow,
@@ -658,6 +678,92 @@ function pivotHit(g) {
     row: layout?.rows?.[g.r - out.startRow],
     col: layout?.cols?.[g.c - out.startColumn],
   }
+}
+function sheetText(r, c) {
+  return sheetRef.value?.cellDisplay?.(r, c) || ''
+}
+function sheetsNow() {
+  const snap = sheetRef.value?.snapshot?.()
+  return snap ? listWorkbookSheets(snap) : listWorkbookSheets(table.value?.workbook)
+}
+function recoverPivotFromBlock(block) {
+  if (pivot.values.length && pivot.range && pivot.headers.length) return
+  const labels = []
+  for (let c = 0; c < block.cols; c += 1) labels.push(sheetText(block.startRow, block.startColumn + c))
+  const parsed = parsePivotHeader(labels)
+  if (!parsed.values.length || !parsed.rowNames.length) return
+  const need = parsed.rowNames.concat(parsed.values.map((v) => v.field))
+  const active = liveSheetName()
+  const overlapsBlock = (packName, r, c0, c1) => packName === active
+    && r >= block.startRow && r < block.startRow + block.rows
+    && c1 >= block.startColumn && c0 < block.startColumn + block.cols
+  let found = null
+  sheetsNow().some((pack) => {
+    const used = sheetUsedRange(pack.sheet)
+    const cellData = pack.sheet?.cellData || {}
+    if (!used) return false
+    const maxC = used.endColumn
+    for (let r = used.startRow; r <= Math.min(used.endRow, used.startRow + 30); r += 1) {
+      const names = []
+      for (let c = 0; c <= maxC; c += 1) {
+        const p = cellPlain(cellData[r]?.[c])
+        names.push(p.kind === 'empty' ? '' : String(p.v))
+      }
+      if (!need.every((n) => names.includes(n))) continue
+      let c0 = 0
+      while (c0 <= maxC && !names[c0]) c0 += 1
+      let c1 = maxC
+      while (c1 > c0 && !names[c1]) c1 -= 1
+      if (overlapsBlock(pack.name, r, c0, c1)) continue
+      let endRow = r
+      for (let rr = r + 1; rr <= used.endRow; rr += 1) {
+        if (overlapsBlock(pack.name, rr, c0, c1)) break
+        let any = false
+        for (let c = c0; c <= c1; c += 1) {
+          if (cellPlain(cellData[rr]?.[c]).kind !== 'empty') { any = true; break }
+        }
+        if (!any) break
+        endRow = rr
+      }
+      if (endRow <= r) continue
+      const range = { startRow: r, startColumn: c0, endRow, endColumn: c1 }
+      const src = extractPivotSource(pack.sheet, range)
+      if (!src?.headers?.length || !src.rows.length) continue
+      found = { name: pack.name, range, src }
+      return true
+    }
+    return false
+  })
+  if (!found) return
+  const rowsF = parsed.rowNames.map((n) => found.src.headers.indexOf(n))
+  const values = parsed.values.map((v) => ({
+    idx: found.src.headers.indexOf(v.field),
+    agg: v.agg,
+    show: 'none',
+  }))
+  if (rowsF.some((i) => i < 0) || values.some((v) => v.idx < 0)) return
+  pivot.headers = found.src.headers
+  pivot.rows = found.src.rows
+  pivot.range = found.range
+  pivot.sourceName = found.name
+  pivot.rowsF = rowsF
+  pivot.values = values
+  syncSrcDraft()
+}
+function pivotHit(g) {
+  if (!g) return null
+  const out = pivot.out
+  const name = sheetRef.value?.getActiveSheetName?.() || ''
+  if (out?.rows && out?.cols && name === pivot.outName && pivotInside(out, g)) return pivotHitAt(out, g)
+  const block = locatePivotBlock(sheetText, g.r, g.c)
+  if (!block) return null
+  const same = out && out.startRow === block.startRow && out.startColumn === block.startColumn && out.rows === block.rows && out.cols === block.cols && pivot.outName === name
+  pivot.out = block
+  pivot.outName = name
+  recoverPivotFromBlock(block)
+  if (!same) persistPivot()
+  if (!pivot._layout?.rows && pivot.headers.length && pivot.rows.length) buildPivotMatrix(pivot)
+  return pivotHitAt(block, g)
 }
 function onCellClick(g) {
   scheduleChartRefresh()
@@ -694,16 +800,20 @@ function onCellClick(g) {
   }
   const hit = pivotHit(g)
   pvMenu.value = ''
-  if (hit?.row?.toggleKey && hit.localC === (hit.row.toggleCol ?? 0)) {
-    pivot.collapsed[hit.row.toggleKey] = !pivot.collapsed[hit.row.toggleKey]
-    refreshPivotTable()
-    return
-  }
   if (hit) {
     ensurePivotSource()
+    if (!pivot._layout?.rows && pivot.headers.length && pivot.rows.length) buildPivotMatrix(pivot)
     syncSrcDraft()
-    pivot.open = true
-    pivotOpen.value = true
+    const editing = pivot.open
+    if (pivot.autoOpenPanel !== false || editing) {
+      pivot.open = true
+      pivotOpen.value = true
+    }
+    if (editing && hit.row?.toggleKey && hit.localC === (hit.row.toggleCol ?? 0)) {
+      pivot.collapsed[hit.row.toggleKey] = !pivot.collapsed[hit.row.toggleKey]
+      refreshPivotTable()
+      return
+    }
   }
   if (!isMixed.value) {
     mxDash.boxes = []
@@ -1762,6 +1872,9 @@ async function confirmWizard() {
   pivot.showColTotal = true
   pivot.showSubTotal = true
   pivot.repeatLabels = false
+  pivot.repeatColLabels = false
+  pivot.autoFitCols = true
+  pivot.autoOpenPanel = true
   pivot.reportLayout = ''
   pivot.subtotalPos = 'bottom'
   pivot.blankRows = false
@@ -1867,6 +1980,7 @@ async function refreshPivotTable() {
     capture()
   }
   pivot.out = { startRow, startColumn: startCol, rows: matrix.length, cols: matrix[0].length }
+  if (pivot.autoFitCols !== false) sheetRef.value?.fitColumns?.(startCol, matrix)
   persistPivot()
 }
 
@@ -1916,6 +2030,12 @@ function onDelField(idx, zone) {
   pop.show = false
   layoutChanged()
 }
+function onDelValue(index) {
+  if (index < 0 || index >= pivot.values.length) return
+  pivot.values.splice(index, 1)
+  pop.show = false
+  layoutChanged()
+}
 function fieldKeyOf(item, zone) {
   return zone === 'filters' || zone === 'values' ? item?.idx : item
 }
@@ -1938,17 +2058,34 @@ function reorderZone(zone, idx, toIndex) {
   if (to > list.length) to = list.length
   list.splice(to, 0, item)
 }
+function reorderValue(fromIndex, toIndex) {
+  const list = pivot.values
+  if (fromIndex == null || fromIndex < 0 || fromIndex >= list.length) return
+  const [item] = list.splice(fromIndex, 1)
+  let to = toIndex == null || Number.isNaN(toIndex) ? list.length : toIndex
+  if (fromIndex < to) to -= 1
+  if (to < 0) to = 0
+  if (to > list.length) to = list.length
+  list.splice(to, 0, item)
+}
 function onDropZone(zone, beforeIndex) {
   overZone.value = ''
   if (drag.idx === -1 || drag.idx == null) return
   const idx = drag.idx
   const from = drag.from
-  if (from && from !== 'fields' && from !== zone) removeFieldFrom(pivot, idx, from)
-  addFieldTo(pivot, idx, zone)
-  if (beforeIndex != null && !Number.isNaN(beforeIndex)) reorderZone(zone, idx, beforeIndex)
-  else if (from === zone) reorderZone(zone, idx, (zoneItems(zone) || []).length)
+  const fromIndex = drag.valueIndex
+  if (from === 'values' && zone === 'values') {
+    reorderValue(fromIndex, beforeIndex)
+  } else {
+    if (from === 'values' && fromIndex != null) pivot.values.splice(fromIndex, 1)
+    else if (from && from !== 'fields' && from !== zone) removeFieldFrom(pivot, idx, from)
+    if (zone === 'values') addValueField(pivot, idx)
+    else addFieldTo(pivot, idx, zone)
+    if (zone !== 'values' && beforeIndex != null && !Number.isNaN(beforeIndex)) reorderZone(zone, idx, beforeIndex)
+  }
   drag.idx = -1
   drag.from = ''
+  drag.valueIndex = null
   layoutChanged()
 }
 function onDropFields() {
@@ -1956,20 +2093,23 @@ function onDropFields() {
   if (!drag.from || drag.from === 'fields') {
     drag.idx = -1
     drag.from = ''
+    drag.valueIndex = null
     return
   }
-  removeFieldFrom(pivot, drag.idx, drag.from)
+  if (drag.from === 'values' && drag.valueIndex != null) pivot.values.splice(drag.valueIndex, 1)
+  else removeFieldFrom(pivot, drag.idx, drag.from)
   drag.idx = -1
   drag.from = ''
+  drag.valueIndex = null
   layoutChanged()
 }
 function clearPvDragListeners() {
   window.removeEventListener('mousemove', onPvMove)
   window.removeEventListener('mouseup', onPvUp)
 }
-function onPvDown(e, idx, from) {
+function onPvDown(e, idx, from, valueIndex = null) {
   if (e.button !== 0 || e.target.closest?.('button, input, a, select, textarea')) return
-  pvDragPending = { idx, from, x: e.clientX, y: e.clientY }
+  pvDragPending = { idx, from, valueIndex, x: e.clientX, y: e.clientY }
   window.addEventListener('mousemove', onPvMove)
   window.addEventListener('mouseup', onPvUp)
 }
@@ -1983,7 +2123,10 @@ function onPvMove(e) {
     pvDrag.on = true
     pvDrag.idx = pending.idx
     pvDrag.from = pending.from
-    pvDrag.label = headerName(pivot, pending.idx)
+    pvDrag.valueIndex = pending.valueIndex
+    pvDrag.label = pending.from === 'values' && pending.valueIndex != null
+      ? valueLabel(pivot, pivot.values[pending.valueIndex])
+      : headerName(pivot, pending.idx)
   }
   pvDrag.x = e.clientX + 12
   pvDrag.y = e.clientY + 12
@@ -2010,6 +2153,7 @@ function onPvUp(e) {
   const zone = zoneEl?.dataset?.zone
   drag.idx = pending.idx
   drag.from = pending.from
+  drag.valueIndex = pending.valueIndex
   if (zone) {
     const chip = hit.closest?.('.pv-chip')
     const before = chip && zoneEl.contains(chip) ? Number(chip.dataset.pvIndex) : null
@@ -2548,106 +2692,169 @@ onBeforeUnmount(() => {
         />
         <aside class="pv-panel" :class="{ open: pivotOpen }">
           <div class="pv-head">
-            <span class="pv-title">数据透视表
-              <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M2 3.5L5 6.5L8 3.5" fill="none" stroke="currentColor" stroke-width="1.4"/></svg>
-            </span>
+            <span class="pv-title">数据透视表</span>
             <div class="pv-acts">
               <button type="button" class="pv-text" title="移动透视表" @click="beginPvPick('move')">移动</button>
               <button type="button" class="pv-text" title="删除透视表" @click="deletePivot">删除</button>
               <button type="button" class="pv-x" title="关闭" @click="closePivot">✕</button>
             </div>
           </div>
-          <div class="pv-src">
+          <div class="pv-cfg-tabs">
+            <button type="button" :class="{ on: pvCfgTab === 'fields' }" @click="pvCfgTab = 'fields'">字段配置</button>
+            <button type="button" :class="{ on: pvCfgTab === 'show' }" @click="pvCfgTab = 'show'">展示配置</button>
+          </div>
+          <div v-if="pvCfgTab === 'fields'" class="pv-src">
             <input v-model="srcDraft" spellcheck="false" placeholder="数据源，如 数据!$A$1:$D$20" @change="applySrcDraft">
+            <span v-if="pivot.headers.length" class="pv-src-ok"><i />已更新到数据</span>
             <button type="button" @click="applySrcDraft">更新</button>
           </div>
-          <div class="pv-flags">
-            <label><input type="checkbox" v-model="pivot.showRowTotal" @change="layoutChanged">行总计</label>
-            <label><input type="checkbox" v-model="pivot.showColTotal" @change="layoutChanged">列总计</label>
-            <label><input type="checkbox" v-model="pivot.showSubTotal" @change="layoutChanged">分类总计</label>
-            <label><input type="checkbox" v-model="pivot.repeatLabels" @change="layoutChanged">重复标签</label>
-          </div>
-          <div class="pv-sec">将字段拖动至数据透视表区域</div>
-          <div class="pv-search">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3-3"/></svg>
-            <input v-model="pivotKw" placeholder="搜索字段" spellcheck="false">
-          </div>
-          <div
-            class="pv-fields"
-            :class="{ over: overZone === 'fields' }"
-          >
-            <div
-              v-for="f in fieldList"
-              :key="f.i"
-              class="pv-field"
-              :class="{ dragging: pvDrag.on && pvDrag.idx === f.i && pvDrag.from === 'fields' }"
-              @mousedown="onPvDown($event, f.i, 'fields')"
-            >
-              <span class="pv-grip">
-                <svg width="10" height="16" viewBox="0 0 10 16" fill="currentColor">
-                  <circle cx="3" cy="3" r="1.2"/><circle cx="7" cy="3" r="1.2"/>
-                  <circle cx="3" cy="8" r="1.2"/><circle cx="7" cy="8" r="1.2"/>
-                  <circle cx="3" cy="13" r="1.2"/><circle cx="7" cy="13" r="1.2"/>
-                </svg>
-              </span>
-              <input type="checkbox" :checked="fieldUsed(pivot, f.i)" @change="onFieldCheck(f.i, $event.target.checked)">
-              <span>{{ f.h }}</span>
-              <button v-if="f.calc" type="button" class="pv-more" title="计算字段" @mousedown.stop @click.stop="showPop('calcField', 'fields', f.i, $event.currentTarget)">▾</button>
-            </div>
-            <div v-if="!fieldList.length" class="pv-ph" style="padding:10px">暂无字段</div>
-          </div>
-          <button type="button" class="pv-calc-add" @click="openCalc()">添加计算字段</button>
-          <div class="pv-zones-wrap">
-            <div class="pv-sec" style="padding:0 0 8px">在下面区域中拖动字段</div>
-            <div class="pv-zones">
-              <div
-                v-for="z in [
-                  { id: 'filters', name: '筛选器', icon: 'M4 5h16l-6 7v6l-4 1v-7L4 5z' },
-                  { id: 'cols', name: '列', icon: 'M8 4h3v16H8zM14 4h3v16h-3z' },
-                  { id: 'rows', name: '行', icon: 'M4 7h16M4 12h16M4 17h16' },
-                  { id: 'values', name: '值', icon: 'M6 6h4v4H6zM6 14h4v4H6zM14 10h6M17 7v6' },
-                ]"
-                :key="z.id"
-                class="pv-zone"
-                :class="{ over: overZone === z.id }"
-                :data-zone="z.id"
-              >
-                <div class="pv-zone-h">
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path :d="z.icon"/></svg>
-                  {{ z.name }}
-                  <button type="button" class="pv-add" @click="showPop('add', z.id, -1, $event.currentTarget)">+</button>
+          <template v-if="pvCfgTab === 'fields'">
+            <div class="pv-split">
+              <div class="pv-col pv-col-fields">
+                <div class="pv-col-h">字段名</div>
+                <div class="pv-search">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3-3"/></svg>
+                  <input v-model="pivotKw" placeholder="搜索字段" spellcheck="false">
                 </div>
-                <div class="pv-drop">
-                  <template v-if="z.id === 'filters'">
-                    <div v-for="(item, i) in pivot.filters" :key="'f'+item.idx" class="pv-chip" :data-pv-index="i" :class="{ dragging: pvDrag.on && pvDrag.idx === item.idx && pvDrag.from === 'filters' }" @mousedown="onPvDown($event, item.idx, 'filters')">
-                      <span>{{ filterLabel(pivot, item) }}</span>
-                      <button type="button" class="pv-more" title="设置" @mousedown.stop @click="showPop('filter', 'filters', i, $event.currentTarget)">▾</button>
-                      <button type="button" class="pv-del" title="移除" @mousedown.stop @click="onDelField(item.idx, 'filters')">×</button>
-                    </div>
-                  </template>
-                  <template v-else-if="z.id === 'cols'">
-                    <div v-for="(idx, i) in pivot.cols" :key="'c'+idx" class="pv-chip" :data-pv-index="i" :class="{ dragging: pvDrag.on && pvDrag.idx === idx && pvDrag.from === 'cols' }" @mousedown="onPvDown($event, idx, 'cols')">
-                      <span>{{ headerName(pivot, idx) }}</span>
-                      <button type="button" class="pv-more" title="排序和筛选" @mousedown.stop @click="showPop('axis', 'cols', i, $event.currentTarget)">▾</button>
-                      <button type="button" class="pv-del" title="移除" @mousedown.stop @click="onDelField(idx, 'cols')">×</button>
-                    </div>
-                  </template>
-                  <template v-else-if="z.id === 'rows'">
-                    <div v-for="(idx, i) in pivot.rowsF" :key="'r'+idx" class="pv-chip" :data-pv-index="i" :class="{ dragging: pvDrag.on && pvDrag.idx === idx && pvDrag.from === 'rows' }" @mousedown="onPvDown($event, idx, 'rows')">
-                      <span>{{ headerName(pivot, idx) }}</span>
-                      <button type="button" class="pv-more" title="排序和筛选" @mousedown.stop @click="showPop('axis', 'rows', i, $event.currentTarget)">▾</button>
-                      <button type="button" class="pv-del" title="移除" @mousedown.stop @click="onDelField(idx, 'rows')">×</button>
-                    </div>
-                  </template>
-                  <template v-else>
-                    <div v-for="(item, i) in pivot.values" :key="'v'+item.idx+i" class="pv-chip" :data-pv-index="i" :class="{ dragging: pvDrag.on && pvDrag.idx === item.idx && pvDrag.from === 'values' }" @mousedown="onPvDown($event, item.idx, 'values')">
-                      <span>{{ valueLabel(pivot, item) }}</span>
-                      <button type="button" class="pv-more" title="设置" @mousedown.stop @click="showPop(isCalcId(item.idx) ? 'calcVal' : 'agg', 'values', i, $event.currentTarget)">▾</button>
-                      <button type="button" class="pv-del" title="移除" @mousedown.stop @click="onDelField(item.idx, 'values')">×</button>
-                    </div>
-                  </template>
+                <div class="pv-fields" :class="{ over: overZone === 'fields' }">
+                  <div
+                    v-for="f in fieldList"
+                    :key="f.i"
+                    class="pv-field"
+                    :class="{ dragging: pvDrag.on && pvDrag.idx === f.i && pvDrag.from === 'fields' }"
+                    @mousedown="onPvDown($event, f.i, 'fields')"
+                  >
+                    <input type="checkbox" :checked="fieldUsed(pivot, f.i)" @change="onFieldCheck(f.i, $event.target.checked)">
+                    <span>{{ f.h }}</span>
+                    <button v-if="f.calc" type="button" class="pv-more" title="计算字段" @mousedown.stop @click.stop="showPop('calcField', 'fields', f.i, $event.currentTarget)">▾</button>
+                  </div>
+                  <div v-if="!fieldList.length" class="pv-ph">暂无字段</div>
                 </div>
               </div>
+              <div class="pv-col pv-col-zones">
+                <div class="pv-col-h">选择区域</div>
+                <div class="pv-zones">
+                  <div
+                    v-for="z in [
+                      { id: 'filters', name: '筛选', icon: 'M4 5h16l-6 7v6l-4 1v-7L4 5z' },
+                      { id: 'rows', name: '行', icon: 'M4 7h16M4 12h16M4 17h16' },
+                      { id: 'cols', name: '列', icon: 'M8 4h3v16H8zM14 4h3v16h-3z' },
+                      { id: 'values', name: '值', icon: 'M6 6h4v4H6zM6 14h4v4H6zM14 10h6M17 7v6' },
+                    ]"
+                    :key="z.id"
+                    class="pv-zone"
+                    :class="{ over: overZone === z.id }"
+                    :data-zone="z.id"
+                  >
+                    <div class="pv-zone-h">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path :d="z.icon"/></svg>
+                      {{ z.name }}
+                      <button type="button" class="pv-add" @click="showPop('add', z.id, -1, $event.currentTarget)">+</button>
+                    </div>
+                    <div class="pv-drop">
+                      <template v-if="z.id === 'filters'">
+                        <div v-if="!pivot.filters.length" class="pv-ph">将字段拖入本框内区域</div>
+                        <div v-for="(item, i) in pivot.filters" :key="'f'+item.idx" class="pv-chip" :data-pv-index="i" :class="{ dragging: pvDrag.on && pvDrag.idx === item.idx && pvDrag.from === 'filters' }" @mousedown="onPvDown($event, item.idx, 'filters')">
+                          <span>{{ filterLabel(pivot, item) }}</span>
+                          <button type="button" class="pv-more" title="设置" @mousedown.stop @click="showPop('filter', 'filters', i, $event.currentTarget)">▾</button>
+                          <button type="button" class="pv-del" title="移除" @mousedown.stop @click="onDelField(item.idx, 'filters')">×</button>
+                        </div>
+                      </template>
+                      <template v-else-if="z.id === 'cols'">
+                        <div v-if="!pivot.cols.length" class="pv-ph">将字段拖入本框内区域</div>
+                        <div v-for="(idx, i) in pivot.cols" :key="'c'+idx" class="pv-chip" :data-pv-index="i" :class="{ dragging: pvDrag.on && pvDrag.idx === idx && pvDrag.from === 'cols' }" @mousedown="onPvDown($event, idx, 'cols')">
+                          <span>{{ headerName(pivot, idx) }}</span>
+                          <button type="button" class="pv-more" title="排序和筛选" @mousedown.stop @click="showPop('axis', 'cols', i, $event.currentTarget)">▾</button>
+                          <button type="button" class="pv-del" title="移除" @mousedown.stop @click="onDelField(idx, 'cols')">×</button>
+                        </div>
+                      </template>
+                      <template v-else-if="z.id === 'rows'">
+                        <div v-if="!pivot.rowsF.length" class="pv-ph">将字段拖入本框内区域</div>
+                        <div v-for="(idx, i) in pivot.rowsF" :key="'r'+idx" class="pv-chip" :data-pv-index="i" :class="{ dragging: pvDrag.on && pvDrag.idx === idx && pvDrag.from === 'rows' }" @mousedown="onPvDown($event, idx, 'rows')">
+                          <span>{{ headerName(pivot, idx) }}</span>
+                          <button type="button" class="pv-more" title="排序和筛选" @mousedown.stop @click="showPop('axis', 'rows', i, $event.currentTarget)">▾</button>
+                          <button type="button" class="pv-del" title="移除" @mousedown.stop @click="onDelField(idx, 'rows')">×</button>
+                        </div>
+                      </template>
+                      <template v-else>
+                        <div v-if="!pivot.values.length" class="pv-ph">将字段拖入本框内区域</div>
+                        <div v-for="(item, i) in pivot.values" :key="'v'+item.idx+item.agg+i" class="pv-chip" :data-pv-index="i" :class="{ dragging: pvDrag.on && pvDrag.from === 'values' && pvDrag.valueIndex === i }" @mousedown="onPvDown($event, item.idx, 'values', i)">
+                          <span>{{ headerName(pivot, item.idx) }}</span>
+                          <button type="button" class="pv-agg" title="汇总方式" @mousedown.stop @click="showPop(isCalcId(item.idx) ? 'calcVal' : 'agg', 'values', i, $event.currentTarget)">{{ (PIVOT_AGGS.find((a) => a.id === item.agg) || {}).name || '求和' }} <i>▾</i></button>
+                          <button type="button" class="pv-del" title="移除" @mousedown.stop @click="onDelValue(i)">×</button>
+                        </div>
+                      </template>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <button type="button" class="pv-calc-add" @click="openCalc()">+ 添加计算字段</button>
+          </template>
+          <div v-else class="pv-show">
+            <div class="pv-show-sec">总计展示方式</div>
+            <div class="pv-card-row">
+              <label class="pv-card" :class="{ on: pivot.showSubTotal }">
+                <svg class="pv-card-art" viewBox="0 0 96 44" aria-hidden="true">
+                  <rect x="10" y="8" width="46" height="4" rx="1" fill="#d0d3d6"/>
+                  <rect x="10" y="16" width="76" height="5" rx="1" fill="#7aa2ff"/>
+                  <rect x="10" y="26" width="38" height="4" rx="1" fill="#d0d3d6"/>
+                  <rect x="10" y="34" width="28" height="4" rx="1" fill="#e5e6eb"/>
+                </svg>
+                <span class="pv-card-check"><input type="checkbox" v-model="pivot.showSubTotal" @change="layoutChanged">分类小计</span>
+              </label>
+              <label class="pv-card" :class="{ on: pivot.showRowTotal }">
+                <svg class="pv-card-art" viewBox="0 0 96 44" aria-hidden="true">
+                  <rect x="10" y="7" width="52" height="4" rx="1" fill="#d0d3d6"/>
+                  <rect x="10" y="15" width="40" height="4" rx="1" fill="#e5e6eb"/>
+                  <rect x="10" y="23" width="46" height="4" rx="1" fill="#d0d3d6"/>
+                  <rect x="10" y="33" width="76" height="5" rx="1" fill="#7aa2ff"/>
+                </svg>
+                <span class="pv-card-check"><input type="checkbox" v-model="pivot.showRowTotal" @change="layoutChanged">行总计</span>
+              </label>
+              <label class="pv-card" :class="{ on: pivot.showColTotal }">
+                <svg class="pv-card-art" viewBox="0 0 96 44" aria-hidden="true">
+                  <rect x="10" y="10" width="52" height="4" rx="1" fill="#d0d3d6"/>
+                  <rect x="10" y="20" width="44" height="4" rx="1" fill="#e5e6eb"/>
+                  <rect x="10" y="30" width="48" height="4" rx="1" fill="#d0d3d6"/>
+                  <rect x="78" y="8" width="8" height="28" rx="1" fill="#7aa2ff"/>
+                </svg>
+                <span class="pv-card-check"><input type="checkbox" v-model="pivot.showColTotal" @change="layoutChanged">列总计</span>
+              </label>
+            </div>
+            <div class="pv-show-sec">重复显示标签</div>
+            <div class="pv-card-row pv-card-row-2">
+              <label class="pv-card" :class="{ on: pivot.repeatLabels }">
+                <svg class="pv-card-art" viewBox="0 0 120 44" aria-hidden="true">
+                  <rect x="8" y="8" width="16" height="6" rx="1" fill="#c9cdd4"/>
+                  <rect x="8" y="19" width="16" height="6" rx="1" fill="#c9cdd4"/>
+                  <rect x="8" y="30" width="16" height="6" rx="1" fill="#c9cdd4"/>
+                  <rect x="32" y="8" width="76" height="5" rx="1" fill="#7aa2ff"/>
+                  <rect x="32" y="19" width="60" height="5" rx="1" fill="#d0d3d6"/>
+                  <rect x="32" y="30" width="68" height="5" rx="1" fill="#7aa2ff"/>
+                </svg>
+                <span class="pv-card-check"><input type="checkbox" v-model="pivot.repeatLabels" @change="layoutChanged">行字段</span>
+              </label>
+              <label class="pv-card" :class="{ on: pivot.repeatColLabels }">
+                <svg class="pv-card-art" viewBox="0 0 120 44" aria-hidden="true">
+                  <rect x="8" y="8" width="28" height="6" rx="1" fill="#7aa2ff"/>
+                  <rect x="42" y="8" width="28" height="6" rx="1" fill="#7aa2ff"/>
+                  <rect x="76" y="8" width="28" height="6" rx="1" fill="#7aa2ff"/>
+                  <rect x="8" y="22" width="22" height="4" rx="1" fill="#d0d3d6"/>
+                  <rect x="42" y="22" width="18" height="4" rx="1" fill="#e5e6eb"/>
+                  <rect x="76" y="22" width="24" height="4" rx="1" fill="#d0d3d6"/>
+                  <rect x="8" y="32" width="16" height="4" rx="1" fill="#e5e6eb"/>
+                  <rect x="42" y="32" width="26" height="4" rx="1" fill="#d0d3d6"/>
+                  <rect x="76" y="32" width="14" height="4" rx="1" fill="#e5e6eb"/>
+                </svg>
+                <span class="pv-card-check"><input type="checkbox" v-model="pivot.repeatColLabels" @change="layoutChanged">列字段</span>
+              </label>
+            </div>
+            <div class="pv-show-sec">高级设置</div>
+            <div class="pv-adv">
+              <label><input type="checkbox" v-model="pivot.autoFitCols" @change="layoutChanged">更新时自动调整列宽</label>
+              <label><input type="checkbox" v-model="pivot.autoOpenPanel">自动弹出配置面板</label>
+              <p class="pv-adv-hint">取消勾选后，选中透视表区域配置面板将不再自动弹出，可在右键菜单中打开。</p>
             </div>
           </div>
         </aside>
@@ -2665,7 +2872,7 @@ onBeforeUnmount(() => {
         </template>
         <template v-else>
           <button type="button" @click="openCalc(pivot.values[pop.index]?.idx)">重命名</button>
-          <button type="button" @click="onDelField(pivot.values[pop.index]?.idx, 'values')">移除</button>
+          <button type="button" @click="onDelValue(pop.index)">移除</button>
         </template>
         <div class="pv-pop-label">显示方式</div>
         <button v-for="s in PIVOT_SHOWS" :key="s.id" type="button" @click="setShow(s.id)">
@@ -2719,7 +2926,7 @@ onBeforeUnmount(() => {
       </template>
     </div>
 
-    <!-- 混合表：单元格右键菜单 -->
+    <!-- 单元格右键菜单：透视表打开配置，混合表保持原菜单 -->
     <div
       v-if="mxCtx.show"
       class="mx-ctx"
@@ -2727,11 +2934,16 @@ onBeforeUnmount(() => {
       @mousedown.stop
       @contextmenu.prevent
     >
-      <button type="button" @click="ctxOpen('value')">根据日期选择指标值</button>
-      <button type="button" @click="ctxOpen('date')">导入日期</button>
-      <button type="button" @click="ctxOpen('diff')">日期计算</button>
-      <button type="button" @click="ctxOpen('calc')">指标计算</button>
-      <button type="button" class="mx-ctx-clear" @click="ctxClearBinding">清除该格关联</button>
+      <template v-if="mxCtx.kind === 'pivot'">
+        <button type="button" @click="openPivotPanel">打开配置面板</button>
+      </template>
+      <template v-else>
+        <button type="button" @click="ctxOpen('value')">根据日期选择指标值</button>
+        <button type="button" @click="ctxOpen('date')">导入日期</button>
+        <button type="button" @click="ctxOpen('diff')">日期计算</button>
+        <button type="button" @click="ctxOpen('calc')">指标计算</button>
+        <button type="button" class="mx-ctx-clear" @click="ctxClearBinding">清除该格关联</button>
+      </template>
     </div>
 
     <!-- 混合表：悬浮指标信息（指标名称 / 最新日期 / 指标ID） -->

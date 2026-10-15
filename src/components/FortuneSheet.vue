@@ -6512,6 +6512,24 @@ function captureThumb() {
   return paintWorkbookThumb(snapshot())
 }
 
+function cellDisplay(row, col) {
+  try {
+    const sh = instRef.current?.getSheet?.()
+    if (!sh || row < 0 || col < 0) return ''
+    let cell = sh.data?.[row]?.[col]
+    if (!cell && Array.isArray(sh.celldata)) {
+      cell = sh.celldata.find((it) => Number(it.r) === row && Number(it.c) === col)?.v
+    }
+    if (cell == null || cell === '') return ''
+    if (typeof cell === 'string' || typeof cell === 'number') return String(cell)
+    if (cell.m != null && cell.m !== '') return String(cell.m)
+    if (cell.v != null && typeof cell.v !== 'object' && cell.v !== '') return String(cell.v)
+    return ''
+  } catch {
+    return ''
+  }
+}
+
 function getActiveSheetName() {
   try {
     const sh = instRef.current?.getSheet?.()
@@ -6610,6 +6628,22 @@ function ensureSheetSpan(api, endRow, endCol) {
     row: needRows,
     column: needCols,
   }])
+}
+
+function fitColumns(startCol, matrix) {
+  const api = instRef.current
+  if (!api?.setColumnWidth || !matrix?.[0]?.length) return
+  const info = {}
+  for (let i = 0; i < matrix[0].length; i += 1) {
+    let units = 4
+    matrix.forEach((row) => {
+      const cell = row?.[i]
+      const text = cell && typeof cell === 'object' ? (cell.v ?? cell.m ?? '') : (cell ?? '')
+      units = Math.max(units, textUnits(String(text)))
+    })
+    info[startCol + i] = Math.min(220, Math.max(64, units * 7 + 28))
+  }
+  try { api.setColumnWidth(info) } catch { /* 列宽接口不可用时保持默认宽度 */ }
 }
 
 function writeBlock(name, startRow, startCol, matrix, headerRows = 0, layout = null) {
@@ -8112,11 +8146,13 @@ defineExpose({
   snapshot,
   captureThumb,
   getActiveSheetName,
+  cellDisplay,
   getSelection,
   activeCell,
   addSheet,
   setActiveSheet,
   writeBlock,
+  fitColumns,
   cellGeomByRC: (row, col) => geomByRC(ctxState() || {}, row, col),
   cellAt,
   insertAxis,

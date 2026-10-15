@@ -38,6 +38,9 @@ export function emptyPivot() {
     showColTotal: true,
     showSubTotal: true,
     repeatLabels: false,
+    repeatColLabels: false,
+    autoFitCols: true,
+    autoOpenPanel: true,
     reportLayout: '',
     subtotalPos: 'bottom',
     blankRows: false,
@@ -80,6 +83,67 @@ export function cellPlain(cell) {
     if (Number.isFinite(n)) return { kind: 'n', v: n }
   }
   return { kind: 's', v: String(v) }
+}
+
+const PIVOT_VALUE_HEAD = /^(求和|计数|平均值|最大值|最小值)项[:：]\s*(.+)$/
+
+export function parsePivotHeader(labels) {
+  const rowNames = []
+  const values = []
+  ;(labels || []).forEach((raw) => {
+    const text = String(raw || '').trim()
+    if (!text || text === '总计') return
+    const m = text.match(PIVOT_VALUE_HEAD)
+    if (m) {
+      const agg = PIVOT_AGGS.find((a) => a.name === m[1])?.id || 'sum'
+      values.push({ field: m[2].trim(), agg })
+      return
+    }
+    rowNames.push(text)
+  })
+  return { rowNames, values }
+}
+
+/** 从点击位置向上找到「求和项:」表头，圈出含总计行的透视块。对不上已保存范围时用来重新进入编辑。 */
+export function locatePivotBlock(textAt, row, col) {
+  const at = (r, c) => String(textAt?.(r, c) ?? '').trim()
+  if (row < 0 || col < 0) return null
+  const rMin = Math.max(0, row - 80)
+  const cMin = Math.max(0, col - 16)
+  const cMax = col + 8
+  for (let r = row; r >= rMin; r -= 1) {
+    for (let c = cMin; c <= cMax; c += 1) {
+      if (!PIVOT_VALUE_HEAD.test(at(r, c))) continue
+      let c0 = c
+      while (c0 > 0 && at(r, c0 - 1)) c0 -= 1
+      let c1 = c
+      let guard = 0
+      while (guard < 30 && at(r, c1 + 1)) { c1 += 1; guard += 1 }
+      let r1 = r
+      for (let rr = r + 1; rr < r + 300; rr += 1) {
+        let any = false
+        for (let cc = c0; cc <= c1; cc += 1) {
+          if (at(rr, cc)) { any = true; break }
+        }
+        if (!any) break
+        r1 = rr
+      }
+      if (r1 <= r) continue
+      let marked = false
+      for (let rr = r; rr <= r1 && !marked; rr += 1) {
+        for (let cc = c0; cc <= c1; cc += 1) {
+          const t = at(rr, cc)
+          if (t === '总计' || /总计$/.test(t)) marked = true
+        }
+      }
+      if (!marked) continue
+      const block = { startRow: r, startColumn: c0, rows: r1 - r + 1, cols: c1 - c0 + 1 }
+      if (row < block.startRow || row >= block.startRow + block.rows) continue
+      if (col < block.startColumn || col >= block.startColumn + block.cols) continue
+      return block
+    }
+  }
+  return null
 }
 
 export function sheetUsedRange(sheet) {
@@ -242,16 +306,18 @@ export function addFieldTo(state, idx, zone) {
     if (!state.cols.includes(idx)) state.cols.push(idx)
     return
   }
-  if (zone === 'values') {
-    state.filters = state.filters.filter((f) => f.idx !== idx)
-    if (!state.values.some((v) => v.idx === idx)) {
-      state.values.push({
-        idx,
-        agg: isCalcId(idx) || fieldIsNumber(state.rows, idx) ? 'sum' : 'count',
-        show: 'none',
-      })
-    }
-  }
+  if (zone === 'values') addValueField(state, idx)
+}
+
+const VALUE_AGG_ORDER = ['sum', 'count', 'avg', 'max', 'min']
+
+export function addValueField(state, idx) {
+  state.filters = state.filters.filter((f) => f.idx !== idx)
+  const used = new Set(state.values.filter((v) => v.idx === idx).map((v) => v.agg))
+  const numeric = isCalcId(idx) || fieldIsNumber(state.rows, idx)
+  const order = numeric ? VALUE_AGG_ORDER : ['count', 'sum', 'avg', 'max', 'min']
+  const agg = order.find((id) => !used.has(id)) || order[0]
+  state.values.push({ idx, agg, show: 'none' })
 }
 
 export function guessZone(state, idx) {
@@ -773,7 +839,7 @@ export function buildPivotMatrix(state) {
       : headerName(state, rowIdxs[0])
     colCombos.forEach((parts) => {
       const name = parts.map(String).join(' / ')
-      vals.forEach((_, vi) => { top.push(vi === 0 ? name : '') })
+      vals.forEach((_, vi) => { top.push(state.repeatColLabels || vi === 0 ? name : '') })
     })
     if (showColTotal) vals.forEach((_, vi) => { top.push(vi === 0 ? '总计' : '') })
     pushRow(top, { type: 'head' })
@@ -788,7 +854,11 @@ export function buildPivotMatrix(state) {
     if (colIdxs.length) {
       colCombos.forEach((parts) => {
         const name = parts.map(String).join(' / ')
-        vals.forEach((v) => { head.push(vals.length === 1 ? name : `${name} ${valueLabel(state, v)}`) })
+        vals.forEach((v, vi) => {
+          if (vals.length === 1) head.push(name)
+          else if (state.repeatColLabels || vi === 0) head.push(`${name} ${valueLabel(state, v)}`)
+          else head.push(valueLabel(state, v))
+        })
       })
     } else vals.forEach((v) => { head.push(valueLabel(state, v)) })
     if (showColTotal) vals.forEach((v) => { head.push(vals.length === 1 ? '总计' : `总计 ${valueLabel(state, v)}`) })
@@ -812,6 +882,7 @@ export function buildPivotMatrix(state) {
       type: 'data',
       parts: parts.slice(),
       toggleKey: toggleLevel >= 0 ? parts.slice(0, toggleLevel + 1).map(String).join('\x1f') : '',
+      toggleCol: toggleLevel >= 0 ? toggleLevel : 0,
     })
   }
   const pushSub = (prefix) => {
@@ -950,7 +1021,7 @@ export function buildPivotMatrix(state) {
           const labels = blankLabels()
           labels[level] = `▸ ${prefix[level]}`
           const bucket = rowsMatching(state, rows, rowIdxs, prefix)
-          pushRow(labels.concat(valueCells(bucket)), { type: 'data', parts: prefix.slice(), toggleKey: key })
+          pushRow(labels.concat(valueCells(bucket)), { type: 'data', parts: prefix.slice(), toggleKey: key, toggleCol: level })
           prevHolder.parts = prefix.concat(Array(rowIdxs.length - prefix.length).fill(''))
           return
         }
@@ -1051,6 +1122,9 @@ export function toPivotConfig(state) {
     showColTotal: state.showColTotal,
     showSubTotal: state.showSubTotal,
     repeatLabels: state.repeatLabels,
+    repeatColLabels: !!state.repeatColLabels,
+    autoFitCols: state.autoFitCols !== false,
+    autoOpenPanel: state.autoOpenPanel !== false,
     reportLayout: state.reportLayout || '',
     subtotalPos: state.subtotalPos === 'top' ? 'top' : 'bottom',
     blankRows: !!state.blankRows,
@@ -1078,6 +1152,9 @@ export function applyPivotConfig(state, cfg) {
   state.showColTotal = cfg.showColTotal !== false
   state.showSubTotal = cfg.showSubTotal !== false
   state.repeatLabels = !!cfg.repeatLabels
+  state.repeatColLabels = !!cfg.repeatColLabels
+  state.autoFitCols = cfg.autoFitCols !== false
+  state.autoOpenPanel = cfg.autoOpenPanel !== false
   state.reportLayout = ['compact', 'outline', 'tabular'].includes(cfg.reportLayout) ? cfg.reportLayout : ''
   state.subtotalPos = cfg.subtotalPos === 'top' ? 'top' : 'bottom'
   state.blankRows = !!cfg.blankRows
