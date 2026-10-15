@@ -15,9 +15,13 @@ export const PIVOT_SHOWS = [
 ]
 
 export const PIVOT_COND = {
-  text: [['contains', '包含'], ['notContains', '不包含'], ['eq', '等于'], ['ne', '不等于'], ['starts', '开头是'], ['ends', '结尾是'], ['empty', '为空'], ['notEmpty', '不为空']],
-  num: [['gt', '大于'], ['gte', '大于或等于'], ['lt', '小于'], ['lte', '小于或等于'], ['eq', '等于'], ['ne', '不等于'], ['between', '介于'], ['empty', '为空'], ['notEmpty', '不为空']],
-  date: [['before', '早于'], ['after', '晚于'], ['between', '介于'], ['empty', '为空'], ['notEmpty', '不为空']],
+  text: [['contains', '包含...'], ['notContains', '不包含...'], ['starts', '开头是...'], ['startsNot', '开头不是...'], ['ends', '结尾是...'], ['endsNot', '结尾不是...'], ['eq', '是...'], ['ne', '不是...']],
+  num: [['gt', '大于...'], ['gte', '大于或等于...'], ['lt', '小于...'], ['lte', '小于或等于...'], ['between', '介于...'], ['notBetween', '不介于...'], ['eq', '等于...'], ['ne', '不等于...']],
+  date: [['after', '晚于...'], ['before', '早于...'], ['between', '介于...'], ['notBetween', '不介于...'], ['eq', '等于...'], ['today', '今天'], ['tomorrow', '明天'], ['yesterday', '昨天'], ['thisWeek', '本周'], ['lastWeek', '上周'], ['thisMonth', '本月'], ['lastMonth', '上月']],
+}
+
+export function condNeedsValue(op) {
+  return !['today', 'tomorrow', 'yesterday', 'thisWeek', 'lastWeek', 'thisMonth', 'lastMonth', 'empty', 'notEmpty'].includes(op)
 }
 
 const BANNED_FNS = ['RAND', 'NOW', 'TODAY', 'VLOOKUP', 'IMPORTRANGE']
@@ -51,6 +55,8 @@ export function emptyPivot() {
     fieldOpts: {},
     collapsed: {},
     out: null,
+    anchor: null,
+    pageOut: null,
     outName: '',
   }
 }
@@ -389,7 +395,11 @@ export function matchCond(value, cond) {
     const a = Number(cond.v1)
     const b = Number(cond.v2)
     if (!Number.isFinite(n)) return false
-    if (op === 'between') return n >= Math.min(a, b) && n <= Math.max(a, b)
+    if (op === 'between' || op === 'notBetween') {
+      if (!Number.isFinite(a) || !Number.isFinite(b)) return false
+      const hit = n >= Math.min(a, b) && n <= Math.max(a, b)
+      return op === 'between' ? hit : !hit
+    }
     if (!Number.isFinite(a)) return false
     if (op === 'gt') return n > a
     if (op === 'gte') return n >= a
@@ -401,16 +411,42 @@ export function matchCond(value, cond) {
   }
   if (kind === 'date') {
     const t = parseDateValue(value)
+    if (!Number.isFinite(t)) return false
+    const day = new Date(t)
+    const day0 = new Date(day.getFullYear(), day.getMonth(), day.getDate()).getTime()
+    const now = new Date()
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
+    const mondayOf = (base) => {
+      const d = new Date(base)
+      const wd = d.getDay() || 7
+      d.setDate(d.getDate() - wd + 1)
+      d.setHours(0, 0, 0, 0)
+      return d.getTime()
+    }
+    if (op === 'today') return day0 === today
+    if (op === 'tomorrow') return day0 === today + 86400000
+    if (op === 'yesterday') return day0 === today - 86400000
+    if (op === 'thisWeek' || op === 'lastWeek') {
+      const start = mondayOf(today) - (op === 'lastWeek' ? 7 * 86400000 : 0)
+      return day0 >= start && day0 < start + 7 * 86400000
+    }
+    if (op === 'thisMonth' || op === 'lastMonth') {
+      const start = new Date(now.getFullYear(), now.getMonth() - (op === 'lastMonth' ? 1 : 0), 1).getTime()
+      const end = new Date(now.getFullYear(), now.getMonth() + (op === 'lastMonth' ? 0 : 1), 1).getTime()
+      return day0 >= start && day0 < end
+    }
     const a = dayStart(cond.v1)
     const b = dayStart(cond.v2)
-    if (!Number.isFinite(t) || !Number.isFinite(a)) return false
+    if (!Number.isFinite(a)) return false
     if (op === 'before') return t < a
     if (op === 'after') return t >= a + 86400000
-    if (op === 'between') {
+    if (op === 'eq') return day0 === a
+    if (op === 'between' || op === 'notBetween') {
       if (!Number.isFinite(b)) return false
       const lo = Math.min(a, b)
       const hi = Math.max(a, b)
-      return t >= lo && t < hi + 86400000
+      const hit = t >= lo && t < hi + 86400000
+      return op === 'between' ? hit : !hit
     }
     return true
   }
@@ -421,7 +457,9 @@ export function matchCond(value, cond) {
   if (op === 'contains') return q ? s.includes(q) : true
   if (op === 'notContains') return q ? !s.includes(q) : true
   if (op === 'starts') return s.startsWith(q)
+  if (op === 'startsNot') return q ? !s.startsWith(q) : true
   if (op === 'ends') return s.endsWith(q)
+  if (op === 'endsNot') return q ? !s.endsWith(q) : true
   return true
 }
 
@@ -801,6 +839,34 @@ function applyShow(matrix, layout, vals) {
   })
 }
 
+function filterCaption(opt) {
+  const keys = Object.keys(opt?.selected || {})
+  const on = keys.filter((k) => opt.selected[k])
+  if (opt?.cond?.op && (!keys.length || on.length === keys.length)) return '(条件)'
+  if (keys.length && !on.length) return '(无)'
+  if (keys.length && on.length !== keys.length) return on.join('、')
+  return '(全部)'
+}
+
+/** 筛选条不进入透视表矩阵。只占字段名和当前条件两格，避免和数值列叠在一起。 */
+export function pivotFilterStrip(state) {
+  const strip = []
+  const seen = new Set()
+  const push = (idx, zone) => {
+    if (idx == null || seen.has(String(idx))) return
+    if (typeof idx === 'number' && idx < 0) return
+    seen.add(String(idx))
+    const opt = zone === 'page'
+      ? ((state.filters || []).find((f) => f.idx === idx) || {})
+      : (state.fieldOpts?.[String(idx)] || {})
+    strip.push({ idx, zone, name: headerName(state, idx), caption: filterCaption(opt) })
+  }
+  ;(state.filters || []).forEach((f) => push(f.idx, 'page'))
+  ;(state.rowsF || []).forEach((idx) => push(idx, 'row'))
+  ;(state.cols || []).forEach((idx) => push(idx, 'col'))
+  return strip
+}
+
 export function buildPivotMatrix(state) {
   const rows = (state.rows || []).filter((row) => rowPasses(state, row))
   const rowIdxs = state.rowsF.slice()
@@ -887,7 +953,7 @@ export function buildPivotMatrix(state) {
   }
   const pushSub = (prefix) => {
     const labels = blankLabels()
-    labels[0] = `${prefix[prefix.length - 1]}总计`
+    labels[0] = `${prefix[prefix.length - 1]} 总计`
     const bucket = rowsMatching(state, rows, rowIdxs, prefix)
     pushRow(labels.concat(valueCells(bucket)), { type: 'sub', parts: prefix.slice() })
   }
@@ -916,7 +982,7 @@ export function buildPivotMatrix(state) {
     const pushEmpty = () => pushRow(blankLabels().concat(emptyVals()), { type: 'blank' })
     const subLabels = (prefix) => {
       const labels = blankLabels()
-      const name = `${prefix[prefix.length - 1]}总计`
+      const name = `${prefix[prefix.length - 1]} 总计`
       if (mode === 'compact') labels[0] = `${'    '.repeat(Math.max(0, prefix.length - 1))}${name}`
       else labels[Math.max(0, prefix.length - 1)] = name
       return labels
@@ -1057,6 +1123,7 @@ export function buildPivotMatrix(state) {
   if (showColTotal) vals.forEach((v, vi) => cols.push({ type: 'total', valIndex: vi, colKey: '', colParts: null, colLabel: '总计' }))
   const layout = {
     headerRows: twoHead ? 2 : 1,
+    pageRows: 0,
     leftW,
     rows: rowMeta,
     cols,
@@ -1135,6 +1202,7 @@ export function toPivotConfig(state) {
     fieldOpts: state.fieldOpts,
     collapsed: state.collapsed,
     out: state.out,
+    anchor: state.anchor || null,
   }
 }
 
@@ -1165,6 +1233,8 @@ export function applyPivotConfig(state, cfg) {
   state.fieldOpts = cfg.fieldOpts || {}
   state.collapsed = cfg.collapsed || {}
   state.out = cfg.out || null
+  state.anchor = cfg.anchor || null
+  state.pageOut = null
 }
 
 export function retargetFields(state, oldHeaders, newHeaders) {

@@ -6608,7 +6608,7 @@ function paintPivotSummary(startRow, startCol, layout) {
   layout.cols.forEach((col, ci) => { if (col?.type === 'total') totalCols.push(ci) })
   if (!totalCols.length) return
   layout.rows.forEach((meta, ri) => {
-    if (!meta || meta.type === 'head' || meta.type === 'total' || meta.type === 'sub') return
+    if (!meta || meta.type === 'head' || meta.type === 'total' || meta.type === 'sub' || meta.type === 'page' || meta.type === 'gap') return
     totalCols.forEach((ci) => paint(startRow + ri, startCol + ci, startCol + ci))
   })
 }
@@ -6668,13 +6668,30 @@ function writeBlock(name, startRow, startCol, matrix, headerRows = 0, layout = n
       })
     })
     if (headerRows) {
+      const skip = layout?.pageRows || 0
       const head = {
-        row: [startRow, startRow + headerRows - 1],
+        row: [startRow + skip, startRow + skip + headerRows - 1],
         column: [startCol, startCol + matrix[0].length - 1],
       }
       api.setCellFormatByRange('bl', 1, head)
       api.setCellFormatByRange('bg', '#E8F3FF', head)
+    } else {
+      const plain = {
+        row: [startRow, startRow + matrix.length - 1],
+        column: [startCol, startCol + matrix[0].length - 1],
+      }
+      api.setCellFormatByRange('bg', null, plain)
+      api.setCellFormatByRange('bl', 0, plain)
     }
+    layout?.rows?.forEach((meta, ri) => {
+      if (meta?.type !== 'page' && meta?.type !== 'gap') return
+      const rowRange = {
+        row: [startRow + ri, startRow + ri],
+        column: [startCol, startCol + matrix[0].length - 1],
+      }
+      api.setCellFormatByRange('bg', null, rowRange)
+      api.setCellFormatByRange('bl', 0, rowRange)
+    })
     paintPivotSummary(startRow, startCol, layout)
     return true
   } catch {

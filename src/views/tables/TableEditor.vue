@@ -12,8 +12,8 @@ import { runWithExportLoading } from '../../utils/exportLoading'
 import FortuneSheet from '../../components/FortuneSheet.vue'
 import {
   PIVOT_AGGS, PIVOT_COND, PIVOT_SHOWS, absCellRef, absRangeRef, addFieldTo, addValueField, applyPivotConfig, buildPivotMatrix,
-  cellPlain, emptyPivot, extractPivotSource, fieldUsed, filterLabel, guessCondKind, guessZone, headerName, isCalcId,
-  listWorkbookSheets, locatePivotBlock, parseA1Cell, parseA1Range, parsePivotHeader, pivotDetailMatrix, removeField, removeFieldFrom,
+  cellPlain, condNeedsValue, emptyPivot, extractPivotSource, fieldUsed, filterLabel, guessCondKind, guessZone, headerName, isCalcId,
+  listWorkbookSheets, locatePivotBlock, parseA1Cell, parseA1Range, parsePivotHeader, pivotDetailMatrix, pivotFilterStrip, removeField, removeFieldFrom,
   retargetFields, sheetUsedRange, toPivotConfig, uniqueFieldValues, validateCalcFormula, valueLabel, writePivotToSheet,
 } from '../../utils/pivot'
 import Icon from '../../components/Icon.vue'
@@ -672,11 +672,15 @@ function pivotInside(out, g) {
 }
 function pivotHitAt(out, g) {
   const layout = pivot._layout
+  const localR = g.r - out.startRow
+  const localC = g.c - out.startColumn
+  const row = layout?.rows?.[localR]
+  if ((row?.type === 'page' || row?.type === 'gap') && localC > 1) return null
   return {
-    localR: g.r - out.startRow,
-    localC: g.c - out.startColumn,
-    row: layout?.rows?.[g.r - out.startRow],
-    col: layout?.cols?.[g.c - out.startColumn],
+    localR,
+    localC,
+    row,
+    col: layout?.cols?.[localC],
   }
 }
 function sheetText(r, c) {
@@ -750,8 +754,27 @@ function recoverPivotFromBlock(block) {
   pivot.values = values
   syncSrcDraft()
 }
+function pageHit(g) {
+  const box = pivot.pageOut
+  const items = pivot._pageItems
+  if (!box?.rows || !items?.length || !g) return null
+  const name = sheetRef.value?.getActiveSheetName?.() || ''
+  if (pivot.outName && name && name !== pivot.outName) return null
+  if (g.r < box.startRow || g.r >= box.startRow + box.rows) return null
+  if (g.c < box.startColumn || g.c >= box.startColumn + box.cols) return null
+  const item = items[g.r - box.startRow]
+  if (!item) return null
+  return {
+    localR: g.r - box.startRow,
+    localC: g.c - box.startColumn,
+    row: { type: 'page', idx: item.idx, zone: item.zone },
+    col: null,
+  }
+}
 function pivotHit(g) {
   if (!g) return null
+  const page = pageHit(g)
+  if (page) return page
   const out = pivot.out
   const name = sheetRef.value?.getActiveSheetName?.() || ''
   if (out?.rows && out?.cols && name === pivot.outName && pivotInside(out, g)) return pivotHitAt(out, g)
@@ -769,12 +792,11 @@ function onCellClick(g) {
   scheduleChartRefresh()
   closeMxCtx()
   if (pvPick.active && pvPick.field === 'move') {
-    const prev = pivot.out
-    if (prev?.rows && prev?.cols) {
-      const empty = Array.from({ length: prev.rows }, () => Array.from({ length: prev.cols }, () => ''))
-      writeUniverBlock(prev.startRow, prev.startColumn, empty, 0)
-    }
+    clearPivotPaint()
     pivot.outName = liveSheetName()
+    pivot.anchor = { startRow: g.r, startColumn: g.c }
+    pivot.pageOut = null
+    pivot._pageItems = []
     pivot.out = { startRow: g.r, startColumn: g.c, rows: 0, cols: 0 }
     endPvPick(false)
     refreshPivotTable()
@@ -800,6 +822,9 @@ function onCellClick(g) {
   }
   const hit = pivotHit(g)
   pvMenu.value = ''
+  if (hit?.row?.type === 'page' && hit.row.idx != null && hit.localC === 1) {
+    openCellFilter({ idx: hit.row.idx, zone: hit.row.zone || 'page' }, g.clientX, g.clientY)
+  }
   if (hit) {
     ensurePivotSource()
     if (!pivot._layout?.rows && pivot.headers.length && pivot.rows.length) buildPivotMatrix(pivot)
@@ -1114,6 +1139,7 @@ let savedTimer = 0
 const srcDraft = ref('')
 const calcDlg = reactive({ visible: false, id: '', name: '', formula: '', mode: 'sum', error: '' })
 const filterDraft = reactive({ tab: 'value', checks: [], kind: 'text', op: 'contains', v1: '', v2: '', q: '' })
+const condMenu = reactive({ open: false, group: 'text' })
 const fieldList = computed(() => {
   const kw = pivotKw.value.trim().toLowerCase()
   const src = pivot.headers.map((h, i) => ({ i, h, calc: false }))
@@ -1121,9 +1147,10 @@ const fieldList = computed(() => {
   return src.concat(calcs).filter((x) => !kw || String(x.h).toLowerCase().includes(kw))
 })
 const filterChecks = computed(() => {
-  const q = filterDraft.q.trim().toLowerCase()
-  return filterDraft.checks.filter((c) => !q || c.label.toLowerCase().includes(q))
+  const tokens = filterDraft.q.trim().toLowerCase().split(/\s+/).filter(Boolean)
+  return filterDraft.checks.filter((c) => !tokens.length || tokens.some((t) => c.label.toLowerCase().includes(t)))
 })
+const filterAllOn = computed(() => filterChecks.value.length > 0 && filterChecks.value.every((c) => c.on))
 function syncSrcDraft() {
   srcDraft.value = pivot.range && pivot.sourceName ? absRangeRef(pivot.sourceName, pivot.range) : ''
 }
@@ -1204,10 +1231,21 @@ function onEsc(e) {
   if (pivotOpen.value) { closePivot(); return }
   close()
 }
+let pivotChromeFrame = 0
+function bumpPivotChrome() {
+  if (pivotChromeFrame || !pivot.out?.rows) return
+  pivotChromeFrame = requestAnimationFrame(() => {
+    pivotChromeFrame = 0
+    layoutTick.value += 1
+  })
+}
 window.addEventListener('keydown', onEsc)
+window.addEventListener('scroll', bumpPivotChrome, true)
 document.addEventListener('mousedown', onChartOutside)
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onEsc)
+  window.removeEventListener('scroll', bumpPivotChrome, true)
+  if (pivotChromeFrame) cancelAnimationFrame(pivotChromeFrame)
   document.body.classList.remove('tbl-editor-open')
   setPageIcon('/ailab-mark.svg')
   clearTimeout(savedTimer)
@@ -1828,6 +1866,27 @@ function startChartResize(e, ch, dir) {
   document.addEventListener('mousemove', move)
   document.addEventListener('mouseup', up)
 }
+const pivotFilterBtns = computed(() => {
+  layoutTick.value
+  const stage = stageEl.value
+  const box = pivot.pageOut
+  const items = pivot._pageItems || []
+  if (!stage || !box?.rows || !items.length) return []
+  const sr = stage.getBoundingClientRect()
+  const boxes = []
+  items.forEach((item, i) => {
+    const g = sheetRef.value?.cellGeomByRC?.(box.startRow + i, box.startColumn + 1)
+    if (!g || g.vx + g.vw < sr.left || g.vx > sr.right || g.vy + g.vh < sr.top || g.vy > sr.bottom) return
+    boxes.push({
+      key: `${item.zone}-${item.idx}-${i}`,
+      idx: item.idx,
+      zone: item.zone,
+      left: g.vx - sr.left + g.vw - 22,
+      top: g.vy - sr.top + Math.max(0, (g.vh - 16) / 2),
+    })
+  })
+  return boxes
+})
 const chartBoxes = computed(() => {
   layoutTick.value
   const stage = stageEl.value
@@ -1900,15 +1959,21 @@ async function confirmWizard() {
       place = 'existing'
     } else {
       pivot.outName = sheetName
+      pivot.anchor = { startRow: 0, startColumn: 0 }
+      pivot.pageOut = null
       pivot.out = { startRow: 0, startColumn: 0, rows: 0, cols: 0 }
     }
   }
   if (place !== 'new') {
     pivot.outName = liveSheetName()
     const cell = parseA1Cell(wizard.dstCell)
+    const startRow = cell ? cell.row : range.startRow
+    const startColumn = cell ? cell.col : range.endColumn + 2
+    pivot.anchor = { startRow, startColumn }
+    pivot.pageOut = null
     pivot.out = {
-      startRow: cell ? cell.row : range.startRow,
-      startColumn: cell ? cell.col : range.endColumn + 2,
+      startRow,
+      startColumn,
       rows: 0,
       cols: 0,
     }
@@ -1950,37 +2015,63 @@ function writeUniverBlock(startRow, startCol, matrix, headerRows, layout) {
   return !!sheetRef.value?.writeBlock(pivot.outName, startRow, startCol, matrix, headerRows, layout)
 }
 
+function clearPivotPaint() {
+  const rects = []
+  if (pivot.out?.rows && pivot.out?.cols) rects.push(pivot.out)
+  if (pivot.pageOut?.rows) {
+    const width = Math.max(pivot.pageOut.cols || 2, pivot.out?.cols || 2)
+    rects.push({
+      startRow: pivot.pageOut.startRow,
+      startColumn: pivot.pageOut.startColumn,
+      rows: pivot.pageOut.rows + 1,
+      cols: width,
+    })
+  }
+  rects.forEach((rect) => {
+    const empty = Array.from({ length: rect.rows }, () => Array.from({ length: rect.cols }, () => ''))
+    writeUniverBlock(rect.startRow, rect.startColumn, empty, 0)
+  })
+}
 async function refreshPivotTable() {
   if (!pivot.open) return
   const matrix = buildPivotMatrix(pivot)
+  const strip = pivotFilterStrip(pivot)
   const used = sheetUsedRange(snapshotSheetByName(pivot.sourceName))
-  const startRow = pivot.out?.startRow != null ? pivot.out.startRow : (used ? used.startRow : 0)
-  const startCol = pivot.out?.startColumn != null ? pivot.out.startColumn : ((used ? used.endColumn : 0) + 2)
+  const anchorRow = pivot.anchor?.startRow ?? (pivot.out?.startRow != null ? pivot.out.startRow : (used ? used.startRow : 0))
+  const anchorCol = pivot.anchor?.startColumn ?? (pivot.out?.startColumn != null ? pivot.out.startColumn : ((used ? used.endColumn : 0) + 2))
   const headerRows = pivot._layout?.headerRows || (matrix.length && pivot.cols.length && pivot.values.length > 1 ? 2 : (matrix.length ? 1 : 0))
-  if (pivot.out?.rows && pivot.out?.cols) {
-    const empty = Array.from({ length: pivot.out.rows }, () => Array.from({ length: pivot.out.cols }, () => ''))
-    writeUniverBlock(pivot.out.startRow, pivot.out.startColumn, empty, 0)
-  }
+  clearPivotPaint()
+  pivot.anchor = { startRow: anchorRow, startColumn: anchorCol }
+  pivot._pageItems = strip
   if (!matrix.length) {
-    pivot.out = { startRow, startColumn: startCol, rows: 0, cols: 0 }
+    pivot.pageOut = null
+    pivot.out = { startRow: anchorRow, startColumn: anchorCol, rows: 0, cols: 0 }
     persistPivot()
     return
   }
-  const ok = writeUniverBlock(startRow, startCol, matrix, headerRows, pivot._layout)
+  const bodyRow = anchorRow + (strip.length ? strip.length + 1 : 0)
+  if (strip.length) {
+    writeUniverBlock(anchorRow, anchorCol, strip.map((item) => [item.name, item.caption]), 0)
+    writeUniverBlock(anchorRow + strip.length, anchorCol, [Array.from({ length: matrix[0].length }, () => '')], 0)
+  }
+  if (pivot._layout) pivot._layout.pageRows = 0
+  const ok = writeUniverBlock(bodyRow, anchorCol, matrix, headerRows, pivot._layout)
   if (!ok) {
     capture()
     const list = listWorkbookSheets(table.value?.workbook)
     const pack = list.find((p) => pivot.outName && p.name === pivot.outName) || list[0]
     if (pack) {
-      writePivotToSheet(pack.sheet, matrix, startRow, startCol, headerRows, pivot.out, pivot._layout)
+      writePivotToSheet(pack.sheet, matrix, bodyRow, anchorCol, headerRows, pivot.out, pivot._layout)
       store.saveWorkbook(props.tableId, table.value.workbook)
       sheetRef.value?.load(table.value.workbook)
     }
   } else {
     capture()
   }
-  pivot.out = { startRow, startColumn: startCol, rows: matrix.length, cols: matrix[0].length }
-  if (pivot.autoFitCols !== false) sheetRef.value?.fitColumns?.(startCol, matrix)
+  pivot.pageOut = strip.length ? { startRow: anchorRow, startColumn: anchorCol, rows: strip.length, cols: 2 } : null
+  pivot.out = { startRow: bodyRow, startColumn: anchorCol, rows: matrix.length, cols: matrix[0].length }
+  if (pivot.autoFitCols !== false) sheetRef.value?.fitColumns?.(anchorCol, matrix)
+  layoutTick.value += 1
   persistPivot()
 }
 
@@ -2166,6 +2257,47 @@ function onPvUp(e) {
     drag.from = ''
   }
 }
+function placePopPoint(x, y) {
+  placePop({ getBoundingClientRect: () => ({ left: x, top: y, bottom: y, right: x }) })
+}
+function openCellFilter(box, x, y) {
+  condMenu.open = false
+  const idx = box.idx
+  if (box.zone === 'page') {
+    const index = pivot.filters.findIndex((f) => f.idx === idx)
+    if (index < 0) return
+    pop.kind = 'filter'
+    pop.zone = 'filters'
+    pop.index = index
+    pop.fieldIdx = idx
+    pop.show = true
+    fillFilterDraft(pivot.filters[index], idx)
+  } else {
+    pop.kind = 'filter'
+    pop.zone = 'axis'
+    pop.index = box.zone === 'col' ? pivot.cols.indexOf(idx) : pivot.rowsF.indexOf(idx)
+    pop.fieldIdx = idx
+    pop.show = true
+    fillFilterDraft(pivot.fieldOpts[String(idx)] || {}, idx)
+  }
+  placePopPoint(x, y)
+}
+function setFilterAll(on) {
+  filterChecks.value.forEach((c) => { c.on = on })
+}
+function condButtonText() {
+  const list = PIVOT_COND[filterDraft.kind] || PIVOT_COND.text
+  const hit = list.find((item) => item[0] === filterDraft.op)
+  const mark = filterDraft.kind === 'num' ? '# ' : (filterDraft.kind === 'date' ? '' : 'T ')
+  return `${mark}${hit?.[1] || '包含...'}`
+}
+function pickCond(kind, op) {
+  filterDraft.kind = kind
+  filterDraft.op = op
+  filterDraft.tab = 'cond'
+  condMenu.open = false
+  if (condNeedsValue(op)) focusPivotCond()
+}
 function placePop(anchor) {
   nextTick(() => {
     const popEl = document.querySelector('.pv-pop.show')
@@ -2252,7 +2384,7 @@ function applyFilterSel() {
   const selected = {}
   const useCond = filterDraft.tab === 'cond'
   filterDraft.checks.forEach((c) => { selected[c.key] = useCond ? true : c.on })
-  const needsValue = useCond && !['empty', 'notEmpty'].includes(filterDraft.op)
+  const needsValue = useCond && condNeedsValue(filterDraft.op)
   const cond = useCond && filterDraft.op && (!needsValue || String(filterDraft.v1).trim())
     ? { kind: filterDraft.kind, op: filterDraft.op, v1: filterDraft.v1, v2: filterDraft.v2 }
     : null
@@ -2624,6 +2756,18 @@ onBeforeUnmount(() => {
           class="mx-dash"
           :style="{ left: `${b.left}px`, top: `${b.top}px`, width: `${b.w}px`, height: `${b.h}px` }"
         />
+        <button
+          v-for="b in pivotFilterBtns"
+          :key="b.key"
+          type="button"
+          class="pv-cell-filter"
+          title="筛选"
+          :style="{ left: `${b.left}px`, top: `${b.top}px` }"
+          @mousedown.stop
+          @click.stop="openCellFilter(b, $event.clientX, $event.clientY)"
+        >
+          <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M1.5 2h9L7.2 6.2V9.2L4.8 10V6.2L1.5 2z" fill="none" stroke="currentColor" stroke-width="1.2"/></svg>
+        </button>
         <div
           v-for="box in chartBoxes"
           :key="box.id"
@@ -2694,8 +2838,6 @@ onBeforeUnmount(() => {
           <div class="pv-head">
             <span class="pv-title">数据透视表</span>
             <div class="pv-acts">
-              <button type="button" class="pv-text" title="移动透视表" @click="beginPvPick('move')">移动</button>
-              <button type="button" class="pv-text" title="删除透视表" @click="deletePivot">删除</button>
               <button type="button" class="pv-x" title="关闭" @click="closePivot">✕</button>
             </div>
           </div>
@@ -2862,7 +3004,7 @@ onBeforeUnmount(() => {
     </div>
 
     <div v-if="pvDrag.on" class="pv-drag-ghost" :style="{ left: `${pvDrag.x}px`, top: `${pvDrag.y}px` }">{{ pvDrag.label }}</div>
-    <div v-if="pop.show" class="pv-pop show" :class="{ wide: pop.kind === 'filter' || pop.kind === 'axis' }" :style="{ left: pop.left, top: pop.top }" @mousedown.stop @keydown.stop @click.stop>
+    <div v-if="pop.show" class="pv-pop show" :class="{ wide: pop.kind === 'filter' || pop.kind === 'axis', 'pv-filter-pop': pop.kind === 'filter' }" :style="{ left: pop.left, top: pop.top }" @mousedown.stop @keydown.stop @click.stop>
       <template v-if="pop.kind === 'agg' || pop.kind === 'calcVal'">
         <template v-if="pop.kind === 'agg'">
           <div class="pv-pop-label">汇总方式</div>
@@ -2893,31 +3035,58 @@ onBeforeUnmount(() => {
         <button type="button" @click="deleteCalc(pop.index)">删除</button>
       </template>
       <template v-else-if="pop.kind === 'filter'">
-        <div class="pv-tabs">
-          <button type="button" :class="{ on: filterDraft.tab === 'value' }" @click="filterDraft.tab = 'value'">快速筛选</button>
-          <button type="button" :class="{ on: filterDraft.tab === 'cond' }" @click="filterDraft.tab = 'cond'; focusPivotCond()">条件筛选</button>
-        </div>
-        <template v-if="filterDraft.tab === 'value'">
-          <div class="pv-pop-search"><input v-model="filterDraft.q" placeholder="搜索" spellcheck="false"></div>
-          <label><input type="checkbox" :checked="filterChecks.length && filterChecks.every((c) => c.on)" @change="filterChecks.forEach((c) => { c.on = $event.target.checked })">全选</label>
-          <label v-for="c in filterChecks" :key="c.key"><input type="checkbox" v-model="c.on">{{ c.label }}</label>
-          <div v-if="!filterChecks.length" class="pv-ph" style="padding:10px">没有可筛选的值</div>
-        </template>
-        <div v-else class="pv-cond">
-          <select :value="filterDraft.kind" @change="setFilterKind($event.target.value)" @keydown="onPvCondKey">
-            <option value="text">文本</option>
-            <option value="num">数字</option>
-            <option value="date">日期</option>
-          </select>
-          <select v-model="filterDraft.op" @change="focusPivotCond" @keydown="onPvCondKey">
-            <option v-for="[id, label] in (PIVOT_COND[filterDraft.kind] || [])" :key="id" :value="id">{{ label }}</option>
-          </select>
-          <input v-if="filterDraft.op !== 'empty' && filterDraft.op !== 'notEmpty'" v-model="filterDraft.v1" :type="filterDraft.kind === 'date' ? 'text' : 'text'" :inputmode="filterDraft.kind === 'num' ? 'decimal' : 'text'" autocomplete="off" :placeholder="filterDraft.kind === 'date' ? '如 2021/1/1' : '输入条件'" @keydown.stop>
-          <input v-if="filterDraft.op === 'between'" v-model="filterDraft.v2" autocomplete="off" :placeholder="filterDraft.kind === 'date' ? '结束日期' : '最大值'" @keydown.stop>
-        </div>
-        <div class="pv-pop-ok">
-          <button type="button" class="btn" @click="clearPivotFilter">清除</button>
-          <button type="button" class="btn primary" @click="applyFilterSel">确定</button>
+        <div class="pv-filter" @mousedown.stop>
+          <div class="pv-filter-title">筛选</div>
+          <label class="pv-filter-radio"><input type="radio" value="cond" v-model="filterDraft.tab"> 条件筛选</label>
+          <label class="pv-filter-radio"><input type="radio" value="value" v-model="filterDraft.tab"> 快速筛选</label>
+          <template v-if="filterDraft.tab === 'value'">
+            <div class="pv-pop-search pv-filter-search">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3-3"/></svg>
+              <input v-model="filterDraft.q" placeholder="可使用空格分隔多个关键词" spellcheck="false">
+            </div>
+            <div class="pv-filter-list">
+              <label><input type="checkbox" :checked="filterAllOn" @change="setFilterAll($event.target.checked)">全选</label>
+              <label v-for="c in filterChecks" :key="c.key"><input type="checkbox" v-model="c.on">{{ c.label }}</label>
+              <div v-if="!filterChecks.length" class="pv-ph">没有可筛选的值</div>
+            </div>
+          </template>
+          <div v-else class="pv-cond-wrap">
+            <button type="button" class="pv-cond-btn" @click="condMenu.open = !condMenu.open">
+              <span>{{ condButtonText() }}</span>
+              <i>▾</i>
+            </button>
+            <div v-if="condMenu.open" class="pv-cond-menu">
+              <div
+                v-for="group in [
+                  { id: 'date', name: '日期' },
+                  { id: 'text', name: '文本' },
+                  { id: 'num', name: '数字' },
+                ]"
+                :key="group.id"
+                class="pv-cond-item"
+                :class="{ on: condMenu.group === group.id }"
+                @mouseenter="condMenu.group = group.id"
+              >
+                <span>{{ group.id === 'date' ? '▦' : (group.id === 'num' ? '#' : 'T') }} {{ group.name }}</span>
+                <span>›</span>
+                <div v-if="condMenu.group === group.id" class="pv-cond-sub">
+                  <button
+                    v-for="[id, label] in PIVOT_COND[group.id]"
+                    :key="id"
+                    type="button"
+                    :class="{ on: filterDraft.kind === group.id && filterDraft.op === id }"
+                    @click="pickCond(group.id, id)"
+                  >{{ label }}<span v-if="filterDraft.kind === group.id && filterDraft.op === id">✓</span></button>
+                </div>
+              </div>
+            </div>
+            <input v-if="!condMenu.open && condNeedsValue(filterDraft.op)" v-model="filterDraft.v1" autocomplete="off" :placeholder="filterDraft.kind === 'date' ? '如 2021/1/1' : '输入条件'" @keydown.stop>
+            <input v-if="!condMenu.open && (filterDraft.op === 'between' || filterDraft.op === 'notBetween')" v-model="filterDraft.v2" autocomplete="off" :placeholder="filterDraft.kind === 'date' ? '结束日期' : '最大值'" @keydown.stop>
+          </div>
+          <div class="pv-filter-foot">
+            <button type="button" class="pv-filter-clear" @click="clearPivotFilter">清除筛选</button>
+            <button type="button" class="btn primary" @click="applyFilterSel">确认</button>
+          </div>
         </div>
       </template>
       <template v-else>
