@@ -43,7 +43,6 @@ const titleEditing = ref(false)
 const titleDraft = ref('')
 const titleInput = ref(null)
 const pivotOpen = ref(false)
-const pvMenu = ref('')
 const pvCfgTab = ref('fields')
 const sheetCharts = reactive([])
 const chartDrag = reactive({})
@@ -821,7 +820,6 @@ function onCellClick(g) {
     return
   }
   const hit = pivotHit(g)
-  pvMenu.value = ''
   if (hit?.row?.type === 'page' && hit.row.idx != null && hit.localC === 1) {
     openCellFilter({ idx: hit.row.idx, zone: hit.row.zone || 'page' }, g.clientX, g.clientY)
   }
@@ -2078,38 +2076,6 @@ async function refreshPivotTable() {
 function layoutChanged() {
   refreshPivotTable()
 }
-function pickPvMenu(name) {
-  pvMenu.value = pvMenu.value === name ? '' : name
-}
-function setReportLayout(mode) {
-  pivot.reportLayout = mode
-  pvMenu.value = ''
-  layoutChanged()
-}
-function setRepeatLabels(on) {
-  pivot.repeatLabels = on
-  pvMenu.value = ''
-  layoutChanged()
-}
-function setSubtotalPos(pos) {
-  pivot.showSubTotal = pos !== 'off'
-  pivot.subtotalPos = pos === 'top' ? 'top' : 'bottom'
-  if (pos === 'top' && !pivot.reportLayout) pivot.reportLayout = 'outline'
-  pvMenu.value = ''
-  layoutChanged()
-}
-function setPivotTotals(mode) {
-  pivot.showRowTotal = mode === 'both' || mode === 'row'
-  pivot.showColTotal = mode === 'both' || mode === 'col'
-  pvMenu.value = ''
-  layoutChanged()
-}
-function setBlankRows(on) {
-  pivot.blankRows = on
-  if (on && !pivot.reportLayout) pivot.reportLayout = 'tabular'
-  pvMenu.value = ''
-  layoutChanged()
-}
 function onFieldCheck(idx, checked) {
   if (checked) addFieldTo(pivot, idx, guessZone(pivot, idx))
   else removeField(pivot, idx)
@@ -2704,51 +2670,7 @@ onBeforeUnmount(() => {
           @chart="openChartDialog()"
           @mx-insert="onMxInsert"
           @pivot-config="onImportedPivot"
-        >
-          <template #pivot-design>
-            <div v-if="pivotOpen && pivot.open" class="pv-design" @mousedown.stop>
-              <div class="pv-design-item">
-                <button type="button" class="pv-design-btn" :class="{ on: pvMenu === 'sub' }" @click="pickPvMenu('sub')">分类汇总</button>
-                <div v-if="pvMenu === 'sub'" class="pv-design-menu">
-                  <button type="button" :class="{ on: !pivot.showSubTotal }" @click="setSubtotalPos('off')">不显示分类汇总</button>
-                  <button type="button" :class="{ on: pivot.showSubTotal && pivot.subtotalPos !== 'top' }" @click="setSubtotalPos('bottom')">在组的底部显示</button>
-                  <button type="button" :class="{ on: pivot.showSubTotal && pivot.subtotalPos === 'top' }" @click="setSubtotalPos('top')">在组的顶部显示</button>
-                </div>
-              </div>
-              <div class="pv-design-item">
-                <button type="button" class="pv-design-btn" :class="{ on: pvMenu === 'total' }" @click="pickPvMenu('total')">总计</button>
-                <div v-if="pvMenu === 'total'" class="pv-design-menu">
-                  <button type="button" :class="{ on: pivot.showRowTotal && pivot.showColTotal }" @click="setPivotTotals('both')">对行和列启用</button>
-                  <button type="button" :class="{ on: pivot.showRowTotal && !pivot.showColTotal }" @click="setPivotTotals('row')">仅对行启用</button>
-                  <button type="button" :class="{ on: !pivot.showRowTotal && pivot.showColTotal }" @click="setPivotTotals('col')">仅对列启用</button>
-                  <button type="button" :class="{ on: !pivot.showRowTotal && !pivot.showColTotal }" @click="setPivotTotals('off')">对行和列禁用</button>
-                </div>
-              </div>
-              <div class="pv-design-item">
-                <button type="button" class="pv-design-btn" :class="{ on: pvMenu === 'layout' }" @click="pickPvMenu('layout')">报表布局</button>
-                <div v-if="pvMenu === 'layout'" class="pv-design-menu">
-                  <button type="button" :class="{ on: pivot.reportLayout === 'compact' }" @click="setReportLayout('compact')">以压缩形式显示</button>
-                  <button type="button" :class="{ on: pivot.reportLayout === 'outline' }" @click="setReportLayout('outline')">以大纲形式显示</button>
-                  <button type="button" :class="{ on: pivot.reportLayout === 'tabular' }" @click="setReportLayout('tabular')">以表格形式显示</button>
-                  <i class="pv-design-split" />
-                  <button type="button" :class="{ on: pivot.repeatLabels }" @click="setRepeatLabels(true)">重复所有项目标签</button>
-                  <button type="button" :class="{ on: !pivot.repeatLabels }" @click="setRepeatLabels(false)">不显示重复项目标签</button>
-                </div>
-              </div>
-              <div class="pv-design-item">
-                <button type="button" class="pv-design-btn" :class="{ on: pvMenu === 'blank' }" @click="pickPvMenu('blank')">空行</button>
-                <div v-if="pvMenu === 'blank'" class="pv-design-menu">
-                  <button type="button" :class="{ on: pivot.blankRows }" @click="setBlankRows(true)">在每个项目后插入空行</button>
-                  <button type="button" :class="{ on: !pivot.blankRows }" @click="setBlankRows(false)">删除每个项目后的空行</button>
-                </div>
-              </div>
-              <label class="pv-design-check"><input v-model="pivot.rowHeaders" type="checkbox" @change="layoutChanged">行标题</label>
-              <label class="pv-design-check"><input v-model="pivot.colHeaders" type="checkbox" @change="layoutChanged">列标题</label>
-              <label class="pv-design-check"><input v-model="pivot.bandRows" type="checkbox" @change="layoutChanged">镶边行</label>
-              <label class="pv-design-check"><input v-model="pivot.bandCols" type="checkbox" @change="layoutChanged">镶边列</label>
-            </div>
-          </template>
-        </FortuneSheet>
+        />
         <!-- 关联虚线框（pointer-events 穿透，仅视觉提示） -->
         <div
           v-for="(b, i) in mxDash.boxes"

@@ -1044,27 +1044,6 @@ function stampFeishuLabelsNow(box) {
   }
   placeFontBar(box)
   placeAlignBar(box)
-  ensurePivotDesignHost(box)
-}
-
-function ensurePivotDesignHost(box) {
-  const tb = box.querySelector('.fortune-toolbar')
-  const work = tb?.closest('.fortune-workarea')
-  const anchor = tb?.parentElement
-  if (!work || !anchor) return
-  let host = work.querySelector(':scope > #pv-design-host')
-  if (!host) {
-    host = document.createElement('div')
-    host.id = 'pv-design-host'
-    anchor.after(host)
-    pivotBarReady.value = false
-    nextTick(() => {
-      if (host.isConnected) pivotBarReady.value = true
-    })
-    return
-  }
-  if (host.previousElementSibling !== anchor) anchor.after(host)
-  if (!pivotBarReady.value) pivotBarReady.value = true
 }
 
 function overlayPos(wrap, el, height) {
@@ -6870,7 +6849,7 @@ function sheetHasFocus(e) {
   const el = document.activeElement
   const tag = el?.tagName
   if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return false
-  if (el?.closest?.('.pv-panel, .pv-design, .pv-pop') && selectionBox()) return true
+  if (el?.closest?.('.pv-panel, .pv-pop') && selectionBox()) return true
   if (el?.closest?.('.fs-filter, .fs-sheet-list, .pv-panel, .pv-pop, .arco-modal, .arco-trigger-popup')) return false
   if (el?.isContentEditable && !el.closest?.('#luckysheet-rich-text-editor, #luckysheet-functionbox-cell')) return false
   if (hostRef.value.contains(el) || hostRef.value.contains(e.target)) return true
@@ -7675,7 +7654,6 @@ const BEAUTY_STYLES = [
   { id: 'dotted', group: 'border', header: 'none', band: 0, first: '', body: '', border: 'dotted' },
 ]
 const zoomReady = ref(false)
-const pivotBarReady = ref(false)
 const viewState = reactive({
   grid: true,
   cross: false,
@@ -8194,9 +8172,6 @@ defineExpose({
       <span>求和: {{ sheetStat.sum }}</span>
       <span>平均值: {{ sheetStat.avg }}</span>
     </div>
-    <Teleport v-if="pivotBarReady" to="#pv-design-host">
-      <slot name="pivot-design" />
-    </Teleport>
     <Teleport v-if="zoomReady" to=".fortune-zoom-container">
       <div class="fs-view-tools" :class="{ on: viewState.cross }" @mousedown.stop>
         <button type="button" class="fs-view-main" title="高亮所在行列" @click="toggleCrosshair">
