@@ -4767,7 +4767,7 @@ const CTX_ITEMS = [
 let copiedPack = null
 let copyMarkOn = false
 let copyMarkRaf = 0
-const copyMark = reactive({ show: false, left: 0, top: 0, width: 0, height: 0 })
+const copyMark = reactive({ show: false, left: 0, top: 0, width: 0, height: 0, same: false })
 const cellLog = new Map()
 const ctxDlg = reactive({ show: false, title: '', text: '', mode: '', lines: [] })
 const DV_CONDS = ['单选', '多选', '数字', '日期', '文本', '复选框', '手机号', '邮箱']
@@ -4866,6 +4866,7 @@ function rememberCopy() {
 function hideCopyMark() {
   copyMarkOn = false
   copyMark.show = false
+  copyMark.same = false
   if (copyMarkRaf) cancelAnimationFrame(copyMarkRaf)
   copyMarkRaf = 0
 }
@@ -4890,13 +4891,36 @@ function syncCopyMark() {
   const pack = copiedPack
   if (!copyMarkOn || !pack || !Number.isInteger(pack.r0)) {
     copyMark.show = false
+    copyMark.same = false
     return
   }
   const ctx = reactStateBy((st) => Array.isArray(st.visibledatarow) && Array.isArray(st.visibledatacolumn)) || ctxState() || {}
   const sheet = instRef.current?.getSheet?.()
   if (sheet?.id && pack.sheetId && sheet.id !== pack.sheetId) {
     copyMark.show = false
+    copyMark.same = false
     return
+  }
+  const sel = ctx.luckysheet_select_save?.[0]
+  copyMark.same = !!(sel
+    && sel.row?.[0] === pack.r0 && sel.row?.[1] === pack.r1
+    && sel.column?.[0] === pack.c0 && sel.column?.[1] === pack.c1)
+  if (copyMark.same) {
+    const selected = hostRef.value?.querySelector('#luckysheet-cell-selected')
+    const selectedBox = selected?.getBoundingClientRect()
+    if (selectedBox && selectedBox.width > 1 && selectedBox.height > 1) {
+      if (!copyMarkOn) {
+        copyMark.show = false
+        copyMark.same = false
+        return
+      }
+      copyMark.show = true
+      copyMark.left = selectedBox.left
+      copyMark.top = selectedBox.top
+      copyMark.width = selectedBox.width
+      copyMark.height = selectedBox.height
+      return
+    }
   }
   const area = hostRef.value?.querySelector('.fortune-cell-area')
   const box = copyRangeBox(ctx, pack)
@@ -4907,10 +4931,10 @@ function syncCopyMark() {
   const areaBox = area.getBoundingClientRect()
   const scrollX = Number(ctx.scrollLeft) || 0
   const scrollY = Number(ctx.scrollTop) || 0
-  let left = areaBox.left + box.left - scrollX
-  let top = areaBox.top + box.top - scrollY
-  let right = left + box.width
-  let bottom = top + box.height
+  let left = areaBox.left + box.left - scrollX - 1
+  let top = areaBox.top + box.top - scrollY - 1
+  let right = left + box.width + 2
+  let bottom = top + box.height + 2
   if (right <= areaBox.left || bottom <= areaBox.top || left >= areaBox.right || top >= areaBox.bottom) {
     copyMark.show = false
     return
@@ -4934,6 +4958,7 @@ function showCopyMark() {
     if (!copyMarkOn) {
       copyMarkRaf = 0
       copyMark.show = false
+      copyMark.same = false
       return
     }
     syncCopyMark()
@@ -6537,10 +6562,28 @@ function paintPivotSummary(startRow, startCol, layout) {
   })
 }
 
+function ensureSheetSpan(api, endRow, endCol) {
+  const sheet = api.getSheet?.()
+  const data = sheet?.data
+  if (!sheet?.id || !Array.isArray(data) || !data[0]) return
+  const rows = data.length
+  const cols = data[0]?.length || sheet.column || 0
+  const needRows = Math.max(rows, endRow + 1)
+  const needCols = Math.max(cols, endCol + 1)
+  if (needRows === rows && needCols === cols) return
+  api.updateSheet?.([{
+    ...sheet,
+    data,
+    row: needRows,
+    column: needCols,
+  }])
+}
+
 function writeBlock(name, startRow, startCol, matrix, headerRows = 0, layout = null) {
   const api = instRef.current
   if (!api || !matrix?.length || !matrix[0]?.length) return false
   if (name) setActiveSheet(name)
+  ensureSheetSpan(api, startRow + matrix.length - 1, startCol + matrix[0].length - 1)
   const range = {
     row: [startRow, startRow + matrix.length - 1],
     column: [startCol, startCol + matrix[0].length - 1],
@@ -8045,7 +8088,7 @@ defineExpose({
 </script>
 
 <template>
-  <div class="fortune-wrap" :class="{ 'fs-open': !folded, 'cf-side': cfState.side && cfState.dlg, 'beauty-side': beauty.show, 'cf-picking': cfState.pickingRange, 'fs-sheet-list-open': sheetListPop.open }" @mousedown="onWrapDown" @mouseover="onTipOver" @mouseleave="onTipLeave">
+  <div class="fortune-wrap" :class="{ 'fs-open': !folded, 'cf-side': cfState.side && cfState.dlg, 'beauty-side': beauty.show, 'cf-picking': cfState.pickingRange, 'fs-sheet-list-open': sheetListPop.open, 'fs-copy-same': copyMark.same }" @mousedown="onWrapDown" @mouseover="onTipOver" @mouseleave="onTipLeave">
     <input ref="fileRef" type="file" accept=".xlsx,.xls" hidden @change="onImport">
     <div ref="hostRef" class="fortune-host"></div>
     <button

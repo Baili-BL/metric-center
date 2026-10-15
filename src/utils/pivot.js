@@ -38,6 +38,13 @@ export function emptyPivot() {
     showColTotal: true,
     showSubTotal: true,
     repeatLabels: false,
+    reportLayout: '',
+    subtotalPos: 'bottom',
+    blankRows: false,
+    rowHeaders: true,
+    colHeaders: true,
+    bandRows: false,
+    bandCols: false,
     fieldOpts: {},
     collapsed: {},
     out: null,
@@ -742,8 +749,10 @@ export function buildPivotMatrix(state) {
   const showColTotal = state.showColTotal !== false && colIdxs.length > 0
   const showRowTotal = state.showRowTotal !== false && rowIdxs.length > 0
   const showSubTotal = state.showSubTotal !== false && rowIdxs.length > 1
+  const mode = ['compact', 'outline', 'tabular'].includes(state.reportLayout) ? state.reportLayout : ''
+  const subPos = !showSubTotal ? 'off' : (state.subtotalPos === 'top' ? 'top' : 'bottom')
   const twoHead = colIdxs.length > 0 && vals.length > 1
-  const leftW = Math.max(rowIdxs.length, 1)
+  const leftW = mode === 'compact' ? 1 : Math.max(rowIdxs.length, 1)
   const matrix = []
   const rowMeta = []
   const pushRow = (cells, meta) => { matrix.push(cells); rowMeta.push(meta) }
@@ -759,7 +768,9 @@ export function buildPivotMatrix(state) {
   }
   if (twoHead) {
     const top = blankLabels()
-    top[0] = headerName(state, rowIdxs[0])
+    top[0] = mode === 'compact' && rowIdxs.length
+      ? rowIdxs.map((idx) => headerName(state, idx)).join(' ')
+      : headerName(state, rowIdxs[0])
     colCombos.forEach((parts) => {
       const name = parts.map(String).join(' / ')
       vals.forEach((_, vi) => { top.push(vi === 0 ? name : '') })
@@ -771,7 +782,9 @@ export function buildPivotMatrix(state) {
     if (showColTotal) vals.forEach((v) => { sub.push(valueLabel(state, v)) })
     pushRow(sub, { type: 'head' })
   } else {
-    const head = rowIdxs.length ? rowIdxs.map((idx) => headerName(state, idx)) : ['']
+    const head = mode === 'compact'
+      ? [rowIdxs.length ? rowIdxs.map((idx) => headerName(state, idx)).join(' ') : '']
+      : (rowIdxs.length ? rowIdxs.map((idx) => headerName(state, idx)) : [''])
     if (colIdxs.length) {
       colCombos.forEach((parts) => {
         const name = parts.map(String).join(' / ')
@@ -807,7 +820,110 @@ export function buildPivotMatrix(state) {
     const bucket = rowsMatching(state, rows, rowIdxs, prefix)
     pushRow(labels.concat(valueCells(bucket)), { type: 'sub', parts: prefix.slice() })
   }
-  if (!rowIdxs.length) {
+  function layoutByMode() {
+    if (!rowIdxs.length) {
+      pushData([], rows, null, -1)
+      return
+    }
+    const valueWidth = valueCells(rows).length
+    const emptyVals = () => Array.from({ length: valueWidth }, () => '')
+    const glyphOf = (key) => (state.collapsed?.[key] ? '▸ ' : '▾ ')
+    const keyOf = (parts, level) => parts.slice(0, level + 1).map(String).join('\x1f')
+    const groupsOf = (list, level) => {
+      const groups = []
+      list.forEach((parts) => {
+        const k = String(parts[level] ?? '')
+        let g = groups[groups.length - 1]
+        if (!g || g.k !== k) {
+          g = { k, parts, items: [] }
+          groups.push(g)
+        }
+        g.items.push(parts)
+      })
+      return groups
+    }
+    const pushEmpty = () => pushRow(blankLabels().concat(emptyVals()), { type: 'blank' })
+    const subLabels = (prefix) => {
+      const labels = blankLabels()
+      const name = `${prefix[prefix.length - 1]}总计`
+      if (mode === 'compact') labels[0] = `${'    '.repeat(Math.max(0, prefix.length - 1))}${name}`
+      else labels[Math.max(0, prefix.length - 1)] = name
+      return labels
+    }
+    const pushSubtotal = (prefix) => {
+      const bucket = rowsMatching(state, rows, rowIdxs, prefix)
+      pushRow(subLabels(prefix).concat(valueCells(bucket)), { type: 'sub', parts: prefix.slice() })
+    }
+    const tabularLabels = (parts, prev) => {
+      const line = []
+      for (let i = 0; i < leftW; i++) {
+        let text = i < parts.length ? (parts[i] ?? '') : ''
+        if (!state.repeatLabels && prev && i < prev.length && String(prev[i]) === String(parts[i])) text = ''
+        line.push(text == null ? '' : String(text))
+      }
+      return line
+    }
+    const compactText = (level, name, key, withGlyph) => `${'    '.repeat(level)}${withGlyph ? glyphOf(key) : ''}${name}`
+    const walk = (list, level, prevHolder) => {
+      groupsOf(list, level).forEach((g) => {
+        const prefix = g.parts.slice(0, level + 1)
+        const key = keyOf(prefix, level)
+        const last = level >= rowIdxs.length - 1
+        const collapsed = !last && !!state.collapsed?.[key]
+        const bucket = rowsMatching(state, rows, rowIdxs, prefix)
+        if (mode === 'tabular') {
+          if (!last && subPos === 'top' && !collapsed) pushSubtotal(prefix)
+          if (collapsed) {
+            const labels = blankLabels()
+            labels[level] = `${glyphOf(key)}${prefix[level]}`
+            pushRow(labels.concat(valueCells(bucket)), { type: 'data', parts: prefix.slice(), toggleKey: key, toggleCol: level })
+          } else if (last) {
+            g.items.forEach((parts) => {
+              pushRow(tabularLabels(parts, prevHolder.parts).concat(valueCells(rowsMatching(state, rows, rowIdxs, parts))), {
+                type: 'data', parts: parts.slice(), toggleKey: '', toggleCol: 0,
+              })
+              prevHolder.parts = parts
+            })
+          } else {
+            prevHolder.parts = null
+            walk(g.items, level + 1, prevHolder)
+            prevHolder.parts = g.items[g.items.length - 1] || null
+          }
+          if (!last && subPos === 'bottom' && !collapsed) pushSubtotal(prefix)
+        } else {
+          const labels = blankLabels()
+          const name = prefix[level] ?? ''
+          if (mode === 'compact') labels[0] = compactText(level, name, key, !last)
+          else labels[level] = `${!last ? glyphOf(key) : ''}${name}`
+          const showValues = collapsed || last || subPos === 'top'
+          pushRow(labels.concat(showValues ? valueCells(last ? rowsMatching(state, rows, rowIdxs, g.parts) : bucket) : emptyVals()), {
+            type: 'data',
+            parts: prefix.slice(),
+            toggleKey: !last ? key : '',
+            toggleCol: mode === 'compact' ? 0 : level,
+          })
+          if (!collapsed && !last) {
+            if (level + 1 === rowIdxs.length - 1) {
+              g.items.forEach((parts) => {
+                const leaf = blankLabels()
+                const leafName = parts[level + 1] ?? ''
+                if (mode === 'compact') leaf[0] = compactText(level + 1, leafName, '', false)
+                else leaf[level + 1] = leafName
+                pushRow(leaf.concat(valueCells(rowsMatching(state, rows, rowIdxs, parts))), {
+                  type: 'data', parts: parts.slice(), toggleKey: '', toggleCol: 0,
+                })
+              })
+            } else walk(g.items, level + 1, prevHolder)
+          }
+          if (!last && subPos === 'bottom' && !collapsed) pushSubtotal(prefix)
+        }
+        if (state.blankRows && level === 0) pushEmpty()
+      })
+    }
+    walk(rowCombos, 0, { parts: null })
+  }
+  if (mode) layoutByMode()
+  else if (!rowIdxs.length) {
     pushData([], rows, null, -1)
   } else if (!showSubTotal) {
     let prev = null
@@ -868,7 +984,16 @@ export function buildPivotMatrix(state) {
     }))
   })
   if (showColTotal) vals.forEach((v, vi) => cols.push({ type: 'total', valIndex: vi, colKey: '', colParts: null, colLabel: '总计' }))
-  const layout = { headerRows: twoHead ? 2 : 1, leftW, rows: rowMeta, cols }
+  const layout = {
+    headerRows: twoHead ? 2 : 1,
+    leftW,
+    rows: rowMeta,
+    cols,
+    bandRows: !!state.bandRows,
+    bandCols: !!state.bandCols,
+    rowHeaders: state.rowHeaders !== false,
+    colHeaders: state.colHeaders !== false,
+  }
   applyShow(matrix, layout, vals)
   state._layout = layout
   return matrix
@@ -884,17 +1009,26 @@ export function writePivotToSheet(sheet, matrix, startRow, startCol, headerRows,
       for (let cc = 0; cc < prev.cols; cc++) delete sheet.cellData[r0][prev.startColumn + cc]
     }
   }
+  let dataSeq = 0
   matrix.forEach((row, ri) => {
     const r = startRow + ri
     if (!sheet.cellData[r]) sheet.cellData[r] = {}
+    const rowType = layout?.rows?.[ri]?.type
+    if (rowType === 'data') dataSeq += 1
     row.forEach((v, ci) => {
       const n = typeof v === 'number' && Number.isFinite(v)
       const cell = n ? { v, t: 2 } : { v: String(v == null ? '' : v), t: 1 }
-      const rowType = layout?.rows?.[ri]?.type
       const colType = layout?.cols?.[ci]?.type
       const summary = rowType === 'total' || rowType === 'sub' || (colType === 'total' && rowType !== 'head')
-      if (ri < headerRows) cell.s = { bl: 1, bg: { rgb: '#E8F3FF' }, ht: 2 }
-      else if (summary) cell.s = { bl: 1, bg: { rgb: '#DCE6F1' } }
+      const labelHead = ci < (layout?.leftW || 0)
+      if (ri < headerRows) {
+        const headOn = labelHead ? layout?.rowHeaders !== false : layout?.colHeaders !== false
+        if (headOn) cell.s = { bl: 1, bg: { rgb: '#E8F3FF' }, ht: 2 }
+      } else if (summary) cell.s = { bl: 1, bg: { rgb: '#DCE6F1' } }
+      else if (rowType === 'data' && layout?.bandRows && dataSeq % 2 === 0) cell.s = { bg: { rgb: '#F7F8FA' } }
+      else if (rowType === 'data' && layout?.bandCols && colType === 'val' && (ci - (layout?.leftW || 0)) % 2 === 1) {
+        cell.s = { bg: { rgb: '#F7F8FA' } }
+      }
       sheet.cellData[r][startCol + ci] = cell
     })
   })
@@ -917,6 +1051,13 @@ export function toPivotConfig(state) {
     showColTotal: state.showColTotal,
     showSubTotal: state.showSubTotal,
     repeatLabels: state.repeatLabels,
+    reportLayout: state.reportLayout || '',
+    subtotalPos: state.subtotalPos === 'top' ? 'top' : 'bottom',
+    blankRows: !!state.blankRows,
+    rowHeaders: state.rowHeaders !== false,
+    colHeaders: state.colHeaders !== false,
+    bandRows: !!state.bandRows,
+    bandCols: !!state.bandCols,
     fieldOpts: state.fieldOpts,
     collapsed: state.collapsed,
     out: state.out,
@@ -937,6 +1078,13 @@ export function applyPivotConfig(state, cfg) {
   state.showColTotal = cfg.showColTotal !== false
   state.showSubTotal = cfg.showSubTotal !== false
   state.repeatLabels = !!cfg.repeatLabels
+  state.reportLayout = ['compact', 'outline', 'tabular'].includes(cfg.reportLayout) ? cfg.reportLayout : ''
+  state.subtotalPos = cfg.subtotalPos === 'top' ? 'top' : 'bottom'
+  state.blankRows = !!cfg.blankRows
+  state.rowHeaders = cfg.rowHeaders !== false
+  state.colHeaders = cfg.colHeaders !== false
+  state.bandRows = !!cfg.bandRows
+  state.bandCols = !!cfg.bandCols
   state.fieldOpts = cfg.fieldOpts || {}
   state.collapsed = cfg.collapsed || {}
   state.out = cfg.out || null

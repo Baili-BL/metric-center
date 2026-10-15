@@ -57,11 +57,19 @@ function pickPalette(i) {
   palOpen.value = false
 }
 const usedCols = computed(() => new Set((props.state.series || []).map((s) => s.col)))
-const spareCols = computed(() => props.columns.filter((col) => col.numeric > 0 && col.col !== props.state.categoryCol && !usedCols.value.has(col.col)))
-function seriesChoices(current) {
-  return props.columns.filter((col) => col.numeric > 0 && (col.col === current || !usedCols.value.has(col.col)) && col.col !== props.state.categoryCol)
+const categoryCols = computed(() => {
+  if (Array.isArray(props.state.categoryCols)) return props.state.categoryCols
+  return props.state.categoryCol != null ? [props.state.categoryCol] : []
+})
+function isCategory(col) {
+  return categoryCols.value.includes(col)
 }
-function closePops() {
+const spareCols = computed(() => props.columns.filter((col) => col.numeric > 0 && !isCategory(col.col) && !usedCols.value.has(col.col)))
+function seriesChoices(current) {
+  return props.columns.filter((col) => col.numeric > 0 && (col.col === current || !usedCols.value.has(col.col)) && !isCategory(col.col))
+}
+function closePops(event) {
+  if (event?.target?.closest?.('.sc-float')) return
   typeOpen.value = false
   palOpen.value = false
   fieldMenu.value = null
@@ -208,13 +216,16 @@ function commitRange() {
             @mousedown.stop
           >
             <template v-if="fieldMenu.kind === 'category'">
+              <div class="sc-multi-tip">可多选，再次点击取消</div>
               <button
                 v-for="col in columns"
                 :key="col.col"
                 type="button"
-                :class="{ on: col.col === state.categoryCol }"
-                @click="emit('category', col.col); fieldMenu = null"
+                :class="{ on: isCategory(col.col) }"
+                @mousedown.stop
+                @click.stop="emit('category', col.col)"
               >
+                <i class="sc-tick" />
                 <i class="sc-field-ico">T</i>
                 {{ col.name }}
               </button>

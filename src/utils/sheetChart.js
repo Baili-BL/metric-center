@@ -42,6 +42,7 @@ export function freshChartState(title) {
     title: title || '图表',
     paletteIdx: 1,
     titleShow: true,
+    titleSize: 14,
     legendShow: true,
     legendPos: 'bottom',
     legendAlign: 'center',
@@ -112,9 +113,29 @@ export function inspectSheetRange(sheet, range) {
   return { at, asNumber, r0, r1, c0, c1, header, bodyStart, columns }
 }
 
+function boundCategoryCols(binding, inside) {
+  const raw = Array.isArray(binding?.categoryCols)
+    ? binding.categoryCols
+    : (binding?.categoryCol != null ? [binding.categoryCol] : [])
+  const seen = new Set()
+  return raw.filter((c) => {
+    if (!inside(c) || seen.has(c)) return false
+    seen.add(c)
+    return true
+  }).sort((a, b) => a - b)
+}
+
+function categoryText(at, row, cols) {
+  return cols.map((c) => {
+    const p = at(row, c)
+    return p.kind === 'empty' ? '' : String(p.v)
+  }).filter((text) => text !== '').join(' / ')
+}
+
 /**
  * 把选区读成类别 + 系列。
  * binding.seriesCols 有值时按用户指定的横轴列、纵轴列，不再自动猜。
+ * 横轴可以是多列，刻度按从左到右拼在一起。
  */
 export function matrixFromSheet(sheet, range, binding = null) {
   const info = inspectSheetRange(sheet, range)
@@ -122,8 +143,8 @@ export function matrixFromSheet(sheet, range, binding = null) {
   const { at, asNumber, r0, r1, c0, c1, header, bodyStart, columns } = info
   const inside = (c) => c >= c0 && c <= c1
   const explicit = Array.isArray(binding?.seriesCols) && binding.seriesCols.length > 0
-  let categoryCol = explicit && inside(binding.categoryCol) ? binding.categoryCol : null
-  let seriesCols = explicit ? binding.seriesCols.filter((c) => inside(c) && c !== categoryCol) : null
+  let categoryCols = explicit ? boundCategoryCols(binding, inside) : null
+  let seriesCols = explicit ? binding.seriesCols.filter((c) => inside(c) && !categoryCols.includes(c)) : null
   if (!seriesCols?.length) {
     let textLabels = 0
     for (let r = bodyStart; r <= r1; r++) {
@@ -131,18 +152,14 @@ export function matrixFromSheet(sheet, range, binding = null) {
     }
     const bodyRows = r1 - bodyStart + 1
     const labelCol = c1 > c0 && textLabels >= Math.ceil(bodyRows / 2)
-    categoryCol = labelCol ? c0 : null
-    seriesCols = columns.filter((col) => col.col !== categoryCol && col.numeric > 0).map((col) => col.col)
+    categoryCols = labelCol ? [c0] : []
+    seriesCols = columns.filter((col) => !categoryCols.includes(col.col) && col.numeric > 0).map((col) => col.col)
   }
   if (!seriesCols.length) return null
 
   const labels = []
   for (let r = bodyStart; r <= r1; r++) {
-    if (categoryCol == null) labels.push(String(r - bodyStart + 1))
-    else {
-      const p = at(r, categoryCol)
-      labels.push(p.kind === 'empty' ? '' : String(p.v))
-    }
+    labels.push(categoryCols.length ? categoryText(at, r, categoryCols) : String(r - bodyStart + 1))
   }
   const series = seriesCols.map((c, i) => {
     const meta = columns.find((col) => col.col === c)
@@ -151,12 +168,13 @@ export function matrixFromSheet(sheet, range, binding = null) {
     return { col: c, name: meta?.name || `系列${i + 1}`, values }
   }).filter((s) => s.values.some((v) => v != null))
   if (!series.length || !labels.length) return null
-  const cat = columns.find((col) => col.col === categoryCol)
+  const catNames = categoryCols.map((c) => columns.find((col) => col.col === c)?.name).filter(Boolean)
   return {
     labels,
     series,
-    categoryName: cat?.name || '类别',
-    categoryCol,
+    categoryName: catNames.join('、') || '类别',
+    categoryCol: categoryCols[0] ?? null,
+    categoryCols,
     seriesCols: series.map((s) => s.col),
     columns,
     headerRow: header ? r0 : null,
@@ -173,7 +191,7 @@ export function chartSourceRefs(sheet, range, binding = null) {
     headerRow: matrix.headerRow,
     bodyStart: matrix.bodyStart,
     bodyEnd: matrix.bodyEnd,
-    labelCol: matrix.categoryCol,
+    labelCol: matrix.categoryCols.length === 1 ? matrix.categoryCol : null,
     labels: matrix.labels,
     series: matrix.series,
   }
@@ -183,6 +201,7 @@ export function syncChartSeries(state, matrix) {
   const colors = paletteOf(state).colors
   const prev = state.series || []
   state.categoryCol = matrix.categoryCol
+  state.categoryCols = matrix.categoryCols.slice()
   state.seriesCols = matrix.seriesCols.slice()
   state.series = matrix.series.map((s, i) => {
     const old = prev.find((p) => p.col === s.col) || prev.find((p) => p.name === s.name) || {}

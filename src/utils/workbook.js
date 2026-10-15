@@ -1152,7 +1152,7 @@ export function univerToFortune(wb) {
       status: i === 0 ? 1 : 0,
       celldata,
       row: Math.min(200, Math.max(40, maxR + 12, Math.min(Number(sh.rowCount) || 0, 200))),
-      column: Math.min(40, Math.max(12, maxC + 4, Math.min(Number(sh.columnCount) || 0, 40))),
+      column: Math.min(200, Math.max(12, maxC + 4, Math.min(Number(sh.columnCount) || 0, 200))),
       config: {
         ...(Object.keys(merge).length ? { merge } : {}),
         ...(sh.fortune?.borderInfo ? { borderInfo: sh.fortune.borderInfo } : {}),

@@ -954,6 +954,7 @@ function tableChartGroups(workbook, charts) {
     const state = ch.state || {}
     const src = chartSourceRefs(sheet, ch.range, {
       categoryCol: state.categoryCol,
+      categoryCols: state.categoryCols,
       seriesCols: state.seriesCols,
     })
     if (!src?.series?.length) continue

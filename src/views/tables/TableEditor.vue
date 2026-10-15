@@ -43,6 +43,7 @@ const titleEditing = ref(false)
 const titleDraft = ref('')
 const titleInput = ref(null)
 const pivotOpen = ref(false)
+const pvMenu = ref('')
 const sheetCharts = reactive([])
 const chartDrag = reactive({})
 const chartSel = ref('')
@@ -77,7 +78,7 @@ const wizard = reactive({
   srcRange: '',
   dstCell: '',
 })
-const pvPick = reactive({ active: false, field: '' })
+const pvPick = reactive({ active: false, field: '', backup: '' })
 const pub = reactive({ visible: false, approver: '', reason: '' })
 const pivot = reactive(emptyPivot())
 const approvers = PEOPLE.filter((p) => p !== ME)
@@ -675,7 +676,6 @@ function onCellClick(g) {
   }
   if (pvPick.active && pvPick.field === 'dst') {
     wizard.dstCell = absCellRef(liveSheetName(), g.r, g.c)
-    endPvPick(true)
     return
   }
   // 选格拾取模式：把点中的单元格回填到弹窗的引用输入框
@@ -693,7 +693,8 @@ function onCellClick(g) {
     return
   }
   const hit = pivotHit(g)
-  if (hit?.row?.toggleKey && hit.localC === 0) {
+  pvMenu.value = ''
+  if (hit?.row?.toggleKey && hit.localC === (hit.row.toggleCol ?? 0)) {
     pivot.collapsed[hit.row.toggleKey] = !pivot.collapsed[hit.row.toggleKey]
     refreshPivotTable()
     return
@@ -1208,6 +1209,7 @@ function snapshotSheetByName(name) {
 }
 
 function openPivotWizard() {
+  hideChartPanel()
   capture()
   const name = liveSheetName()
   const sheet = snapshotSheetByName(name)
@@ -1232,22 +1234,32 @@ function onPvPickPointerUp() {
   if (!pvPick.active || pvPick.field !== 'src') return
   setTimeout(syncPvSrcFromSheet, 40)
 }
+const pvPickText = computed({
+  get() {
+    if (pvPick.field === 'src') return wizard.srcRange
+    if (pvPick.field === 'move') {
+      if (pivot.out && pivot.outName) return absCellRef(pivot.outName, pivot.out.startRow, pivot.out.startColumn)
+      return ''
+    }
+    return wizard.dstCell
+  },
+  set(value) {
+    if (pvPick.field === 'src') wizard.srcRange = value
+    else if (pvPick.field === 'dst') wizard.dstCell = value
+  },
+})
 function beginPvPick(field) {
   document.removeEventListener('mouseup', onPvPickPointerUp, true)
   pvPick.field = field
+  pvPick.backup = field === 'src' ? wizard.srcRange : wizard.dstCell
   pvPick.active = true
   wizard.visible = false
   if (field === 'src') document.addEventListener('mouseup', onPvPickPointerUp, true)
-  const tip = field === 'src'
-    ? '请在表格中框选数据区域，选好后点「完成」'
-    : field === 'move'
-      ? '请点选透视表的新位置'
-      : '请在表格中点选放置单元格'
-  Message.info(tip)
 }
 function endPvPick(reopen) {
   pvPick.active = false
   pvPick.field = ''
+  pvPick.backup = ''
   document.removeEventListener('mouseup', onPvPickPointerUp, true)
   if (reopen) wizard.visible = true
 }
@@ -1255,8 +1267,20 @@ function finishPvSrc() {
   if (!syncPvSrcFromSheet()) return Message.warning('请框选至少两格，需包含表头和一行数据')
   endPvPick(true)
 }
+function confirmPvRef() {
+  if (pvPick.field === 'src') return finishPvSrc()
+  if (pvPick.field === 'dst') {
+    if (!String(wizard.dstCell || '').trim()) return Message.warning('请点选放置数据透视表的单元格')
+    endPvPick(true)
+    return
+  }
+  Message.info('请在表格中点选单元格')
+}
 function cancelPvPick() {
-  endPvPick(true)
+  const field = pvPick.field
+  if (field === 'src') wizard.srcRange = pvPick.backup
+  else if (field === 'dst') wizard.dstCell = pvPick.backup
+  endPvPick(field === 'src' || field === 'dst')
 }
 function pickSrc() {
   beginPvPick('src')
@@ -1279,9 +1303,14 @@ function readChartMatrix(sheetName, range, binding) {
   if (!hit) return null
   return matrixFromSheet(hit.sheet, range, binding)
 }
+function chartCategoryCols(state) {
+  if (Array.isArray(state?.categoryCols)) return state.categoryCols.filter((c) => Number.isInteger(c))
+  return Number.isInteger(state?.categoryCol) ? [state.categoryCol] : []
+}
 function chartBinding(state) {
   if (!state?.seriesCols?.length) return null
-  return { categoryCol: state.categoryCol, seriesCols: state.seriesCols }
+  const categoryCols = chartCategoryCols(state)
+  return { categoryCol: categoryCols[0] ?? null, categoryCols, seriesCols: state.seriesCols }
 }
 function hydrateCharts(t) {
   chartsReady = false
@@ -1366,29 +1395,38 @@ function rebindChart(binding) {
   return true
 }
 function setChartCategory(col) {
-  const cols = (chartDlg.state.seriesCols || []).filter((c) => c !== col)
+  const current = chartCategoryCols(chartDlg.state)
+  const on = current.includes(col)
+  const categoryCols = (on ? current.filter((c) => c !== col) : [...current, col]).sort((a, b) => a - b)
+  const cols = (chartDlg.state.seriesCols || []).filter((c) => !categoryCols.includes(c))
+  if (on) {
+    const meta = chartDlg.columns.find((item) => item.col === col)
+    if (meta?.numeric > 0 && !cols.includes(col)) cols.push(col)
+  }
   if (!cols.length) return Message.warning('至少保留一个数值系列')
-  if (!rebindChart({ categoryCol: col, seriesCols: cols })) Message.warning('这一列不能作为横轴')
+  const binding = { categoryCol: categoryCols[0] ?? null, categoryCols, seriesCols: cols }
+  if (!rebindChart(binding)) Message.warning(on ? '这一列不能作为横轴' : '至少保留一个数值系列')
 }
 function addChartSeries(col) {
   const cols = [...(chartDlg.state.seriesCols || [])]
   if (cols.includes(col)) return
   cols.push(col)
-  const categoryCol = chartDlg.state.categoryCol === col ? null : chartDlg.state.categoryCol
-  if (!rebindChart({ categoryCol, seriesCols: cols })) Message.warning('这一列没有可绘制的数值')
+  const categoryCols = chartCategoryCols(chartDlg.state).filter((c) => c !== col)
+  if (!rebindChart({ categoryCol: categoryCols[0] ?? null, categoryCols, seriesCols: cols })) Message.warning('这一列没有可绘制的数值')
 }
 function replaceChartSeries(index, col) {
   const cols = (chartDlg.state.seriesCols || []).slice()
   if (!cols.length || cols.includes(col)) return
   cols[index] = col
-  const categoryCol = chartDlg.state.categoryCol === col ? null : chartDlg.state.categoryCol
-  if (!rebindChart({ categoryCol, seriesCols: cols })) Message.warning('这一列没有可绘制的数值')
+  const categoryCols = chartCategoryCols(chartDlg.state).filter((c) => c !== col)
+  if (!rebindChart({ categoryCol: categoryCols[0] ?? null, categoryCols, seriesCols: cols })) Message.warning('这一列没有可绘制的数值')
 }
 function removeChartSeries(index) {
   const cols = (chartDlg.state.seriesCols || []).slice()
   if (cols.length <= 1) return Message.warning('至少保留一个系列')
   cols.splice(index, 1)
-  rebindChart({ categoryCol: chartDlg.state.categoryCol, seriesCols: cols })
+  const categoryCols = chartCategoryCols(chartDlg.state)
+  rebindChart({ categoryCol: categoryCols[0] ?? null, categoryCols, seriesCols: cols })
 }
 function applyChartRangeText(text) {
   const range = parseA1Range(text)
@@ -1412,6 +1450,15 @@ function closeChartPanel() {
   if (chartDlg.editingId) persistCharts()
   chartDlg.visible = false
 }
+function hideChartPanel() {
+  if (chPick.active) endChartPick(false)
+  if (chartDlg.visible) closeChartPanel()
+  chartSel.value = ''
+  chartMenu.id = ''
+}
+watch(pivotOpen, (open) => {
+  if (open) hideChartPanel()
+})
 watch(() => chartDlg.visible, () => {
   nextTick(() => setTimeout(() => window.dispatchEvent(new Event('resize')), 40))
 })
@@ -1689,6 +1736,13 @@ async function confirmWizard() {
   pivot.showColTotal = true
   pivot.showSubTotal = true
   pivot.repeatLabels = false
+  pivot.reportLayout = ''
+  pivot.subtotalPos = 'bottom'
+  pivot.blankRows = false
+  pivot.rowHeaders = true
+  pivot.colHeaders = true
+  pivot.bandRows = false
+  pivot.bandCols = false
   const sheet = snapshotSheetByName(srcName)
   const src = sheet ? extractPivotSource(sheet, range) : null
   if (!src?.headers.length || !src.rows.length) return Message.error('数据透视至少需要表头和一行数据')
@@ -1778,6 +1832,38 @@ async function refreshPivotTable() {
 
 function layoutChanged() {
   refreshPivotTable()
+}
+function pickPvMenu(name) {
+  pvMenu.value = pvMenu.value === name ? '' : name
+}
+function setReportLayout(mode) {
+  pivot.reportLayout = mode
+  pvMenu.value = ''
+  layoutChanged()
+}
+function setRepeatLabels(on) {
+  pivot.repeatLabels = on
+  pvMenu.value = ''
+  layoutChanged()
+}
+function setSubtotalPos(pos) {
+  pivot.showSubTotal = pos !== 'off'
+  pivot.subtotalPos = pos === 'top' ? 'top' : 'bottom'
+  if (pos === 'top' && !pivot.reportLayout) pivot.reportLayout = 'outline'
+  pvMenu.value = ''
+  layoutChanged()
+}
+function setPivotTotals(mode) {
+  pivot.showRowTotal = mode === 'both' || mode === 'row'
+  pivot.showColTotal = mode === 'both' || mode === 'col'
+  pvMenu.value = ''
+  layoutChanged()
+}
+function setBlankRows(on) {
+  pivot.blankRows = on
+  if (on && !pivot.reportLayout) pivot.reportLayout = 'tabular'
+  pvMenu.value = ''
+  layoutChanged()
 }
 function onFieldCheck(idx, checked) {
   if (checked) addFieldTo(pivot, idx, guessZone(pivot, idx))
@@ -2282,18 +2368,53 @@ onBeforeUnmount(() => {
           <button type="button" class="btn" :disabled="exporting" @click="onExport">{{ exporting ? '导出中…' : '导出' }}</button>
         </div>
       </div>
+      <div v-if="pivotOpen && pivot.open" class="pv-design" @mousedown.stop>
+        <div class="pv-design-item">
+          <button type="button" class="pv-design-btn" :class="{ on: pvMenu === 'sub' }" @click="pickPvMenu('sub')">分类汇总</button>
+          <div v-if="pvMenu === 'sub'" class="pv-design-menu">
+            <button type="button" :class="{ on: !pivot.showSubTotal }" @click="setSubtotalPos('off')">不显示分类汇总</button>
+            <button type="button" :class="{ on: pivot.showSubTotal && pivot.subtotalPos !== 'top' }" @click="setSubtotalPos('bottom')">在组的底部显示</button>
+            <button type="button" :class="{ on: pivot.showSubTotal && pivot.subtotalPos === 'top' }" @click="setSubtotalPos('top')">在组的顶部显示</button>
+          </div>
+        </div>
+        <div class="pv-design-item">
+          <button type="button" class="pv-design-btn" :class="{ on: pvMenu === 'total' }" @click="pickPvMenu('total')">总计</button>
+          <div v-if="pvMenu === 'total'" class="pv-design-menu">
+            <button type="button" :class="{ on: pivot.showRowTotal && pivot.showColTotal }" @click="setPivotTotals('both')">对行和列启用</button>
+            <button type="button" :class="{ on: pivot.showRowTotal && !pivot.showColTotal }" @click="setPivotTotals('row')">仅对行启用</button>
+            <button type="button" :class="{ on: !pivot.showRowTotal && pivot.showColTotal }" @click="setPivotTotals('col')">仅对列启用</button>
+            <button type="button" :class="{ on: !pivot.showRowTotal && !pivot.showColTotal }" @click="setPivotTotals('off')">对行和列禁用</button>
+          </div>
+        </div>
+        <div class="pv-design-item">
+          <button type="button" class="pv-design-btn" :class="{ on: pvMenu === 'layout' }" @click="pickPvMenu('layout')">报表布局</button>
+          <div v-if="pvMenu === 'layout'" class="pv-design-menu">
+            <button type="button" :class="{ on: pivot.reportLayout === 'compact' }" @click="setReportLayout('compact')">以压缩形式显示</button>
+            <button type="button" :class="{ on: pivot.reportLayout === 'outline' }" @click="setReportLayout('outline')">以大纲形式显示</button>
+            <button type="button" :class="{ on: pivot.reportLayout === 'tabular' }" @click="setReportLayout('tabular')">以表格形式显示</button>
+            <i class="pv-design-split" />
+            <button type="button" :class="{ on: pivot.repeatLabels }" @click="setRepeatLabels(true)">重复所有项目标签</button>
+            <button type="button" :class="{ on: !pivot.repeatLabels }" @click="setRepeatLabels(false)">不显示重复项目标签</button>
+          </div>
+        </div>
+        <div class="pv-design-item">
+          <button type="button" class="pv-design-btn" :class="{ on: pvMenu === 'blank' }" @click="pickPvMenu('blank')">空行</button>
+          <div v-if="pvMenu === 'blank'" class="pv-design-menu">
+            <button type="button" :class="{ on: pivot.blankRows }" @click="setBlankRows(true)">在每个项目后插入空行</button>
+            <button type="button" :class="{ on: !pivot.blankRows }" @click="setBlankRows(false)">删除每个项目后的空行</button>
+          </div>
+        </div>
+        <label class="pv-design-check"><input v-model="pivot.rowHeaders" type="checkbox" @change="layoutChanged">行标题</label>
+        <label class="pv-design-check"><input v-model="pivot.colHeaders" type="checkbox" @change="layoutChanged">列标题</label>
+        <label class="pv-design-check"><input v-model="pivot.bandRows" type="checkbox" @change="layoutChanged">镶边行</label>
+        <label class="pv-design-check"><input v-model="pivot.bandCols" type="checkbox" @change="layoutChanged">镶边列</label>
+      </div>
       <div ref="stageEl" class="editor-stage">
         <div v-if="chPick.active" class="pv-pick-bar">
           <span>框选图表要使用的数据区域</span>
           <input readonly :value="chartDlg.rangeText">
           <button type="button" class="btn primary" @click="finishChartPick">完成</button>
           <button type="button" class="btn" @click="cancelChartPick">返回</button>
-        </div>
-        <div v-if="pvPick.active" class="pv-pick-bar">
-          <span>{{ pvPick.field === 'src' ? '框选要分析的数据区域' : '点选放置数据透视表的单元格' }}</span>
-          <input readonly :value="pvPick.field === 'src' ? wizard.srcRange : wizard.dstCell">
-          <button v-if="pvPick.field === 'src'" type="button" class="btn primary" @click="finishPvSrc">完成</button>
-          <button type="button" class="btn" @click="cancelPvPick">返回</button>
         </div>
         <FortuneSheet
           v-if="open"
@@ -2578,6 +2699,27 @@ onBeforeUnmount(() => {
       <div v-for="(l, i) in mxTip.lines" :key="i" class="mx-hover-line">
         <div class="mx-hover-name">{{ l.name }}</div>
         <div class="mx-hover-meta">最新日期 {{ l.latest }} · 指标ID {{ l.id }}</div>
+      </div>
+    </div>
+  </Teleport>
+
+  <Teleport to="body">
+    <div v-if="pvPick.active" class="pv-ref-pop" role="dialog" aria-label="创建数据透视表" @mousedown.stop>
+      <header class="pv-ref-head">
+        <span>{{ pvPick.field === 'move' ? '移动数据透视表' : '创建数据透视表' }}</span>
+        <button type="button" class="pv-ref-x" aria-label="关闭" @click="cancelPvPick">✕</button>
+      </header>
+      <div class="pv-ref-row">
+        <input
+          v-model="pvPickText"
+          spellcheck="false"
+          :readonly="pvPick.field === 'move'"
+          :placeholder="pvPick.field === 'src' ? '请框选数据区域' : '请点选单元格'"
+          @keydown.enter.prevent="confirmPvRef"
+        >
+        <button type="button" class="pv-pick on" :title="pvPick.field === 'src' ? '完成框选' : '返回创建窗口'" @click="confirmPvRef">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="2" y="2" width="5" height="5"/><rect x="9" y="2" width="5" height="5"/><rect x="2" y="9" width="5" height="5"/><rect x="9" y="9" width="5" height="5"/></svg>
+        </button>
       </div>
     </div>
   </Teleport>
