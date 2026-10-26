@@ -1,199 +1,299 @@
 <script setup>
-import { computed, ref, watch } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Message } from '@arco-design/web-vue'
 import Icon from '../components/Icon.vue'
-import { useGalleryStore } from '../stores/gallery'
-import { useTableStore } from '../stores/tables'
 import { usePptStore } from '../stores/ppt'
+import { useCrawlerStore } from '../stores/crawler'
+import { useAlertStore } from '../stores/alerts'
 
 const route = useRoute()
 const router = useRouter()
-const galleryStore = useGalleryStore()
-const tableStore = useTableStore()
 const pptStore = usePptStore()
+const crawlerStore = useCrawlerStore()
+const alertStore = useAlertStore()
 const collapsed = ref(false)
-const openPpt = ref(route.path.startsWith('/ppt'))
-watch(() => route.path.startsWith('/ppt'), (on) => { if (on) openPpt.value = true }, { immediate: true })
-const openTable = ref(route.path.startsWith('/tables'))
-const openDs = ref(route.path.startsWith('/datasource') || route.path.startsWith('/manual'))
-const openDraft = ref(route.path.startsWith('/drafts') || route.query.draft === 'task')
-const openProject = ref(route.path.startsWith('/projects'))
-
-const crumb = computed(() => {
-  if (route.path === '/datasource') {
-    if (route.query.draft === 'task') return { root: '草稿箱', cur: '任务调度' }
-    const src = route.query.src || '上海钢联'
-    return { root: '数据源', cur: `${src}配置` }
-  }
-  if (route.path === '/manual') return { root: '数据源', cur: '手工录入数据' }
-  if (route.path.startsWith('/gallery')) {
-    const id = route.params.id
-    const c = id ? galleryStore.getChart(String(id)) : null
-    return { root: '图库', cur: c ? c.title : '' }
-  }
-  if (route.path.startsWith('/ppt')) {
-    const map = { mine: '我的PPT', shared: '共享PPT', public: '公共PPT' }
-    const scope = route.query.scope || pptStore.scope || 'mine'
-    const id = route.params.id
-    const p = id ? pptStore.get(String(id)) : null
-    return { root: '智能PPT', cur: p ? p.title : (map[scope] || '我的PPT') }
-  }
-  if (route.path.startsWith('/tables')) {
-    const map = { shared: '共享表格', custom: '自定义分析', timeseries: '时间序列表格', mixed: '混合表格', balance: '平衡表' }
-    const typeLabel = map[route.query.type] || '共享表格'
-    const id = route.params.id
-    const t = id ? tableStore.get(String(id)) : null
-    return { root: '表格', cur: t ? t.title : typeLabel }
-  }
-  if (route.path.startsWith('/projects')) {
-    return { root: '项目管理', cur: route.params.version === 'v2' ? 'V2 飞书排期' : 'V1 项目排期' }
-  }
-  return { root: route.meta.title || '图库', cur: '' }
-})
-
 const collapseTip = computed(() => (collapsed.value ? '展开菜单' : '收起菜单'))
+
+/* ================= 平台与菜单定义 =================
+   火山引擎控制台同款：顶栏横向平台页签（选中 #EBEBF5 胶囊 + #5252FF 下划线），
+   「产品与服务」展开通栏矩阵面板；进入平台后左侧保留该平台自己的菜单。 */
+const APPS = [
+  {
+    key: 'overview', name: '平台总览', cat: '精选平台', ico: 'nav-overview', color: 'cyan',
+    desc: 'DataHub 全景工作台 · 平台健康与快捷入口', to: '/overview', planned: false,
+    menu: [
+      { key: 'overview', label: '平台总览', desc: 'DataHub 全景工作台与平台健康度', icon: 'nav-overview', to: '/overview' },
+    ],
+  },
+  {
+    key: 'ind', name: '指标中心', cat: '数据应用', ico: 'nav-indicator', color: 'blue',
+    desc: '指标定义 · 图表分析 · 表格协同 · 智能报告', to: '/indicators', planned: false,
+    menu: [
+      { key: 'bi', label: 'BI看板', desc: '统一数据看板（规划中）', icon: 'nav-bi', ph: 'bi' },
+      { key: 'report', label: '研报管理', desc: '研报资产沉淀与检索（规划中）', icon: 'nav-report', ph: 'report' },
+      { key: 'ppt', label: '智能ppt', desc: '图表一键生成汇报材料', icon: 'nav-ppt', to: '/ppt', sub: [
+        { label: '我的PPT', on: () => (route.query.scope || pptStore.scope || 'mine') === 'mine' && route.path.startsWith('/ppt'), go: () => ({ path: '/ppt', query: { scope: 'mine' } }) },
+        { label: '共享PPT', on: () => (route.query.scope || pptStore.scope) === 'shared', go: () => ({ path: '/ppt', query: { scope: 'shared', side: 'out' } }) },
+        { label: '公共PPT', on: () => (route.query.scope || pptStore.scope) === 'public', go: () => ({ path: '/ppt', query: { scope: 'public' } }) },
+      ] },
+      { key: 'tables', label: '表格', desc: '多人协同数据表格与平衡表', icon: 'nav-table', to: '/tables', sub: [
+        { label: '共享表格', on: () => (route.query.type || 'shared') === 'shared', go: () => ({ path: '/tables', query: { type: 'shared' } }) },
+        { label: '自定义分析', on: () => route.query.type === 'custom', go: () => ({ path: '/tables', query: { type: 'custom' } }) },
+        { label: '时间序列表格', on: () => route.query.type === 'timeseries', go: () => ({ path: '/tables', query: { type: 'timeseries' } }) },
+        { label: '混合表格', on: () => route.query.type === 'mixed', go: () => ({ path: '/tables', query: { type: 'mixed' } }) },
+        { label: '平衡表', on: () => route.query.type === 'balance', go: () => ({ path: '/tables', query: { type: 'balance' } }) },
+      ] },
+      { key: 'gallery', label: '图库', desc: '指标图表卡片流与收藏', icon: 'nav-gallery', to: '/gallery' },
+      { key: 'indicators', label: '指标管理', desc: '指标定义 · 计算加工 · 目录管理', icon: 'nav-indicator', to: '/indicators' },
+      { key: 'datasource', label: '数据源', desc: '钢联 / 同花顺 / SMM / 手工录入', icon: 'nav-datasource', to: '/datasource', sub: [
+        { label: '上海钢联', on: () => (route.query.src || '上海钢联') === '上海钢联' && route.path === '/datasource' && !route.query.draft, go: () => ({ path: '/datasource', query: { src: '上海钢联' } }) },
+        { label: '同花顺', on: () => route.query.src === '同花顺', go: () => ({ path: '/datasource', query: { src: '同花顺' } }) },
+        { label: 'SMM', on: () => route.query.src === 'SMM', go: () => ({ path: '/datasource', query: { src: 'SMM' } }) },
+        { label: '手工录入数据', on: () => route.path === '/manual', go: () => ({ path: '/manual' }) },
+      ] },
+      { key: 'forecast', label: '预测指标', desc: '时序预测与拟合（规划中）', icon: 'trend-2', ph: 'forecast' },
+      { key: 'projects', label: '项目管理', desc: 'V1 / V2 项目排期跟踪', icon: 'calendar', to: '/projects', sub: [
+        { label: 'V1 项目排期', on: () => route.params.version === 'v1' && route.path.startsWith('/projects'), go: () => ({ path: '/projects/v1' }) },
+        { label: 'V2 飞书排期', on: () => route.params.version === 'v2', go: () => ({ path: '/projects/v2' }) },
+      ] },
+      { key: 'link', label: '外部链接', desc: '常用外部系统入口（规划中）', icon: 'nav-link', ph: 'link' },
+      { key: 'drafts', label: '草稿箱', desc: '草稿管理与任务调度', icon: 'nav-draft', to: '/drafts', sub: [
+        { label: '全部草稿', on: () => route.path === '/drafts', go: () => ({ path: '/drafts' }) },
+        { label: '任务调度', on: () => route.query.draft === 'task', go: () => ({ path: '/datasource', query: { draft: 'task' } }) },
+      ] },
+    ],
+  },
+  {
+    key: 'crawler', name: '数据采集', cat: '数据采集', ico: 'nav-crawler', color: 'purple',
+    desc: '采集任务调度 · 目标站点管理 · 数据入库', to: '/crawler', planned: true,
+    menu: [
+      { key: 'crawler-overview', label: '采集总览', desc: '任务健康度与抓取量趋势', icon: 'nav-overview', to: '/crawler', badge: () => (crawlerStore.stats.err ? `${crawlerStore.stats.err} 异常` : '') },
+      { key: 'crawler-tasks', label: '采集任务', desc: '任务调度与目标站点配置', icon: 'nav-crawler', to: '/crawler', query: { tab: 'tasks' } },
+      { key: 'crawler-data', label: '抓取数据', desc: '入库数据集预览与检索', icon: 'nav-table', to: '/crawler', query: { tab: 'data' } },
+      { key: 'crawler-logs', label: '运行日志', desc: '运行记录与失败原因排查', icon: 'nav-draft', to: '/crawler', query: { tab: 'logs' } },
+    ],
+  },
+  {
+    key: 'alerts', name: '告警中心', cat: '智能监控', ico: 'nav-alert', color: 'orange',
+    desc: '指标异动监控 · 多渠道告警触达 · 处理留痕', to: '/alerts', planned: true,
+    menu: [
+      { key: 'alerts-overview', label: '告警总览', desc: '告警趋势与待处理事项', icon: 'nav-overview', to: '/alerts', badge: () => (alertStore.stats.triggered ? `${alertStore.stats.triggered} 待处理` : '') },
+      { key: 'alerts-rules', label: '告警规则', desc: '阈值 / 环比 / 连续下行规则', icon: 'nav-alert', to: '/alerts', query: { tab: 'rules' } },
+      { key: 'alerts-records', label: '告警记录', desc: '确认与恢复处理全程留痕', icon: 'nav-draft', to: '/alerts', query: { tab: 'records' } },
+      { key: 'alerts-channels', label: '通知渠道', desc: '飞书 / 钉钉 / 邮件 / 短信', icon: 'nav-link', to: '/alerts', query: { tab: 'channels' } },
+    ],
+  },
+]
+
+const CATS = ['精选平台', '数据应用', '数据采集', '智能监控']
+
+function appOf(path) {
+  if (path === '/' || path === '/overview') return 'overview'
+  if (path.startsWith('/crawler')) return 'crawler'
+  if (path.startsWith('/alerts')) return 'alerts'
+  return 'ind'
+}
+const app = computed(() => APPS.find((a) => a.key === appOf(route.path)) || APPS[0])
+
+/* ---------- 产品与服务矩阵面板 ---------- */
+const panelOpen = ref(false)
+const panelCat = ref('精选平台')
+const panelSections = computed(() => {
+  if (panelCat.value === '精选平台') {
+    return APPS.map((a) => ({ key: a.key, name: a.name, planned: a.planned, to: a.to, items: a.menu }))
+  }
+  const a = APPS.find((x) => x.cat === panelCat.value)
+  return a ? [{ key: a.key, name: a.name, planned: a.planned, to: a.to, items: a.menu }] : []
+})
+function secHome(sec) {
+  panelOpen.value = false
+  router.push(sec.to)
+}
+function catCount(c) {
+  if (c === '精选平台') return APPS.reduce((s, a) => s + a.menu.length, 0)
+  const a = APPS.find((x) => x.cat === c)
+  return a ? a.menu.length : 0
+}
+function megaToggle() {
+  panelOpen.value = !panelOpen.value
+}
+function flyItemGo(item) {
+  panelOpen.value = false
+  if (item.ph) return router.push('/placeholder/' + item.ph)
+  router.push({ path: item.to, query: item.query })
+}
+function navGo(a) {
+  panelOpen.value = false
+  router.push(a.to)
+}
+
+/* ---------- 当前平台自己的侧边菜单 ---------- */
+const openKeys = reactive(new Set())
+function itemActive(item) {
+  if (item.key === 'overview') return route.path === '/' || route.path === '/overview'
+  if (item.key === 'ppt') return route.path.startsWith('/ppt')
+  if (item.key === 'tables') return route.path.startsWith('/tables')
+  if (item.key === 'gallery') return route.path.startsWith('/gallery') || route.path.startsWith('/builder')
+  if (item.key === 'indicators') return route.path === '/indicators'
+  if (item.key === 'datasource') return route.path === '/datasource' || route.path === '/manual'
+  if (item.key === 'drafts') return route.path === '/drafts' || route.query.draft === 'task'
+  if (item.key === 'projects') return route.path.startsWith('/projects')
+  if (item.key === 'crawler-overview') return route.path.startsWith('/crawler') && !route.query.tab
+  if (item.key === 'crawler-tasks') return route.path.startsWith('/crawler') && route.query.tab === 'tasks'
+  if (item.key === 'crawler-data') return route.path.startsWith('/crawler') && route.query.tab === 'data'
+  if (item.key === 'crawler-logs') return route.path.startsWith('/crawler') && route.query.tab === 'logs'
+  if (item.key === 'alerts-overview') return route.path.startsWith('/alerts') && !route.query.tab
+  if (item.key === 'alerts-rules') return route.path.startsWith('/alerts') && route.query.tab === 'rules'
+  if (item.key === 'alerts-records') return route.path.startsWith('/alerts') && route.query.tab === 'records'
+  if (item.key === 'alerts-channels') return route.path.startsWith('/alerts') && route.query.tab === 'channels'
+  return false
+}
+function onItem(item) {
+  if (item.sub) {
+    if (openKeys.has(item.key)) openKeys.delete(item.key)
+    else openKeys.add(item.key)
+    if (item.to) router.push({ path: item.to, query: item.query })
+    return
+  }
+  if (item.ph) return router.push('/placeholder/' + item.ph)
+  router.push({ path: item.to, query: item.query })
+}
+function onSub(s) {
+  router.push(s.go())
+}
+watch(() => route.path, () => {
+  for (const item of app.value.menu) {
+    if (item.sub && itemActive(item)) openKeys.add(item.key)
+  }
+}, { immediate: true })
+
+const alertPending = computed(() => alertStore.stats.triggered || 0)
+const isDocs = computed(() => route.path.startsWith('/docs'))
 
 function go(path, query) {
   router.push({ path, query })
 }
-function placeholder(id) {
-  router.push('/placeholder/' + id)
-}
-function isActive(key) {
-  if (key === 'gallery') return route.path.startsWith('/gallery') || route.path.startsWith('/builder')
-  if (key === 'indicators') return route.path === '/indicators'
-  if (key === 'ppt') return route.path.startsWith('/ppt')
-  if (key === 'tables') return route.path.startsWith('/tables')
-  if (key === 'datasource') return route.path === '/datasource' || route.path === '/manual'
-  if (key === 'drafts') return route.path === '/drafts' || route.query.draft === 'task'
-  if (key === 'projects') return route.path.startsWith('/projects')
-  return false
-}
-function projectVer() {
-  return route.params.version === 'v2' ? 'v2' : 'v1'
-}
-function tableType() {
-  return route.query.type || 'shared'
-}
-function pptScope() {
-  return route.query.scope || pptStore.scope || 'mine'
-}
-function srcName() {
-  return route.query.src || (route.path === '/manual' ? '手工' : '')
-}
 </script>
 
 <template>
-  <div class="app-shell" :class="{ 'nav-collapsed': collapsed }">
-    <aside class="sidebar">
-      <div class="logo">
-        <img class="brand-mark" src="/ailab-mark.svg" alt="AILab" width="28" height="28">
-        <span class="name">AILab</span>
-        <span class="sub">AI指标工坊</span>
-      </div>
-      <nav class="menu">
-        <button class="menu-item" data-tip="BI看板" @click="placeholder('bi')">
-          <span class="mi-icon"><Icon name="nav-bi" :size="15" /></span>
-          <span class="mi-text">BI看板</span>
+  <div class="app-shell dh-shell" :class="{ 'nav-collapsed': collapsed }">
+    <!-- 顶部导航栏（火山引擎控制台同款：bg #F6F6FC + 横向页签） -->
+    <header class="dh-topnav">
+      <div class="tn-left">
+        <img class="tb-mark" src="/ailab-mark.svg" alt="DataHub" width="26" height="26">
+        <div class="tb-brand"><b>DataHub</b><span>数据平台</span></div>
+        <span class="tn-sep" />
+        <button class="tn-link" :class="{ on: panelOpen }" @click="megaToggle">
+          <icon-apps />
+          <span>产品与服务</span>
         </button>
-        <button class="menu-item" data-tip="研报管理" @click="placeholder('report')">
-          <span class="mi-icon"><Icon name="nav-report" :size="15" /></span>
-          <span class="mi-text">研报管理</span>
-          <span class="mi-arrow"><Icon name="caret-down" :size="10" /></span>
-        </button>
-        <button class="menu-item" :class="{ active: isActive('ppt'), expanded: openPpt }" data-tip="智能ppt" @click="openPpt = !openPpt; go('/ppt', { scope: pptScope() })">
-          <span class="mi-icon"><Icon name="nav-ppt" :size="15" /></span>
-          <span class="mi-text">智能ppt</span>
-          <span class="mi-arrow"><Icon name="caret-down" :size="10" /></span>
-        </button>
-        <div class="sub-menu" :class="{ open: openPpt }">
-          <button class="sub-item" :class="{ active: isActive('ppt') && pptScope() === 'mine' }" @click="go('/ppt', { scope: 'mine' })">我的PPT</button>
-          <button class="sub-item" :class="{ active: pptScope() === 'shared' }" @click="go('/ppt', { scope: 'shared', side: 'out' })">共享PPT</button>
-          <button class="sub-item" :class="{ active: pptScope() === 'public' }" @click="go('/ppt', { scope: 'public' })">公共PPT</button>
-        </div>
-        <button class="menu-item" :class="{ active: isActive('tables'), expanded: openTable }" data-tip="表格" @click="openTable = !openTable; go('/tables', { type: tableType() })">
-          <span class="mi-icon"><Icon name="nav-table" :size="15" /></span>
-          <span class="mi-text">表格</span>
-          <span class="mi-arrow"><Icon name="caret-down" :size="10" /></span>
-        </button>
-        <div class="sub-menu" :class="{ open: openTable }">
-          <button class="sub-item" :class="{ active: isActive('tables') && tableType() === 'shared' }" @click="go('/tables', { type: 'shared' })">共享表格</button>
-          <button class="sub-item" :class="{ active: tableType() === 'custom' }" @click="go('/tables', { type: 'custom' })">自定义分析</button>
-          <button class="sub-item" :class="{ active: tableType() === 'timeseries' }" @click="go('/tables', { type: 'timeseries' })">时间序列表格</button>
-          <button class="sub-item" :class="{ active: tableType() === 'mixed' }" @click="go('/tables', { type: 'mixed' })">混合表格</button>
-          <button class="sub-item" :class="{ active: tableType() === 'balance' }" @click="go('/tables', { type: 'balance' })">平衡表</button>
-        </div>
-        <button class="menu-item" :class="{ active: isActive('gallery') }" data-tip="图库" @click="go('/gallery')">
-          <span class="mi-icon"><Icon name="nav-gallery" :size="15" /></span>
-          <span class="mi-text">图库</span>
-        </button>
-        <button class="menu-item" :class="{ active: isActive('indicators') }" data-tip="指标中心" @click="go('/indicators')">
-          <span class="mi-icon"><Icon name="nav-indicator" :size="15" /></span>
-          <span class="mi-text">指标中心</span>
-        </button>
-        <button class="menu-item" :class="{ active: isActive('datasource'), expanded: openDs }" data-tip="数据源" @click="openDs = !openDs; go('/datasource')">
-          <span class="mi-icon"><Icon name="nav-datasource" :size="15" /></span>
-          <span class="mi-text">数据源</span>
-          <span class="mi-arrow"><Icon name="caret-down" :size="10" /></span>
-        </button>
-        <div class="sub-menu" :class="{ open: openDs }">
-          <button class="sub-item" :class="{ active: srcName() === '上海钢联' || (route.path === '/datasource' && !route.query.src && !route.query.draft) }" @click="go('/datasource', { src: '上海钢联' })">上海钢联</button>
-          <button class="sub-item" :class="{ active: srcName() === '同花顺' }" @click="go('/datasource', { src: '同花顺' })">同花顺</button>
-          <button class="sub-item" :class="{ active: srcName() === 'SMM' }" @click="go('/datasource', { src: 'SMM' })">SMM</button>
-          <button class="sub-item" :class="{ active: route.path === '/manual' }" @click="go('/manual')">手工录入数据</button>
-        </div>
-        <button class="menu-item" data-tip="预测指标" @click="placeholder('forecast')">
-          <span class="mi-icon"><Icon name="trend-2" :size="15" /></span>
-          <span class="mi-text">预测指标</span>
-        </button>
-        <button class="menu-item" :class="{ active: isActive('projects'), expanded: openProject }" data-tip="项目管理" @click="openProject = !openProject; go('/projects/' + projectVer())">
-          <span class="mi-icon"><Icon name="calendar" :size="15" /></span>
-          <span class="mi-text">项目管理</span>
-          <span class="mi-arrow"><Icon name="caret-down" :size="10" /></span>
-        </button>
-        <div class="sub-menu" :class="{ open: openProject }">
-          <button class="sub-item" :class="{ active: projectVer() === 'v1' && route.path.startsWith('/projects') }" @click="go('/projects/v1')">V1 项目排期</button>
-          <button class="sub-item" :class="{ active: projectVer() === 'v2' }" @click="go('/projects/v2')">V2 飞书排期</button>
-        </div>
-        <button class="menu-item" data-tip="外部链接" @click="placeholder('link')">
-          <span class="mi-icon"><Icon name="nav-link" :size="15" /></span>
-          <span class="mi-text">外部链接</span>
-        </button>
-        <button class="menu-item" :class="{ active: isActive('drafts'), expanded: openDraft }" data-tip="草稿箱" @click="openDraft = !openDraft; go('/drafts')">
-          <span class="mi-icon"><Icon name="nav-draft" :size="15" /></span>
-          <span class="mi-text">草稿箱</span>
-          <span class="mi-arrow"><Icon name="caret-down" :size="10" /></span>
-        </button>
-        <div class="sub-menu" :class="{ open: openDraft }">
-          <button class="sub-item" :class="{ active: route.path === '/drafts' }" @click="go('/drafts')">全部草稿</button>
-          <button class="sub-item" :class="{ active: route.query.draft === 'task' }" @click="go('/datasource', { draft: 'task' })">任务调度</button>
-        </div>
-      </nav>
-      <div class="sidebar-foot">
-        <button type="button" class="sb-collapse" :data-tip="collapseTip" :title="collapseTip" @click="collapsed = !collapsed">
-          <Icon name="panel-collapse" :size="16" />
+        <nav class="tn-tabs">
+          <button
+            v-for="a in APPS"
+            :key="a.key"
+            class="tn-tab"
+            :class="{ on: app.key === a.key }"
+            @click="navGo(a)"
+          >
+            {{ a.name }}
+          </button>
+        </nav>
+        <button class="tn-link" :class="{ on: isDocs }" @click="go('/docs')">
+          <icon-file />
+          <span>文档</span>
         </button>
       </div>
-    </aside>
-    <div class="workspace">
-      <header class="topbar">
-        <div class="crumb">
-          <b>{{ crumb.root }}</b>
-          <template v-if="crumb.cur"><span class="sep">/</span><span class="cur">{{ crumb.cur }}</span></template>
-        </div>
-        <div class="topbar-right">
-          <button class="bell" title="通知" @click="Message.info('暂无新通知')">
-            <Icon name="bell" :size="17" />
-            <span class="dot" />
+      <div class="topbar-right">
+        <button class="bell" title="通知" @click="go('/alerts')">
+          <Icon name="bell" :size="17" />
+          <span v-if="alertPending > 0" class="dot" />
+        </button>
+        <button class="user" @click="Message.info('账号设置（原型占位）')">
+          <span class="avatar">文</span>
+          <span class="uname">吴开文</span>
+          <Icon name="caret-down-2" :size="10" />
+        </button>
+      </div>
+
+      <!-- 点击展开：通栏全宽矩阵面板（左侧分类 + 右侧分组产品卡） -->
+      <div v-if="panelOpen" class="tn-overlay" @click="panelOpen = false" />
+      <div v-if="panelOpen" class="tn-mega">
+        <div class="tn-mega-cats">
+          <button
+            v-for="c in CATS"
+            :key="c"
+            class="tn-cat"
+            :class="{ on: panelCat === c }"
+            @click="panelCat = c"
+          >
+            <span>{{ c }}</span>
+            <span class="tn-cat-n">{{ catCount(c) }}</span>
           </button>
-          <button class="user" @click="Message.info('账号设置（原型占位）')">
-            <span class="avatar">文</span>
-            <span class="uname">吴开文</span>
-            <Icon name="caret-down-2" :size="10" />
+        </div>
+        <div class="tn-mega-body">
+          <section v-for="sec in panelSections" :key="sec.name" class="tn-sec">
+            <h4>
+              <button class="tn-sec-home" :class="{ on: sec.key === app.key }" @click="secHome(sec)">
+                {{ sec.name }}
+                <icon-right />
+              </button>
+              <span v-if="sec.planned" class="sc-plan">规划中</span>
+            </h4>
+            <div class="tn-sec-grid">
+              <button
+                v-for="item in sec.items"
+                :key="item.key"
+                class="tn-pcard"
+                :class="{ on: itemActive(item) }"
+                @click="flyItemGo(item)"
+              >
+                <span class="tpc-name">
+                  {{ item.label }}
+                  <span v-if="item.badge && item.badge()" class="dh-tag red">{{ item.badge() }}</span>
+                </span>
+                <span class="tpc-desc">{{ item.desc }}</span>
+              </button>
+            </div>
+          </section>
+        </div>
+        <button class="tn-mega-close" title="关闭" @click="panelOpen = false"><Icon name="close" :size="16" /></button>
+      </div>
+    </header>
+
+    <div class="dh-body">
+      <!-- 当前平台自己的菜单（平台总览与文档页不显示） -->
+      <aside v-if="app.key !== 'overview' && !isDocs" class="sidebar">
+        <div class="side-cap">
+          <span class="sc-name">{{ app.name }}</span>
+          <span v-if="app.planned" class="sc-plan">规划中</span>
+        </div>
+        <nav class="menu">
+          <template v-for="item in app.menu" :key="item.key">
+            <button
+              class="menu-item"
+              :class="{ active: itemActive(item), expanded: item.sub && openKeys.has(item.key) }"
+              :data-tip="item.label"
+              @click="onItem(item)"
+            >
+              <span class="mi-icon"><Icon :name="item.icon" :size="16" /></span>
+              <span class="mi-text">{{ item.label }}</span>
+              <span v-if="item.badge && item.badge()" class="mi-badge">{{ item.badge() }}</span>
+              <span v-if="item.sub" class="mi-arrow"><Icon name="caret-down" :size="10" /></span>
+            </button>
+            <div v-if="item.sub" class="sub-menu" :class="{ open: openKeys.has(item.key) }">
+              <button v-for="s in item.sub" :key="s.label" class="sub-item" :class="{ active: s.on() }" @click="onSub(s)">{{ s.label }}</button>
+            </div>
+          </template>
+        </nav>
+        <div class="sidebar-foot">
+          <button type="button" class="sb-collapse" :data-tip="collapseTip" :title="collapseTip" @click="collapsed = !collapsed">
+            <Icon name="panel-collapse" :size="16" />
           </button>
         </div>
-      </header>
+      </aside>
+
+      <!-- 内容区：白色圆角卡片浮于浅灰底（控制台同款） -->
       <main class="page-panel">
         <router-view />
       </main>

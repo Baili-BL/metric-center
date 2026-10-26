@@ -10,6 +10,7 @@ import './styles/builder.css'
 import './styles/tables.css'
 import './styles/ppt.css'
 import './styles/analysis.css'
+import './styles/datahub.css'
 import App from './App.vue'
 import router from './router'
 

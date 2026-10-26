@@ -40,6 +40,15 @@ const fortuneYaheiEsbuild = {
 
 export default defineConfig({
   plugins: [fortuneYahei(), vue()],
+  server: {
+    watch: {
+      // 忽略编辑器/外部工具写入时的临时目录，避免 Windows 下 chokidar EBUSY 崩溃
+      ignored: ['**/.*.tmpdir/**', '**/*.tmpdir/**', '**/*.tmp/**'],
+      // Windows 下重命名写盘可能丢失 change 事件，用轮询保证 HMR 可靠
+      usePolling: true,
+      interval: 300,
+    },
+  },
   optimizeDeps: {
     include: ['react', 'react-dom', '@fortune-sheet/react'],
     esbuildOptions: { plugins: [fortuneYaheiEsbuild] },
