@@ -20,14 +20,14 @@ const collapseTip = computed(() => (collapsed.value ? '展开菜单' : '收起�
    「产品与服务」展开通栏矩阵面板；进入平台后左侧保留该平台自己的菜单。 */
 const APPS = [
   {
-    key: 'overview', name: '平台总览', cat: '精选平台', ico: 'nav-overview', color: 'cyan',
+    key: 'overview', name: '平台总览', cat: '精选平台', ico: 'nav-overview', aico: 'icon-dashboard', color: 'cyan',
     desc: 'DataHub 全景工作台 · 平台健康与快捷入口', to: '/overview', planned: false,
     menu: [
       { key: 'overview', label: '平台总览', desc: 'DataHub 全景工作台与平台健康度', icon: 'nav-overview', to: '/overview' },
     ],
   },
   {
-    key: 'ind', name: '指标中心', cat: '数据应用', ico: 'nav-indicator', color: 'blue',
+    key: 'ind', name: '指标中心', cat: '数据应用', ico: 'nav-indicator', aico: 'icon-bar-chart', color: 'blue',
     desc: '指标定义 · 图表分析 · 表格协同 · 智能报告', to: '/indicators', planned: false,
     menu: [
       { key: 'bi', label: 'BI看板', desc: '统一数据看板（规划中）', icon: 'nav-bi', ph: 'bi' },
@@ -53,19 +53,14 @@ const APPS = [
         { label: '手工录入数据', on: () => route.path === '/manual', go: () => ({ path: '/manual' }) },
       ] },
       { key: 'forecast', label: '预测指标', desc: '时序预测与拟合（规划中）', icon: 'trend-2', ph: 'forecast' },
-      { key: 'projects', label: '项目管理', desc: 'V1 / V2 项目排期跟踪', icon: 'calendar', to: '/projects', sub: [
-        { label: 'V1 项目排期', on: () => route.params.version === 'v1' && route.path.startsWith('/projects'), go: () => ({ path: '/projects/v1' }) },
-        { label: 'V2 飞书排期', on: () => route.params.version === 'v2', go: () => ({ path: '/projects/v2' }) },
-      ] },
-      { key: 'link', label: '外部链接', desc: '常用外部系统入口（规划中）', icon: 'nav-link', ph: 'link' },
-      { key: 'drafts', label: '草稿箱', desc: '草稿管理与任务调度', icon: 'nav-draft', to: '/drafts', sub: [
-        { label: '全部草稿', on: () => route.path === '/drafts', go: () => ({ path: '/drafts' }) },
-        { label: '任务调度', on: () => route.query.draft === 'task', go: () => ({ path: '/datasource', query: { draft: 'task' } }) },
+      /* 工具箱：商品价格曲线 / 联储观察 / 复盘工具 / 指标评分 暂未开放，先从菜单移除，待上线后再补回 sub */
+      { key: 'ind-toolbox', label: '工具箱', desc: '会员持仓结构分析工具', icon: 'chart-hbar', to: '/toolbox/positions', sub: [
+        { label: '持仓分析', on: () => route.path.startsWith('/toolbox/positions'), go: () => ({ path: '/toolbox/positions' }) },
       ] },
     ],
   },
   {
-    key: 'crawler', name: '数据采集', cat: '数据采集', ico: 'nav-crawler', color: 'purple',
+    key: 'crawler', name: '数据采集', cat: '数据采集', ico: 'nav-crawler', aico: 'icon-robot', color: 'purple',
     desc: '采集任务调度 · 目标站点管理 · 数据入库', to: '/crawler', planned: true,
     menu: [
       { key: 'crawler-overview', label: '采集总览', desc: '任务健康度与抓取量趋势', icon: 'nav-overview', to: '/crawler', badge: () => (crawlerStore.stats.err ? `${crawlerStore.stats.err} 异常` : '') },
@@ -75,7 +70,7 @@ const APPS = [
     ],
   },
   {
-    key: 'alerts', name: '告警中心', cat: '智能监控', ico: 'nav-alert', color: 'orange',
+    key: 'alerts', name: '告警中心', cat: '智能监控', ico: 'nav-alert', aico: 'icon-thunderbolt', color: 'orange',
     desc: '指标异动监控 · 多渠道告警触达 · 处理留痕', to: '/alerts', planned: true,
     menu: [
       { key: 'alerts-overview', label: '告警总览', desc: '告警趋势与待处理事项', icon: 'nav-overview', to: '/alerts', badge: () => (alertStore.stats.triggered ? `${alertStore.stats.triggered} 待处理` : '') },
@@ -137,8 +132,6 @@ function itemActive(item) {
   if (item.key === 'gallery') return route.path.startsWith('/gallery') || route.path.startsWith('/builder')
   if (item.key === 'indicators') return route.path === '/indicators'
   if (item.key === 'datasource') return route.path === '/datasource' || route.path === '/manual'
-  if (item.key === 'drafts') return route.path === '/drafts' || route.query.draft === 'task'
-  if (item.key === 'projects') return route.path.startsWith('/projects')
   if (item.key === 'crawler-overview') return route.path.startsWith('/crawler') && !route.query.tab
   if (item.key === 'crawler-tasks') return route.path.startsWith('/crawler') && route.query.tab === 'tasks'
   if (item.key === 'crawler-data') return route.path.startsWith('/crawler') && route.query.tab === 'data'
@@ -147,6 +140,7 @@ function itemActive(item) {
   if (item.key === 'alerts-rules') return route.path.startsWith('/alerts') && route.query.tab === 'rules'
   if (item.key === 'alerts-records') return route.path.startsWith('/alerts') && route.query.tab === 'records'
   if (item.key === 'alerts-channels') return route.path.startsWith('/alerts') && route.query.tab === 'channels'
+  if (item.key === 'ind-toolbox') return route.path.startsWith('/toolbox')
   return false
 }
 function onItem(item) {
@@ -181,13 +175,14 @@ function go(path, query) {
     <!-- 顶部导航栏（火山引擎控制台同款：bg #F6F6FC + 横向页签） -->
     <header class="dh-topnav">
       <div class="tn-left">
-        <img class="tb-mark" src="/ailab-mark.svg" alt="DataHub" width="26" height="26">
-        <div class="tb-brand"><b>DataHub</b><span>数据平台</span></div>
-        <span class="tn-sep" />
-        <button class="tn-link" :class="{ on: panelOpen }" @click="megaToggle">
-          <icon-apps />
-          <span>产品与服务</span>
+        <button class="tn-hamb" :class="{ on: panelOpen }" title="产品与服务" @click="megaToggle">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+            <path d="M6 8H18M6 12H18M6 16H18" stroke="currentColor" stroke-width="1.33333" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
         </button>
+        <img class="tb-mark" src="/ailab-mark.svg" alt="DataHub" width="26" height="26">
+        <div class="tb-brand"><b>DataHub</b></div>
+        <span class="tn-sep" />
         <nav class="tn-tabs">
           <button
             v-for="a in APPS"
@@ -206,13 +201,13 @@ function go(path, query) {
       </div>
       <div class="topbar-right">
         <button class="bell" title="通知" @click="go('/alerts')">
-          <Icon name="bell" :size="17" />
+          <icon-notification :size="17" />
           <span v-if="alertPending > 0" class="dot" />
         </button>
         <button class="user" @click="Message.info('账号设置（原型占位）')">
           <span class="avatar">文</span>
           <span class="uname">吴开文</span>
-          <Icon name="caret-down-2" :size="10" />
+          <icon-down :size="10" />
         </button>
       </div>
 
@@ -257,7 +252,7 @@ function go(path, query) {
             </div>
           </section>
         </div>
-        <button class="tn-mega-close" title="关闭" @click="panelOpen = false"><Icon name="close" :size="16" /></button>
+        <button class="tn-mega-close" title="关闭" @click="panelOpen = false"><icon-close :size="16" /></button>
       </div>
     </header>
 

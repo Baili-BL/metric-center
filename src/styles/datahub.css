@@ -1,24 +1,47 @@
 /* ============================================================
-   DataHub 数据平台 — 火山引擎控制台风格
-   设计令牌对齐 volcengine.com：主蓝 #1664FF，文字 #0C0D0E/#42464E/#737A87，
-   边框 #DDE2E9，页面底 #F6F8FA，卡片纯白 10px 圆角
+   DataHub 数据平台 — 火山引擎设计语言（volcengine-design skill）
+   Semi Design 基因 + 火山品牌蓝：品牌蓝 #1664FF 唯一强调色；
+   中性色基于 #1C1F23 用 rgba 透明度分层；页面底 #F5F6F7；
+   状态色：成功 #3BCC76 / 警告 #FF7D00 / 危险 #F93920；
+   间距 4 的倍数；控件高 32px；圆角：控件 4 / 卡片 8 / 弹窗 12 / 胶囊 999
    ============================================================ */
 
 :root {
+  /* --vf-*（Volcano Front）设计令牌 */
+  --vf-brand: #1664ff;
+  --vf-brand-hover: #0e4fe6;
+  --vf-brand-bg: rgba(22, 100, 255, .1);
+  --vf-text-0: rgba(28, 31, 35, .8);
+  --vf-text-1: rgba(28, 31, 35, .62);
+  --vf-text-2: rgba(28, 31, 35, .35);
+  --vf-line: rgba(28, 31, 35, .1);
+  --vf-page: #f5f6f7;
+  --vf-card: #ffffff;
+  --vf-success: #3bcc76;
+  --vf-success-deep: #1f8a4d;
+  --vf-warning: #ff7d00;
+  --vf-warning-deep: #a05200;
+  --vf-danger: #f93920;
+  --vf-danger-deep: #c2321a;
+  --vf-radius-ctl: 4px;
+  --vf-radius-card: 8px;
+  --vf-radius-modal: 12px;
+
+  /* 兼容别名（沿用既有 --dh-* 引用） */
   --dh-blue: #1664ff;
   --dh-blue-hover: #0e4fe6;
   --dh-purple: #7861ff;
   --dh-cyan: #14c9c9;
-  --dh-orange: #ff8a00;
-  --dh-red: #f53f3f;
-  --dh-green: #00b42a;
+  --dh-orange: #ff7d00;
+  --dh-red: #f93920;
+  --dh-green: #3bcc76;
   --dh-gold: #ffcc6b;
-  --dh-text: #0c0d0e;
-  --dh-text-2: #42464e;
-  --dh-text-3: #737a87;
-  --dh-border: #e5e6eb;
-  --dh-border-strong: #dde2e9;
-  --dh-page: #f6f8fa;
+  --dh-text: rgba(28, 31, 35, .8);
+  --dh-text-2: rgba(28, 31, 35, .62);
+  --dh-text-3: rgba(28, 31, 35, .35);
+  --dh-border: rgba(28, 31, 35, .1);
+  --dh-border-strong: rgba(28, 31, 35, .16);
+  --dh-page: #f5f6f7;
 }
 
 /* ---------- 页面骨架 ---------- */
@@ -225,19 +248,39 @@
   gap: 4px;
   height: 22px;
   padding: 0 8px;
-  border-radius: 4px;
+  border-radius: 999px;
   font-size: 12px;
   line-height: 1;
   white-space: nowrap;
 }
-.dh-tag.blue   { background: #e8f3ff; color: var(--dh-blue); }
-.dh-tag.green  { background: #e8ffea; color: var(--dh-green); }
-.dh-tag.orange { background: #fff3e8; color: var(--dh-orange); }
-.dh-tag.red    { background: #ffece8; color: var(--dh-red); }
+.dh-tag.blue   { background: var(--vf-brand-bg); color: var(--vf-brand); }
+.dh-tag.green  { background: rgba(59, 204, 118, .12); color: var(--vf-success-deep); }
+.dh-tag.orange { background: rgba(255, 125, 0, .12); color: var(--vf-warning-deep); }
+.dh-tag.red    { background: rgba(249, 57, 32, .1); color: var(--vf-danger-deep); }
 .dh-tag.purple { background: #f0edff; color: var(--dh-purple); }
 .dh-tag.gray   { background: #f2f3f5; color: var(--dh-text-2); }
 .dh-tag.gold   { background: #fff7e6; color: #b47700; }
 .dh-tag .tag-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+
+/* ---------- vf-tag：浅底 + 深字 + 圆点（skill 状态色约定） ---------- */
+.vf-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  line-height: 1;
+  white-space: nowrap;
+}
+.vf-tag i { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+.vf-tag.success { background: rgba(59, 204, 118, .12); color: var(--vf-success-deep); }
+.vf-tag.success i { background: var(--vf-success); }
+.vf-tag.warning { background: rgba(255, 125, 0, .12); color: var(--vf-warning-deep); }
+.vf-tag.warning i { background: var(--vf-warning); }
+.vf-tag.danger { background: rgba(249, 57, 32, .1); color: var(--vf-danger-deep); }
+.vf-tag.danger i { background: var(--vf-danger); }
 
 /* ---------- 表格 ---------- */
 .dh-table-wrap { min-height: 0; overflow: auto; }
@@ -399,7 +442,7 @@
 .dh-empty .de-ico { font-size: 26px; margin-bottom: 8px; opacity: .6; }
 
 /* ---------- 顶部导航栏（火山引擎控制台同款：bg #F6F6FC + 横向页签） ---------- */
-.dh-shell { flex-direction: column; background: #f7f7f9; }
+.dh-shell { flex-direction: column; background: var(--vf-page); }
 .dh-topnav {
   height: 56px;
   flex-shrink: 0;
@@ -413,38 +456,45 @@
   position: relative;
   z-index: 60;
 }
-.tn-left { display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
+.tn-left { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+.tn-hamb {
+  width: 34px;
+  height: 34px;
+  border: none;
+  border-radius: 8px;
+  background: none;
+  color: #42464e;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background .15s cubic-bezier(0.4, 0, 0.2, 1), color .15s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.tn-hamb:hover { background: rgba(235, 235, 245, .7); color: #0b0b0f; }
+.tn-hamb.on { background: #ebebf5; color: #0b0b0f; }
 .tb-mark { width: 26px; height: 26px; object-fit: contain; flex-shrink: 0; }
 .tb-brand { display: flex; flex-direction: column; line-height: 1.15; white-space: nowrap; }
 .tb-brand b { font-size: 14px; font-weight: 700; color: var(--dh-text); letter-spacing: -.01em; }
 .tb-brand span { font-size: 11px; color: var(--dh-text-3); }
 .tn-sep { width: 1px; height: 22px; background: #ddd; margin: 0 8px; flex-shrink: 0; }
 .tn-link {
-  position: relative;
   display: flex;
   align-items: center;
   gap: 6px;
-  height: 52px;
-  padding: 0 4px;
+  padding: 8px 12px;
+  margin: 0 4px;
   border: none;
+  border-radius: 8px;
   background: none;
   font-size: 14px;
-  color: var(--dh-text);
+  color: #3f3f51;
   cursor: pointer;
   white-space: nowrap;
+  transition: background .15s cubic-bezier(0.4, 0, 0.2, 1), color .15s cubic-bezier(0.4, 0, 0.2, 1);
 }
-.tn-link:hover { color: var(--dh-blue); }
-.tn-link.on { color: var(--dh-blue); font-weight: 500; }
-.tn-link.on::after {
-  content: "";
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  height: 2px;
-  border-radius: 1px;
-  background: var(--dh-blue);
-}
+.tn-link:hover { color: #0b0b0f; background: rgba(235, 235, 245, .6); }
+.tn-link.on { background: #ebebf5; color: #0b0b0f; font-weight: 500; }
 
 /* ---------- 顶栏横向平台页签（控制台同款：选中 #EBEBF5 胶囊 + #5252FF 下划线） ---------- */
 .tn-tabs { display: flex; align-items: center; gap: 0; margin-left: 4px; min-width: 0; overflow: hidden; }
@@ -463,18 +513,8 @@
   white-space: nowrap;
   transition: background .18s ease, color .18s ease;
 }
-.tn-tab:hover { color: #0b0b0f; background: rgba(235, 235, 245, .55); }
+.tn-tab:hover { color: #0b0b0f; background: rgba(235, 235, 245, .6); }
 .tn-tab.on { background: #ebebf5; color: #0b0b0f; font-weight: 500; }
-.tn-tab.on::after {
-  content: "";
-  position: absolute;
-  left: 12px;
-  right: 12px;
-  bottom: -7px;
-  height: 3px;
-  border-radius: 2px;
-  background: #5252ff;
-}
 
 /* ---------- 点击「产品与服务」：通栏全宽矩阵面板（火山引擎官网同款） ---------- */
 .tn-overlay { position: fixed; left: 0; right: 0; bottom: 0; top: 56px; z-index: 890; }
@@ -644,9 +684,9 @@
   flex: 1;
   min-height: 0;
   min-width: 0;
-  background: #fff;
-  border: 1px solid #ededf3;
-  border-radius: 12px;
+  background: var(--vf-card);
+  border: 1px solid var(--vf-line);
+  border-radius: var(--vf-radius-card);
   margin: 0 8px 8px 0;
   display: flex;
   overflow: hidden;
@@ -964,3 +1004,105 @@
   .dh-grid.cols-2-1 { grid-template-columns: minmax(0, 1fr); }
   .dh-grid.cols-3 { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* ============================================================
+   数据表格主题（对齐火山引擎控制台表格样式）
+   来源：console.volcengine.com 表格设计稿
+   表头：底 #F5F5FB / 字 #3F3F51 / 13px / 500 / 行高 20 / 内边距 10px 16px
+   表头下边框 #E0E0EB；单元格 13px / #3F3F51；网格线 #E0E0EB
+   表头左上、右上圆角 8px；首列吸附；横向滚动
+   ============================================================ */
+.vf-table {
+  --vf-th-bg: #f5f5fb;
+  --vf-th-color: #3f3f51;
+  --vf-td-color: #3f3f51;
+  --vf-line: #e0e0eb;
+  --vf-row-line: #f0f0f5;
+  --vf-hover: #f7f8fc;
+}
+.vf-table .arco-table-container {
+  border: none;
+  border-radius: 8px 8px 0 0;
+  overflow: hidden;
+}
+.vf-table .arco-table-th {
+  background: var(--vf-th-bg);
+  color: var(--vf-th-color);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 20px;
+  text-align: left;
+  border-bottom: 1px solid var(--vf-line);
+  border-right: none;
+  padding: 0;
+  white-space: nowrap;
+}
+.vf-table .arco-table-th:first-child { border-radius: 8px 0 0 0; }
+.vf-table .arco-table-th:last-child { border-radius: 0 8px 0 0; }
+.vf-table .arco-table-th .arco-table-cell {
+  padding: 10px 16px;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 20px;
+  color: var(--vf-th-color);
+  white-space: nowrap;
+}
+.vf-table .arco-table-th .arco-table-cell-with-sorter { padding-right: 16px; }
+.vf-table .arco-table-sorter { color: #a9aeb8; }
+.vf-table .arco-table-sorter-icon:hover { color: #3f3f51; }
+.vf-table .arco-table-td {
+  border-bottom: 1px solid var(--vf-row-line);
+  border-right: none;
+  background: #fff;
+  padding: 0;
+  font-size: 13px;
+  color: var(--vf-td-color);
+  line-height: 20px;
+  vertical-align: middle;
+}
+.vf-table .arco-table-td:last-child { border-right: none; }
+.vf-table .arco-table-td .arco-table-cell {
+  padding: 10px 16px;
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--vf-td-color);
+  white-space: nowrap;
+}
+.vf-table .arco-table-tbody .arco-table-tr:last-child .arco-table-td { border-bottom: none; }
+.vf-table .arco-table-tbody .arco-table-tr:hover .arco-table-td { background: var(--vf-hover); }
+/* 首列吸附（配合横向滚动） */
+.vf-table .arco-table-th:first-child,
+.vf-table .arco-table-td:first-child {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+}
+.vf-table .arco-table-th:first-child { z-index: 4; background: var(--vf-th-bg); }
+.vf-table .arco-table-td:first-child { background: #fff; }
+.vf-table .arco-table-tbody .arco-table-tr:hover .arco-table-td:first-child { background: var(--vf-hover); }
+.vf-table .arco-table-empty { padding: 40px 0; }
+.vf-table .arco-table-pagination { margin-top: 12px; }
+
+/* 冻结列阴影（竖线已去除，用投影区分冻结列） */
+.vf-table .arco-table-col-fixed-left-last::after,
+.vf-table .arco-table-th.arco-table-col-fixed-left-last::after,
+.vf-table .arco-table-td.arco-table-col-fixed-left-last::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 1px;
+  background: transparent;
+}
+.vf-table .arco-table-col-fixed-left-last {
+  box-shadow: 6px 0 8px -6px rgba(28, 31, 35, 0.18);
+}
+.vf-table .arco-table-col-fixed-right-first {
+  box-shadow: -6px 0 8px -6px rgba(28, 31, 35, 0.18);
+}
+
+/* 单元格对齐：数字列右对齐（配合列 align: 'right'） */
+.vf-table .arco-table-th.arco-table-col-align-right .arco-table-cell,
+.vf-table .arco-table-td.arco-table-col-align-right .arco-table-cell { text-align: right; }
+

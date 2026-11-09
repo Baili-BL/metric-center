@@ -9,3 +9,10 @@ dist
 
 # 本地调试产物
 scripts/*.png
+
+# 本地工具与调试产物
+.codebuddy/
+.workbuddy/
+scripts/
+mp*.html
+mp*.flight.txt

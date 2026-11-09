@@ -1,6 +1,6 @@
 <script setup>
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
-import { buildArcoDirTree, collectExpandableDirKeys } from '../utils/dir'
+import { buildArcoDirTree, collectExpandableDirKeys, dirChildKids, dirChildName } from '../utils/dir'
 import {
   DIR_DRAG, clearDropHighlight, dragHitFromEvent, ensureDirDragListeners, endDirDrag, highlightDropNode,
   keyFromEvent, resolveDropTarget, startDirDrag,
@@ -19,6 +19,7 @@ const props = defineProps({
   leafKey: { type: Function, default: (item) => item.id || item.title },
   showAll: { type: Boolean, default: true },
   ops: { type: String, default: 'menu' },
+  expandAll: { type: Boolean, default: false },
   movableItems: { type: Boolean, default: undefined },
   movableDirs: { type: Boolean, default: false },
   editable: { type: Boolean, default: true },
@@ -33,9 +34,22 @@ const treeData = computed(() => buildArcoDirTree(props.tree, {
   leafKey: props.leafKey,
 }))
 
-const expandedKeys = ref(collectExpandableDirKeys(props.tree))
+/** 展开全部目录时收集所有层级 key（含仅有图表叶子的目录） */
+function collectAllDirKeys(tree, prefix = '') {
+  const keys = []
+  ;(tree || []).forEach((node) => {
+    const name = dirChildName(node)
+    const path = prefix ? `${prefix}/${name}` : name
+    keys.push(path)
+    keys.push(...collectAllDirKeys(dirChildKids(node) || [], path))
+  })
+  return keys
+}
+
+const keysOfTree = (tree) => (props.expandAll ? collectAllDirKeys(tree) : collectExpandableDirKeys(tree))
+const expandedKeys = ref(keysOfTree(props.tree))
 watch(() => props.tree, (tree) => {
-  const next = collectExpandableDirKeys(tree)
+  const next = keysOfTree(tree)
   const cur = new Set(expandedKeys.value)
   next.forEach((k) => { if (!cur.has(k)) expandedKeys.value.push(k) })
 }, { deep: true })

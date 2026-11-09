@@ -3,7 +3,10 @@ import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 import EmptyState from '../../components/EmptyState.vue'
 
-const MAP = { bi: 'BI看板', report: '研报管理', forecast: '预测指标', link: '外部链接' }
+const MAP = {
+  bi: 'BI看板', report: '研报管理', forecast: '预测指标', link: '外部链接',
+  'price-curve': '商品价格曲线', 'fed-watch': '联储观察', 'review-tool': '复盘工具', 'score-tool': '指标评分',
+}
 const route = useRoute()
 const title = computed(() => MAP[route.params.id] || '规划中')
 </script>

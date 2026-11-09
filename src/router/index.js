@@ -17,6 +17,7 @@ const routes = [
   { path: '/projects', redirect: '/projects/v1' },
   { path: '/projects/:version(v1|v2)', name: 'projects', component: () => import('../views/projects/ProjectView.vue'), meta: { title: '项目管理' } },
   { path: '/placeholder/:id', name: 'placeholder', component: () => import('../views/placeholder/PlaceholderView.vue'), meta: { title: '规划中' } },
+  { path: '/toolbox/positions', name: 'toolbox-positions', component: () => import('../views/toolbox/PositionAnalysisView.vue'), meta: { title: '持仓分析' } },
 ]
 
 const router = createRouter({
@@ -26,7 +27,7 @@ const router = createRouter({
 
 router.afterEach((to) => {
   const title = to.meta.title || '平台总览'
-  document.title = `${title} · AILab DataHub 数据平台`
+  document.title = `${title} · AILab DataHub`
 })
 
 export default router
